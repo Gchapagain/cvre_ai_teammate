@@ -86,6 +86,12 @@ Tables:
 - Keep functions small, add comments only where logic isn't obvious, and keep tests for every number we extract.
 - Commit to git after each working step with a clear message.
 
+## Testing
+- Offline (default, no API calls): `.venv/bin/python -m pytest`
+- Live (one real Gemini request per extraction): `RUN_LIVE_GEMINI=1 .venv/bin/python -m pytest -s -o log_cli=true`
+- Only run the live test when I explicitly ask. The free-tier key allows 20 requests per day.
+- A live run that matches every value saves Gemini's response to `tests/recordings/`. Offline runs replay it.
+
 ## Roadmap
 - Step 1 (done): structure, db.py, sample data, extraction service, test.
 - Step 2: validation service + T-12 extraction + tests.

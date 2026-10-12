@@ -1,13 +1,17 @@
 """Compare every extracted rent roll value to the source spreadsheet.
 
-Run from the project root:  .venv/bin/python -m unittest discover -s tests -t . -v
+Offline (default, no API calls):   .venv/bin/python -m pytest tests
+Live (one real Gemini request):    RUN_LIVE_GEMINI=1 .venv/bin/python -m pytest tests -s -o log_cli=true
 
-TestLiveExtraction calls the real Gemini API and is skipped until a real key is
-in .env. The other tests use a stand-in for Gemini so they run without a key.
+The live test only runs when RUN_LIVE_GEMINI=1 is set. When every value matches,
+it saves Gemini's real response to tests/recordings/. TestRecordedGeminiResponse
+then replays that file on every offline run, so real model output is checked
+without spending quota. All other tests use a stand-in for Gemini.
 """
 
 import json
 import os
+import shutil
 import tempfile
 import unittest
 from pathlib import Path
@@ -23,6 +27,7 @@ from services import extraction
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 RENT_ROLL = PROJECT_ROOT / "sample_data" / "rent_roll.xlsx"
+RECORDING = PROJECT_ROOT / "tests" / "recordings" / "rent_roll_gemini.json"
 FIELDS = [
     "unit_number", "tenant_name", "square_feet", "lease_start", "lease_end",
     "monthly_rent", "annual_rent", "rent_per_sf", "lease_type",
@@ -31,6 +36,7 @@ NUMERIC_FIELDS = {"square_feet", "monthly_rent", "annual_rent", "rent_per_sf"}
 
 load_dotenv(PROJECT_ROOT / ".env")
 HAS_REAL_KEY = os.getenv("GEMINI_API_KEY", "").strip() not in ("", extraction.KEY_PLACEHOLDER)
+LIVE_REQUESTED = os.getenv("RUN_LIVE_GEMINI") == "1"
 
 
 def read_source_units():
@@ -55,10 +61,35 @@ def fake_client(units):
     return SimpleNamespace(models=SimpleNamespace(generate_content=lambda **kwargs: reply))
 
 
-def gemini_error(code, status):
+def gemini_error(code, status, message="simulated", quota_id=None):
     """Build the error the Gemini SDK raises for an HTTP error code."""
+    error = {"code": code, "message": message, "status": status}
+    if quota_id:
+        error["details"] = [{
+            "@type": "type.googleapis.com/google.rpc.QuotaFailure",
+            "violations": [{"quotaId": quota_id, "quotaValue": "20"}],
+        }]
     error_class = errors.ServerError if code >= 500 else errors.ClientError
-    return error_class(code, {"error": {"code": code, "message": "simulated", "status": status}})
+    return error_class(code, {"error": error})
+
+
+def per_minute_quota_error():
+    return gemini_error(429, "RESOURCE_EXHAUSTED", quota_id="GenerateRequestsPerMinutePerProjectPerModel-FreeTier")
+
+
+def daily_quota_error():
+    return gemini_error(
+        429, "RESOURCE_EXHAUSTED",
+        message="You exceeded your current quota.\nPlease retry in 3h52m47.09578507s.",
+        quota_id="GenerateRequestsPerDayPerProjectPerModel-FreeTier",
+    )
+
+
+def forbidden_client():
+    """A client that fails the test if anything tries to call Gemini."""
+    def generate_content(**kwargs):
+        raise AssertionError("Gemini was called, but this test must not use the API")
+    return SimpleNamespace(models=SimpleNamespace(generate_content=generate_content))
 
 
 def flaky_client(outcomes):
@@ -210,7 +241,7 @@ class TestGeminiRetry(ExtractionTestCase):
         self.addCleanup(patcher.stop)
 
     def test_temporary_errors_are_retried_then_succeed(self):
-        outcomes = [gemini_error(503, "UNAVAILABLE"), gemini_error(429, "RESOURCE_EXHAUSTED"), self.source]
+        outcomes = [gemini_error(503, "UNAVAILABLE"), per_minute_quota_error(), self.source]
         client, calls = flaky_client(outcomes)
         count = extraction.extract_rent_roll(RENT_ROLL, self.deal_id, client=client, db_path=self.db_path)
         self.assertEqual(count, 12)
@@ -219,9 +250,9 @@ class TestGeminiRetry(ExtractionTestCase):
         self.assertEqual(self.find_mismatches(), [])
 
     def test_three_failures_stop_with_clear_error_and_save_nothing(self):
-        for code, status in [(503, "UNAVAILABLE"), (429, "RESOURCE_EXHAUSTED")]:
+        for code, error in [(503, gemini_error(503, "UNAVAILABLE")), (429, per_minute_quota_error())]:
             with self.subTest(code):
-                client, calls = flaky_client([gemini_error(code, status)] * 5)
+                client, calls = flaky_client([error] * 5)
                 with self.assertRaises(extraction.ExtractionError) as caught:
                     extraction.extract_rent_roll(RENT_ROLL, self.deal_id, client=client, db_path=self.db_path)
                 self.assertEqual(len(calls), 3)
@@ -243,16 +274,122 @@ class TestGeminiRetry(ExtractionTestCase):
         self.assertEqual(self.saved_documents(), [])
 
 
+    def test_daily_quota_stops_immediately_and_saves_nothing(self):
+        client, calls = flaky_client([daily_quota_error(), self.source])
+        with self.assertRaises(extraction.ExtractionError) as caught:
+            extraction.extract_rent_roll(RENT_ROLL, self.deal_id, client=client, db_path=self.db_path)
+        self.assertEqual(len(calls), 1)
+        self.sleep.assert_not_called()
+        message = str(caught.exception)
+        self.assertIn("daily quota is used up", message)
+        self.assertIn("Nothing was saved", message)
+        self.assertIn("3h52m", message)
+        self.assertEqual(self.saved_units(), {})
+        self.assertEqual(self.saved_documents(), [])
+
+    def test_each_attempt_and_the_total_are_logged(self):
+        client, _ = flaky_client([gemini_error(503, "UNAVAILABLE"), self.source])
+        with self.assertLogs("services.extraction", level="INFO") as logs:
+            extraction.extract_rent_roll(RENT_ROLL, self.deal_id, client=client, db_path=self.db_path)
+        lines = [record.getMessage() for record in logs.records]
+        self.assertEqual(len(lines), 3)
+        self.assertIn("attempt 1/3: failed with 503 UNAVAILABLE", lines[0])
+        self.assertIn("attempt 2/3: ok", lines[1])
+        self.assertIn("total:", lines[2])
+        self.assertIn("2 attempt(s)", lines[2])
+
+
+class TestRecordAndReplay(ExtractionTestCase):
+    def setUp(self):
+        super().setUp()
+        self.recording = Path(self.tmp.name) / "recordings" / "rent_roll.json"
+
+    def record(self, units):
+        extraction.extract_rent_roll(
+            RENT_ROLL, self.deal_id, client=fake_client(units), db_path=self.db_path,
+            record_to=self.recording,
+        )
+
+    def replay(self):
+        return extraction.extract_rent_roll(
+            RENT_ROLL, self.deal_id, client=forbidden_client(), db_path=self.db_path,
+            replay_from=self.recording,
+        )
+
+    def test_replay_gives_the_recorded_values_without_calling_gemini(self):
+        self.record(self.source)
+        self.assertEqual(self.replay(), 12)
+        self.assertEqual(self.find_mismatches(), [])
+
+    def test_recording_keeps_the_response_exactly_and_no_secrets(self):
+        self.record(self.source)
+        recording = json.loads(self.recording.read_text())
+        self.assertEqual(set(recording), {"recorded_at", "model", "prompt_sha256", "response_text"})
+        self.assertEqual(json.loads(recording["response_text"]), {"units": self.source})
+
+    def test_replayed_response_is_still_validated(self):
+        wrong = [dict(u) for u in self.source]
+        wrong[4]["monthly_rent"] += 100
+        self.record(wrong)
+        self.replay()
+        self.assertEqual(len(self.find_mismatches()), 1)
+
+    def test_out_of_date_recording_is_refused_and_nothing_is_saved(self):
+        self.record(self.source)
+        conn = db.get_connection(self.db_path)
+        with conn:
+            conn.execute("DELETE FROM rent_roll_units")
+            conn.execute("DELETE FROM documents")
+        conn.close()
+        with mock.patch.object(extraction, "PROMPT", extraction.PROMPT + "\nOne more rule."):
+            with self.assertRaises(extraction.ExtractionError) as caught:
+                self.replay()
+        self.assertIn("out of date", str(caught.exception))
+        self.assertEqual(self.saved_units(), {})
+        self.assertEqual(self.saved_documents(), [])
+
+    def test_missing_recording_gives_a_clear_error(self):
+        with self.assertRaises(extraction.ExtractionError) as caught:
+            self.replay()
+        self.assertIn("No recorded Gemini response", str(caught.exception))
+
+    def test_nothing_is_recorded_when_gemini_fails(self):
+        with mock.patch.object(extraction.time, "sleep"):
+            client, _ = flaky_client([daily_quota_error()])
+            with self.assertRaises(extraction.ExtractionError):
+                extraction.extract_rent_roll(
+                    RENT_ROLL, self.deal_id, client=client, db_path=self.db_path, record_to=self.recording
+                )
+        self.assertFalse(self.recording.exists())
+
+
+@unittest.skipUnless(RECORDING.exists(), "no real Gemini response recorded yet; run once with RUN_LIVE_GEMINI=1")
+class TestRecordedGeminiResponse(ExtractionTestCase):
+    def test_recorded_real_response_matches_source_exactly(self):
+        count = extraction.extract_rent_roll(
+            RENT_ROLL, self.deal_id, client=forbidden_client(), db_path=self.db_path, replay_from=RECORDING
+        )
+        self.assertEqual(count, 12)
+        self.assertEqual(self.find_mismatches(), [])
+
+
+@unittest.skipUnless(LIVE_REQUESTED, "live Gemini call not requested; set RUN_LIVE_GEMINI=1 to run it")
 @unittest.skipUnless(HAS_REAL_KEY, "GEMINI_API_KEY in .env is still the placeholder")
 class TestLiveExtraction(ExtractionTestCase):
     def test_gemini_extraction_matches_source_exactly(self):
-        count = extraction.extract_rent_roll(RENT_ROLL, self.deal_id, db_path=self.db_path)
+        new_recording = Path(self.tmp.name) / "recording.json"
+        count = extraction.extract_rent_roll(
+            RENT_ROLL, self.deal_id, db_path=self.db_path, record_to=new_recording
+        )
         self.assertEqual(count, 12)
         mismatches = self.find_mismatches()
         total = len(self.source) * len(FIELDS)
         summary = f"Gemini: {total - len(mismatches)} of {total} values match the source"
         print(f"\n  {summary}")
         self.assertEqual(mismatches, [], f"\n{summary}\n" + "\n".join(mismatches))
+        # Only a response that matched every value becomes the recording used offline.
+        RECORDING.parent.mkdir(exist_ok=True)
+        shutil.copy(new_recording, RECORDING)
 
 
 if __name__ == "__main__":
