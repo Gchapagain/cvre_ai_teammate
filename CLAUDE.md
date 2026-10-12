@@ -88,6 +88,13 @@ Tables:
 - Keep functions small, add comments only where logic isn't obvious, and keep tests for every number we extract.
 - Commit to git after each working step with a clear message.
 
+## Running the app
+- Load sample data (deletes and rebuilds the local database, so it needs the flag): `.venv/bin/python seed.py --reset`
+- Start the app: `.venv/bin/streamlit run streamlit_app.py`
+- The app only reads the database. It never runs seed.py and never deletes data.
+- Login is a demo login for now (no real OAuth), and the UI says so.
+- "Time saved" shows "Not measured yet" until the accuracy report. No assumed numbers anywhere.
+
 ## Testing
 - Offline (default, no API calls): `.venv/bin/python -m pytest`
 - Live (one real Gemini request per extraction): `RUN_LIVE_GEMINI=1 .venv/bin/python -m pytest -s -o log_cli=true`
@@ -98,7 +105,7 @@ Tables:
 - Step 1 (done): structure, db.py, sample data, extraction service, test.
 - Step 2: validation service + T-12 extraction + tests.
 - Step 3: drafting service.
-- Step 4: Streamlit shell: login with role gate, dashboard, deal workspace tabs.
+- Step 4: Streamlit shell: login with role gate, dashboard, deal workspace tabs. (Part A done: seed.py, theme, demo login, dashboard, Review tab.)
 - Step 5: Documents tab and locked-file flow.
 - Step 6: Ask AI chat, deal-only.
 - Step 7: web research with source tiers.

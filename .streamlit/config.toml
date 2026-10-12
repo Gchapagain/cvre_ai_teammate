@@ -1,0 +1,13 @@
+# Colours and fonts from the Design section of CLAUDE.md.
+[theme]
+base = "light"
+primaryColor = "#1d3c2f"
+backgroundColor = "#faf8fb"
+secondaryBackgroundColor = "#f0edf2"
+textColor = "#16241d"
+# The font files themselves are loaded from Google Fonts by the CSS in app/style.py.
+font = "'Public Sans', sans-serif"
+headingFont = "Fraunces, Georgia, serif"
+
+[browser]
+gatherUsageStats = false
