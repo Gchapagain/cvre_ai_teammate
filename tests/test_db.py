@@ -42,10 +42,10 @@ class TestSchema(SchemaTestCase):
         expected = {"deal_id", "filename", "source", "received_at", "status", "used_for"}
         self.assertLessEqual(expected, self.columns("documents"))
 
-    def test_documents_accepts_only_the_three_statuses(self):
-        for status in ("Read", "Reference only", "Needs password"):
+    def test_documents_accepts_only_the_four_statuses(self):
+        for status in ("Received", "Read", "Reference only", "Needs password"):
             self.add_document(status)
-        for status in ("Uploaded", "Extracted", "Failed", "read", ""):
+        for status in ("Uploaded", "Extracted", "Failed", "read", "received", ""):
             with self.subTest(status):
                 with self.assertRaises(sqlite3.IntegrityError):
                     self.add_document(status)

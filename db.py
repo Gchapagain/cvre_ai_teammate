@@ -28,6 +28,7 @@ CREATE TABLE IF NOT EXISTS deals (
 );
 
 -- source: where the file came from (Upload or Email).
+-- status: Received means the file has arrived but has not been read yet.
 -- used_for: what the AI used the file for (for example Rent roll, T-12).
 CREATE TABLE IF NOT EXISTS documents (
     id          INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -37,7 +38,7 @@ CREATE TABLE IF NOT EXISTS documents (
     file_path   TEXT,
     source      TEXT NOT NULL DEFAULT 'Upload',
     status      TEXT NOT NULL
-                CHECK (status IN ('Read', 'Reference only', 'Needs password')),
+                CHECK (status IN ('Received', 'Read', 'Reference only', 'Needs password')),
     used_for    TEXT,
     uploaded_by INTEGER REFERENCES users(id),
     received_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP

@@ -134,7 +134,7 @@ def seed(db_path=None):
             quillhaven = add_deal(conn, "Quillhaven Flex Center (SAMPLE - fictional)",
                                   "Flex", "Eastwick Bend (fictional)", "Extracting")
             add_document(conn, quillhaven, "quillhaven_rent_roll.xlsx", "Rent roll",
-                         "Reference only", "Not extracted yet")
+                         "Received", None)
 
             brindlewick = add_deal(conn, "Brindlewick Retail Row (SAMPLE - fictional)",
                                    "Retail", "Old Harrow Lane (fictional)", "Approved")

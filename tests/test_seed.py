@@ -44,7 +44,8 @@ class TestSeededDeals(SeedTestCase):
 
     def test_extracting_deal_has_a_document_and_no_numbers(self):
         deal_id = self.deals["quillhaven"]
-        self.assertEqual(len(self.query("SELECT id FROM documents WHERE deal_id = ?", (deal_id,))), 1)
+        documents = self.query("SELECT status, used_for FROM documents WHERE deal_id = ?", (deal_id,))
+        self.assertEqual(documents, [{"status": "Received", "used_for": None}])
         for table in ("rent_roll_units", "t12_line_items", "flags"):
             self.assertEqual(self.query(f"SELECT id FROM {table} WHERE deal_id = ?", (deal_id,)), [])
 
@@ -52,6 +53,13 @@ class TestSeededDeals(SeedTestCase):
         deal_id = self.deals["brindlewick"]
         self.assertEqual(len(self.query("SELECT id FROM rent_roll_units WHERE deal_id = ?", (deal_id,))), 5)
         self.assertEqual(self.query("SELECT id FROM flags WHERE deal_id = ?", (deal_id,)), [])
+
+    def test_documents_that_supplied_numbers_are_marked_read(self):
+        statuses = self.query(
+            "SELECT DISTINCT status FROM documents WHERE id IN "
+            "(SELECT document_id FROM rent_roll_units UNION SELECT document_id FROM t12_line_items)"
+        )
+        self.assertEqual(statuses, [{"status": "Read"}])
 
     def test_every_number_belongs_to_a_document(self):
         for table in ("rent_roll_units", "t12_line_items"):

@@ -37,7 +37,7 @@ Services live in `/services`: extraction, validation, drafting, qa, research. `p
 2. **Deals dashboard**: stats (active deals, needs review, time saved, anomalies) and deal cards with status pills.
 3. **Deal workspace**, opened by clicking a deal, with four tabs:
    - **Review**: anomaly banner, extracted fields table, draft narrative with Flag / Edit / Approve, market research panel.
-   - **Documents**: all files for the deal with status (Read / Reference only / Needs password), source, an add-document box, and an expected-documents checklist. Locked PDFs get "Needs password": the user enters the password (used once, not stored) or requests an unlocked copy. Scanned PDFs go to OCR.
+   - **Documents**: all files for the deal with status (Received / Read / Reference only / Needs password), source, an add-document box, and an expected-documents checklist. Locked PDFs get "Needs password": the user enters the password (used once, not stored) or requests an unlocked copy. Scanned PDFs go to OCR.
    - **Data**: this deal's rent roll, T-12 summary, indicative value, draft versions, per-deal export (CSV/JSON/PDF).
    - **Ask AI**: deal-only chat with a web search toggle. Every answer is labeled "From this deal", "From the web (Tier 1-3)" or "Not verified".
 4. **Inbox & Chat**: captured emails with extraction chips and linked deal, plus a general chat.
@@ -54,7 +54,7 @@ Tables:
 - valuation_outputs
 - drafts
 - users (email to role)
-- documents (deal_id, filename, source, received_at, status, used_for)
+- documents (deal_id, filename, source, received_at, status, used_for). Status is one of Received (arrived, not read yet), Read, Reference only, Needs password.
 - research_jobs
 - research_sources (url, published date, retrieved date, reliability tier)
 - research_briefs
