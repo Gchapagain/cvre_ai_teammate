@@ -20,10 +20,10 @@ from unittest import mock
 
 from dotenv import load_dotenv
 from google.genai import errors
-from openpyxl import load_workbook
+from openpyxl import Workbook, load_workbook
 
 import db
-from services import extraction
+from services import extraction, validation
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 RENT_ROLL = PROJECT_ROOT / "sample_data" / "rent_roll.xlsx"
@@ -206,15 +206,17 @@ class TestPipelineWithoutGemini(ExtractionTestCase):
     def test_bad_output_is_rejected_and_nothing_is_saved(self):
         missing_field = [{k: v for k, v in u.items() if k != "annual_rent"} for u in self.source]
         extra_field = [dict(u, notes="made up") for u in self.source]
-        text_number = [dict(u, square_feet="twelve thousand") for u in self.source]
+        wrong_type = [dict(u, square_feet=True) for u in self.source]
+        no_unit_id = [dict(u, unit_number="") for u in self.source]
         invented_unit = self.source + [dict(self.source[0], unit_number="999")]
         duplicate_unit = self.source + [self.source[0]]
         cases = {
             "missing field": missing_field,
             "extra field": extra_field,
-            "text where a number belongs": text_number,
+            "true/false where a number belongs": wrong_type,
+            "blank unit ID": no_unit_id,
             "unit not in the file": invented_unit,
-            "duplicate unit": duplicate_unit,
+            "unit repeated more often than in the file": duplicate_unit,
             "no units": [],
         }
         for name, units in cases.items():
@@ -231,6 +233,158 @@ class TestPipelineWithoutGemini(ExtractionTestCase):
         )
         with self.assertRaises(extraction.ExtractionError):
             extraction.extract_rent_roll(RENT_ROLL, self.deal_id, client=client, db_path=self.db_path)
+
+
+class TestUnitProblemsAreSavedNotRejected(ExtractionTestCase):
+    """A bad value in one row is saved exactly as extracted and left for validation to flag."""
+
+    CASES = {
+        "zero SF": ("square_feet", 0, validation.RULE_ZERO_OR_NEGATIVE),
+        "negative SF": ("square_feet", -12000, validation.RULE_ZERO_OR_NEGATIVE),
+        "negative rent": ("monthly_rent", -8500.0, validation.RULE_ZERO_OR_NEGATIVE),
+        "zero annual rent": ("annual_rent", 0, validation.RULE_ZERO_OR_NEGATIVE),
+        "text where a number belongs": ("rent_per_sf", "TBD", validation.RULE_NON_NUMERIC),
+        "empty number": ("monthly_rent", None, validation.RULE_MISSING),
+        "lease end before start": ("lease_end", "2020-01-01", validation.RULE_LEASE_DATES),
+        "unreadable date": ("lease_end", "month to month", validation.RULE_INVALID_DATE),
+    }
+
+    def test_each_problem_is_saved_as_extracted_and_flagged(self):
+        for name, (field, bad_value, rule) in self.CASES.items():
+            with self.subTest(name):
+                units = [dict(u) for u in self.source]
+                units[4][field] = bad_value
+                count = extraction.extract_rent_roll(
+                    RENT_ROLL, self.deal_id, client=fake_client(units), db_path=self.db_path
+                )
+                self.assertEqual(count, 12)
+                self.assertEqual(self.saved_units()["105"][field], bad_value)
+                flags = validation.validate_deal(self.deal_id, self.db_path)
+                self.assertIn(("105", rule, field), [(f.unit_number, f.rule, f.field) for f in flags])
+
+    def test_lease_ending_on_its_start_date_is_saved(self):
+        units = [dict(u) for u in self.source]
+        units[4]["lease_end"] = units[4]["lease_start"]
+        extraction.extract_rent_roll(RENT_ROLL, self.deal_id, client=fake_client(units), db_path=self.db_path)
+        self.assertEqual(self.saved_units()["105"]["lease_end"], units[4]["lease_start"])
+
+    def test_other_rows_are_untouched_by_one_bad_row(self):
+        units = [dict(u) for u in self.source]
+        units[4]["square_feet"] = 0
+        extraction.extract_rent_roll(RENT_ROLL, self.deal_id, client=fake_client(units), db_path=self.db_path)
+        mismatches = self.find_mismatches()
+        self.assertEqual(len(mismatches), 1)
+        self.assertIn("unit 105 square_feet", mismatches[0])
+
+
+HEADERS = ["Unit", "Tenant", "SF", "Lease Start", "Lease End",
+           "Monthly Base Rent", "Annual Base Rent", "Rent / SF (Annual)", "Lease Type"]
+# A made-up rent roll with a problem in every row except the first.
+MESSY_ROWS = [
+    ["A1", "Clean Tenant Co.", 5000, "2024-01-01", "2028-12-31", 4000.0, 48000.0, 9.6, "NNN"],
+    ["A2", "Zero Size LLC", 0, "2024-01-01", "2028-12-31", 3000.0, 36000.0, 0, "NNN"],
+    ["A3", "Negative Rent Inc.", 4000, "2024-01-01", "2028-12-31", -2500.5, -30006.0, -7.5, "NNN"],
+    ["A4", "Backwards Dates Ltd.", 6000, "2026-06-01", "2025-05-31", 5000.0, 60000.0, 10.0, "NNN"],
+    ["A5", "Text Rent Partners", 3000, "2024-01-01", "2028-12-31", "TBD", "see lease", 8.0, "NNN"],
+    ["A5", "Same Unit Again", 3000, "2024-01-01", "2028-12-31", 2000.0, 24000.0, 8.0, "NNN"],
+]
+
+
+def write_rent_roll(path, headers, rows):
+    wb = Workbook()
+    ws = wb.active
+    ws.append(["Made-up Property (SAMPLE - fictional)"])
+    ws.append(headers)
+    for row in rows:
+        ws.append(row)
+    wb.save(path)
+
+
+class TestSavedValuesAreIdenticalToTheFile(ExtractionTestCase):
+    def test_every_saved_value_equals_the_cell_in_the_file_even_when_it_is_wrong(self):
+        path = Path(self.tmp.name) / "messy_rent_roll.xlsx"
+        write_rent_roll(path, HEADERS, MESSY_ROWS)
+        # Read the cells back from the saved file, so the comparison is against the file itself.
+        file_rows = list(load_workbook(path).worksheets[0].iter_rows(min_row=3, values_only=True))
+        units = [dict(zip(FIELDS, row)) for row in file_rows]
+
+        count = extraction.extract_rent_roll(path, self.deal_id, client=fake_client(units), db_path=self.db_path)
+        self.assertEqual(count, len(file_rows))
+
+        conn = db.get_connection(self.db_path)
+        saved = conn.execute(f"SELECT {', '.join(FIELDS)} FROM rent_roll_units ORDER BY id").fetchall()
+        conn.close()
+        checked = 0
+        for file_row, saved_row in zip(file_rows, saved, strict=True):
+            for field, file_value in zip(FIELDS, file_row):
+                self.assertEqual(saved_row[field], file_value, f"unit {file_row[0]} {field}")
+                checked += 1
+        self.assertEqual(checked, len(MESSY_ROWS) * len(FIELDS))
+
+        flags = validation.validate_deal(self.deal_id, self.db_path)
+        self.assertEqual(
+            {f.rule for f in flags},
+            {validation.RULE_ZERO_OR_NEGATIVE, validation.RULE_LEASE_DATES,
+             validation.RULE_NON_NUMERIC, validation.RULE_DUPLICATE},
+        )
+
+
+class TestFileLevelProblemsAreRejected(ExtractionTestCase):
+    """These stop before Gemini is called, and nothing is saved."""
+
+    def assert_rejected(self, path, expected_text):
+        with self.assertRaises(extraction.ExtractionError) as caught:
+            extraction.extract_rent_roll(path, self.deal_id, client=forbidden_client(), db_path=self.db_path)
+        self.assertIn(expected_text, str(caught.exception))
+        self.assertEqual(self.saved_units(), {})
+        self.assertEqual(self.saved_documents(), [])
+
+    def test_file_that_is_not_a_spreadsheet(self):
+        path = Path(self.tmp.name) / "broken.xlsx"
+        path.write_bytes(b"this is not an Excel file")
+        self.assert_rejected(path, "could not be read")
+
+    def test_file_that_does_not_exist(self):
+        self.assert_rejected(Path(self.tmp.name) / "nowhere.xlsx", "could not be read")
+
+    def test_empty_spreadsheet(self):
+        path = Path(self.tmp.name) / "empty.xlsx"
+        Workbook().save(path)
+        self.assert_rejected(path, "has no data")
+
+    def test_each_missing_required_column(self):
+        required = {
+            "Unit": "unit", "Tenant": "tenant", "SF": "square feet", "Lease Start": "lease start",
+            "Lease End": "lease end", "Monthly Base Rent": "monthly rent",
+            "Annual Base Rent": "annual rent", "Rent / SF (Annual)": "rent per SF",
+        }
+        for header, name in required.items():
+            with self.subTest(header):
+                keep = [i for i, h in enumerate(HEADERS) if h != header]
+                path = Path(self.tmp.name) / "missing_column.xlsx"
+                write_rent_roll(path, [HEADERS[i] for i in keep], [[row[i] for i in keep] for row in MESSY_ROWS])
+                self.assert_rejected(path, f"missing required column(s): {name}.")
+
+    def test_several_missing_columns_are_all_named(self):
+        path = Path(self.tmp.name) / "two_columns.xlsx"
+        write_rent_roll(path, HEADERS[:2], [row[:2] for row in MESSY_ROWS])
+        self.assert_rejected(path, "square feet, lease start, lease end, monthly rent, annual rent, rent per SF")
+
+    def test_lease_type_column_is_optional(self):
+        path = Path(self.tmp.name) / "no_lease_type.xlsx"
+        write_rent_roll(path, HEADERS[:-1], [row[:-1] for row in MESSY_ROWS[:1]])
+        units = [dict(zip(FIELDS, MESSY_ROWS[0][:-1] + [None]))]
+        count = extraction.extract_rent_roll(path, self.deal_id, client=fake_client(units), db_path=self.db_path)
+        self.assertEqual(count, 1)
+
+    def test_other_common_heading_names_are_accepted(self):
+        headers = ["Suite", "Tenant Name", "Sq Ft", "Commencement", "Expiration",
+                   "Monthly Rent", "Annual Rent", "Rent PSF", "Type"]
+        path = Path(self.tmp.name) / "other_headings.xlsx"
+        write_rent_roll(path, headers, MESSY_ROWS[:1])
+        units = [dict(zip(FIELDS, MESSY_ROWS[0]))]
+        count = extraction.extract_rent_roll(path, self.deal_id, client=fake_client(units), db_path=self.db_path)
+        self.assertEqual(count, 1)
 
 
 class TestGeminiRetry(ExtractionTestCase):

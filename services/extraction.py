@@ -2,7 +2,11 @@
 strict JSON, validate that JSON, and save the rows to rent_roll_units.
 
 Extraction only copies what the file says. Judging the numbers (for example the
-rent/SF flag) is the validation service's job.
+rent/SF flag) is the validation service's job, so a row with a bad value (zero
+SF, negative rent, text where a number belongs) is saved exactly as found.
+
+The whole file is rejected, and nothing is saved, only when the file cannot be
+read, a required column is missing, or Gemini's reply is not the JSON we asked for.
 """
 
 import hashlib
@@ -11,6 +15,7 @@ import logging
 import os
 import re
 import time
+from collections import Counter
 from datetime import date, datetime
 from pathlib import Path
 
@@ -18,7 +23,7 @@ from dotenv import load_dotenv
 from google import genai
 from google.genai import errors, types
 from openpyxl import load_workbook
-from pydantic import BaseModel, ConfigDict, Field, ValidationError
+from pydantic import BaseModel, ConfigDict, Field, StrictFloat, StrictStr, ValidationError
 
 import db
 
@@ -42,6 +47,8 @@ Rules:
 - Skip title rows, header rows, blank rows and total/subtotal rows.
 - Copy every value exactly as it appears. Do not calculate, round, correct or guess.
 - Dates must be YYYY-MM-DD. Numbers must be plain numbers with no currency symbols or commas.
+- If a cell that should hold a number or a date holds something else, copy its text exactly.
+- If a cell is empty, use null.
 - unit_number is text, exactly as written.
 
 Rent roll (one spreadsheet row per line, cells separated by " | "):
@@ -54,18 +61,36 @@ class ExtractionError(Exception):
     """Raised when the rent roll cannot be extracted or fails validation."""
 
 
+# A numeric cell as found: normally a number, but text is kept if that is what the file has.
+NumberAsFound = StrictFloat | StrictStr | None
+
+# Column headings a rent roll must have, as patterns matched against lower-case header cells.
+REQUIRED_COLUMNS = {
+    "unit": r"^(unit|suite)",
+    "tenant": r"tenant",
+    "square feet": r"^(sf|rsf|sq\.? ?ft|square f|area)",
+    "lease start": r"start|commence",
+    "lease end": r"end|expir",
+    "monthly rent": r"month",
+    "annual rent": r"^(annual|yearly)",
+    "rent per SF": r"/ ?sf|per sf|psf",
+}
+
+
 class RentRollUnit(BaseModel):
+    """One rent roll row as extracted. Every field must be present, but values are not judged here."""
+
     model_config = ConfigDict(extra="forbid")
 
     unit_number: str = Field(min_length=1)
-    tenant_name: str = Field(min_length=1)
-    square_feet: float = Field(gt=0)
-    lease_start: date
-    lease_end: date
-    monthly_rent: float = Field(ge=0)
-    annual_rent: float = Field(ge=0)
-    rent_per_sf: float = Field(ge=0)
-    lease_type: str
+    tenant_name: str | None
+    square_feet: NumberAsFound
+    lease_start: str | None
+    lease_end: str | None
+    monthly_rent: NumberAsFound
+    annual_rent: NumberAsFound
+    rent_per_sf: NumberAsFound
+    lease_type: str | None
 
 
 class RentRollExtraction(BaseModel):
@@ -95,7 +120,12 @@ def _cell_text(value):
 
 def read_sheet_rows(xlsx_path):
     """Return the first sheet as a list of rows, each a list of cell strings."""
-    wb = load_workbook(xlsx_path, data_only=True, read_only=True)
+    try:
+        wb = load_workbook(xlsx_path, data_only=True, read_only=True)
+    except Exception as exc:
+        raise ExtractionError(
+            f"{Path(xlsx_path).name} could not be read as an Excel file. Nothing was saved."
+        ) from exc
     try:
         ws = wb.worksheets[0]
         rows = [[_cell_text(v) for v in row] for row in ws.iter_rows(values_only=True)]
@@ -104,23 +134,38 @@ def read_sheet_rows(xlsx_path):
     return [r for r in rows if any(r)]
 
 
+def _missing_columns(row):
+    cells = [cell.strip().lower() for cell in row]
+    return [name for name, pattern in REQUIRED_COLUMNS.items()
+            if not any(re.search(pattern, cell) for cell in cells)]
+
+
+def check_required_columns(source_rows, filename):
+    """Reject the file if its header row lacks a required column."""
+    # The header row is the one that matches the most required columns.
+    missing = min((_missing_columns(row) for row in source_rows), key=len)
+    if missing:
+        raise ExtractionError(
+            f"{filename} is missing required column(s): {', '.join(missing)}. Nothing was saved."
+        )
+
+
 def validate_extraction(raw_json, source_rows):
-    """Check the model's JSON against the schema and the source file. Returns the units."""
+    """Check the model's JSON has the right shape and only units from the file. Returns the units."""
     try:
         extraction = RentRollExtraction.model_validate_json(raw_json)
     except ValidationError as exc:
         raise ExtractionError(f"Gemini output did not match the required JSON schema:\n{exc}") from exc
 
-    source_cells = {cell.strip() for row in source_rows for cell in row}
-    seen = set()
-    for unit in extraction.units:
-        if unit.unit_number in seen:
-            raise ExtractionError(f"Unit {unit.unit_number} was returned more than once.")
-        seen.add(unit.unit_number)
-        if unit.unit_number not in source_cells:
-            raise ExtractionError(f"Unit {unit.unit_number} is not in the source file.")
-        if unit.lease_end <= unit.lease_start:
-            raise ExtractionError(f"Unit {unit.unit_number}: lease end is not after lease start.")
+    # A unit ID repeated in the file is kept for validation to flag. One that Gemini
+    # invented, or repeated more often than the file does, is a bad reply.
+    in_file = Counter(cell.strip() for row in source_rows for cell in row)
+    returned = Counter(unit.unit_number for unit in extraction.units)
+    for unit_number, count in returned.items():
+        if in_file[unit_number] == 0:
+            raise ExtractionError(f"Unit {unit_number} is not in the source file.")
+        if count > in_file[unit_number]:
+            raise ExtractionError(f"Unit {unit_number} was returned more often than it appears in the file.")
     return extraction.units
 
 
@@ -251,7 +296,7 @@ def save_units(conn, deal_id, document_id, units):
            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
         [
             (deal_id, document_id, u.unit_number, u.tenant_name, u.square_feet,
-             u.lease_start.isoformat(), u.lease_end.isoformat(), u.monthly_rent,
+             u.lease_start, u.lease_end, u.monthly_rent,
              u.annual_rent, u.rent_per_sf, u.lease_type)
             for u in units
         ],
@@ -269,6 +314,7 @@ def extract_rent_roll(xlsx_path, deal_id, client=None, db_path=None, model=None,
     source_rows = read_sheet_rows(xlsx_path)
     if not source_rows:
         raise ExtractionError(f"{xlsx_path.name} has no data.")
+    check_required_columns(source_rows, xlsx_path.name)
     sheet_text = "\n".join(" | ".join(row) for row in source_rows)
 
     if replay_from:

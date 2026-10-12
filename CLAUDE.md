@@ -24,7 +24,7 @@ Scope additions (email ingestion, proactive research, mobile, locked-file handli
 
 Source reliability tiers: Tier 1 government/primary, Tier 2 brokerage research, Tier 3 trade press. Unrecognized sources are skipped.
 
-Services live in `/services`: extraction, validation, drafting, qa, research.
+Services live in `/services`: extraction, validation, drafting, qa, research. `pipeline.process_deal` runs extraction then validation and returns a short summary (units saved, flags raised, which rules).
 
 ## Users and login
 - Roles: Agent (broker/producer), Analyst, Administrator.
@@ -68,6 +68,7 @@ Tables:
 - Label every AI answer: From this deal / From the web (Tier 1-3) / Not verified.
 - Research is advisory and labeled "sourced", not "verified".
 - Validation flags rent/SF above 2x the average of the building's other units. Flag, never hide. Flags never change the data or block saving.
+- Extraction rejects a whole file (and saves nothing) only when the file is unreadable, a required column is missing, or Gemini's reply is not valid JSON. A bad value in one row is saved exactly as extracted and flagged by validation.
 - Locked PDFs get status "Needs password". Never guess or bypass passwords.
 
 ## Design
