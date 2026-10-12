@@ -26,4 +26,4 @@ def render():
         st.caption("Choose a role above to unlock sign-in.")
     for provider in ("Google", "Microsoft"):
         st.button(f"Sign in with {provider} (demo)", key=f"sign_in_{provider.lower()}",
-                  disabled=role is None, on_click=_sign_in, args=(role,), width="stretch")
+                  disabled=role is None, on_click=_sign_in, args=(role,))

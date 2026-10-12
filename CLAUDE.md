@@ -11,7 +11,7 @@ Priority 1 is **Research & Value**: the AI Teammate does the document-heavy prep
 - No producer interaction longer than 5 minutes.
 
 ### Scope
-Scope additions (email ingestion, proactive research, mobile, locked-file handling) must be flagged to the PM. Keep scope tight and say so when something feels like scope creep.
+Scope additions (email ingestion, proactive research, locked-file handling) must be flagged to the PM. Mobile is out of scope: the app is desktop only. Keep scope tight and say so when something feels like scope creep.
 
 ## How it works end to end
 1. **Capture**: a deal starts from an uploaded document (OM, BOV, rent roll, T-12) or an email captured from a connected inbox (Gmail API / Microsoft Graph, pointed at a safe demo inbox).
@@ -19,12 +19,12 @@ Scope additions (email ingestion, proactive research, mobile, locked-file handli
 3. **Validate (Service B)**: plain Python rules check the numbers, e.g. flag any unit whose rent/SF is above 2x the average of the building's other units. Flag it, never hide it.
 4. **Draft (Service C)**: Gemini writes a pricing narrative from the validated numbers. Indicative value = NOI / cap rate, labeled as a draft working number, not a pricing decision.
 5. **Review**: the human reviews, edits, flags or approves in the app.
-6. **Q&A (Service D)**: a chat limited to one deal. It answers from that deal's data.
+6. **Q&A (Service D)**: a chat limited to one deal. It answers only from that deal's data in SQLite. An answer is labeled "From this deal" only when it names a real source and every number in it is found in the deal data; otherwise "Not verified".
 7. **Research (Service E)**: proactive market research. When a deal arrives: plan questions, search the web with a search API (Tavily, Brave or Serper), score source reliability, write a cited brief. Advisory only.
 
 Source reliability tiers: Tier 1 government/primary, Tier 2 brokerage research, Tier 3 trade press. Unrecognized sources are skipped.
 
-Services live in `/services`: extraction, validation, drafting, qa, research. `pipeline.process_deal` runs extraction then validation and returns a short summary (units saved, flags raised, which rules).
+Services live in `/services`: extraction, validation, drafting, qa, research. `gemini.py` is the shared Gemini access (client, retries, quota handling, timing log) used by every service. `pipeline.process_deal` runs extraction then validation and returns a short summary (units saved, flags raised, which rules).
 
 ## Users and login
 - Roles: Agent (broker/producer), Analyst, Administrator.
@@ -32,18 +32,18 @@ Services live in `/services`: extraction, validation, drafting, qa, research. `p
 - Prototype: the user must pick a role on the login screen BEFORE the sign-in buttons unlock.
 - Production alternative (not built now): an email-to-role table.
 
-## Screens (Streamlit, desktop and mobile friendly)
+## Screens (Streamlit, desktop only, wide layout)
 1. **Login**: Step 1 pick role, Step 2 sign in (locked until a role is chosen).
-2. **Deals dashboard**: stats (active deals, needs review, time saved, anomalies) and deal cards with status pills.
+2. **Deals dashboard**: stats (active deals, needs review, time saved, anomalies) and deal cards with status pills. Clicking a card opens the deal.
 3. **Deal workspace**, opened by clicking a deal, with four tabs:
    - **Review**: anomaly banner, extracted fields table, draft narrative with Flag / Edit / Approve, market research panel.
    - **Documents**: all files for the deal with status (Received / Read / Reference only / Needs password), source, an add-document box, and an expected-documents checklist. Locked PDFs get "Needs password": the user enters the password (used once, not stored) or requests an unlocked copy. Scanned PDFs go to OCR.
-   - **Data**: this deal's rent roll, T-12 summary, indicative value, draft versions, per-deal export (CSV/JSON/PDF).
-   - **Ask AI**: deal-only chat with a web search toggle. Every answer is labeled "From this deal", "From the web (Tier 1-3)" or "Not verified".
+   - **Data**: this deal's rent roll, T-12 summary, indicative value, draft versions, per-deal export. Built so far: rent roll and T-12 as CSV and Excel, draft narrative as text. PDF later.
+   - **Ask AI**: deal-only chat. Gemini is called only when a message is sent; quota and rate-limit problems show as a friendly chat message. The web search toggle is shown disabled until Step 7. Every answer is labeled "From this deal", "From the web (Tier 1-3)" or "Not verified".
 4. **Inbox & Chat**: captured emails with extraction chips and linked deal, plus a general chat.
 5. **All Data**: master table across every deal, compare two deals, export everything.
 
-Mobile: 390px wide, tap targets at least 44px, bottom navigation (Deals, Inbox, All Data), tables shown as cards.
+Desktop only. No mobile layout, bottom navigation or tables-as-cards.
 
 ## Data (SQLite)
 Tables:
@@ -107,7 +107,7 @@ Tables:
 - Step 3: drafting service.
 - Step 4: Streamlit shell: login with role gate, dashboard, deal workspace tabs. (Part A done: seed.py, theme, demo login, dashboard, Review tab.)
 - Step 5: Documents tab and locked-file flow.
-- Step 6: Ask AI chat, deal-only.
+- Step 6 (done): Ask AI chat, deal-only.
 - Step 7: web research with source tiers.
 - Step 8: Gmail connection to a demo inbox.
-- Step 9: mobile polish and an accuracy report against the 95% KPI.
+- Step 9: an accuracy report against the 95% KPI.

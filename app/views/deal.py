@@ -1,4 +1,4 @@
-"""Deal workspace: Review, Documents, Data and Ask AI tabs. Only Review has content so far."""
+"""Deal workspace: Review, Documents, Data and Ask AI tabs. Documents is still a placeholder."""
 
 from html import escape
 
@@ -6,6 +6,7 @@ import pandas as pd
 import streamlit as st
 
 from app import queries, style
+from app.views import ask_ai, data_tab
 
 COLUMNS = {
     "unit_number": "Unit", "tenant_name": "Tenant", "square_feet": "SF",
@@ -32,7 +33,6 @@ def units_table(units, flags):
     """The rent roll as a table with a Flag column. Flagged rows are marked in words, not only colour."""
     flagged_ids = {flag["rent_roll_unit_id"] for flag in flags}
     table = pd.DataFrame([{label: unit[field] for field, label in COLUMNS.items()} for unit in units])
-    # Flag sits right after Unit so it stays in view on a narrow screen.
     table.insert(1, "Flag", ["Flagged" if unit["id"] in flagged_ids else "" for unit in units])
     return table
 
@@ -68,7 +68,7 @@ def _review_tab(deal):
     st.dataframe(_styled(units_table(units, flags)), hide_index=True, width="stretch",
                  column_config={"Flag": st.column_config.TextColumn(width=90)})
     sources = [doc["filename"] for doc in queries.deal_documents(deal["id"]) if doc["used_for"] == "Rent roll"]
-    st.caption(f"From this deal: {', '.join(sources)} (sample data). Scroll sideways on a phone to see every column.")
+    st.caption(f"From this deal: {', '.join(sources)} (sample data).")
 
 
 def render():
@@ -81,9 +81,12 @@ def render():
     style.html(f'<div class="deal-meta">{escape(deal["property_type"] or "")} · '
                f'{escape(deal["submarket"] or "")}</div>{style.pill(deal["status"])}')
 
-    review, documents, data, ask_ai = st.tabs(["Review", "Documents", "Data", "Ask AI"])
+    review, documents, data, ask_ai_tab = st.tabs(["Review", "Documents", "Data", "Ask AI"])
     with review:
         _review_tab(deal)
-    for tab, name in ((documents, "Documents"), (data, "Data"), (ask_ai, "Ask AI")):
-        with tab:
-            st.info(f"{name}: coming in a later step.")
+    with documents:
+        st.info("Documents: coming in a later step.")
+    with data:
+        data_tab.render(deal)
+    with ask_ai_tab:
+        ask_ai.render(deal)

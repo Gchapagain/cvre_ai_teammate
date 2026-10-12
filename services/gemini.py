@@ -1,0 +1,106 @@
+"""Shared Gemini access for every service: the client, retries, quota handling and timing log.
+
+Services catch GeminiError and decide what to tell the user. Nothing here saves data.
+"""
+
+import logging
+import os
+import re
+import time
+from pathlib import Path
+
+from dotenv import load_dotenv
+from google import genai
+from google.genai import errors
+
+PROJECT_ROOT = Path(__file__).resolve().parent.parent
+log = logging.getLogger(__name__)
+KEY_PLACEHOLDER = "PASTE_KEY_HERE"
+
+# Current stable Flash model per https://ai.google.dev/gemini-api/docs/models
+# (checked 2026-10-12). Override with GEMINI_MODEL in .env if it changes.
+DEFAULT_MODEL = "gemini-3.8-flash"
+
+# Temporary Gemini errors (rate limited or server busy) that are worth another try.
+RETRYABLE_CODES = {429, 500, 502, 503, 504}
+MAX_TRIES = 3
+RETRY_WAIT_SECONDS = 5  # wait 5s after the first failure, 10s after the second
+
+
+class GeminiError(Exception):
+    """Gemini could not give an answer. The message is safe to show to a user."""
+
+
+class GeminiQuotaError(GeminiError):
+    """The daily quota is used up, so trying again today will not help."""
+
+
+class GeminiBusyError(GeminiError):
+    """Gemini was busy or rate limited on every try."""
+
+
+def get_client():
+    """Build a Gemini client using the key in .env."""
+    load_dotenv(PROJECT_ROOT / ".env")
+    api_key = os.getenv("GEMINI_API_KEY", "").strip()
+    if not api_key or api_key == KEY_PLACEHOLDER:
+        raise GeminiError("GEMINI_API_KEY is not set. Put your real key in the .env file.")
+    return genai.Client(api_key=api_key)
+
+
+def model_name(model=None):
+    return model or os.getenv("GEMINI_MODEL") or DEFAULT_MODEL
+
+
+def _token_note(response):
+    """Describe token usage for the timing log, if the response reports it."""
+    usage = getattr(response, "usage_metadata", None)
+    if usage is None:
+        return ""
+    return (f" (prompt {usage.prompt_token_count} tokens, "
+            f"thinking {usage.thoughts_token_count or 0}, output {usage.candidates_token_count})")
+
+
+def _is_daily_quota(exc):
+    """True when a 429 is the per-day quota, which waiting a few seconds cannot fix."""
+    return exc.code == 429 and "PerDay" in str(exc.details)
+
+
+def _daily_quota_message(exc):
+    wait = re.search(r"retry in ((?:\d+h)?(?:\d+m)?)", exc.message or "")
+    when = f" Google says it resets in about {wait.group(1)}." if wait and wait.group(1) else ""
+    return f"Gemini daily quota is used up, so trying again now will not help.{when}"
+
+
+def generate(client, contents, config, model=None):
+    """Ask Gemini once and return the reply text, retrying temporary errors up to MAX_TRIES times.
+
+    A used-up daily quota stops straight away instead of retrying.
+    """
+    started = time.perf_counter()
+    for attempt in range(1, MAX_TRIES + 1):
+        attempt_started = time.perf_counter()
+        try:
+            response = client.models.generate_content(model=model_name(model), contents=contents, config=config)
+        except errors.APIError as exc:
+            log.info("Gemini attempt %d/%d: failed with %s %s after %.1fs",
+                     attempt, MAX_TRIES, exc.code, exc.status, time.perf_counter() - attempt_started)
+            if _is_daily_quota(exc):
+                raise GeminiQuotaError(_daily_quota_message(exc)) from exc
+            if exc.code not in RETRYABLE_CODES:
+                raise GeminiError(f"Gemini rejected the request ({exc.code} {exc.status}): {exc.message}") from exc
+            last_error = exc
+            if attempt < MAX_TRIES:
+                time.sleep(RETRY_WAIT_SECONDS * attempt)
+        else:
+            log.info("Gemini attempt %d/%d: ok in %.1fs%s",
+                     attempt, MAX_TRIES, time.perf_counter() - attempt_started, _token_note(response))
+            log.info("Gemini total: %.1fs over %d attempt(s)", time.perf_counter() - started, attempt)
+            if not response.text:
+                raise GeminiError("Gemini returned an empty response.")
+            return response.text
+    log.info("Gemini total: %.1fs over %d attempt(s), all failed", time.perf_counter() - started, MAX_TRIES)
+    raise GeminiBusyError(
+        f"Gemini was unavailable after {MAX_TRIES} tries "
+        f"(last error: {last_error.code} {last_error.status}). Please try again in a few minutes."
+    ) from last_error

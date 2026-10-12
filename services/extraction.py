@@ -11,34 +11,20 @@ read, a required column is missing, or Gemini's reply is not the JSON we asked f
 
 import hashlib
 import json
-import logging
 import os
 import re
-import time
 from collections import Counter
 from datetime import date, datetime
 from pathlib import Path
 
-from dotenv import load_dotenv
-from google import genai
-from google.genai import errors, types
+from google.genai import types
 from openpyxl import load_workbook
 from pydantic import BaseModel, ConfigDict, Field, StrictFloat, StrictStr, ValidationError
 
 import db
+from services import gemini
+from services.gemini import KEY_PLACEHOLDER  # noqa: F401  (used by the tests)
 
-PROJECT_ROOT = Path(__file__).resolve().parent.parent
-log = logging.getLogger(__name__)
-KEY_PLACEHOLDER = "PASTE_KEY_HERE"
-
-# Current stable Flash model per https://ai.google.dev/gemini-api/docs/models
-# (checked 2026-10-12). Override with GEMINI_MODEL in .env if it changes.
-DEFAULT_MODEL = "gemini-3.8-flash"
-
-# Temporary Gemini errors (rate limited or server busy) that are worth another try.
-RETRYABLE_CODES = {429, 500, 502, 503, 504}
-MAX_TRIES = 3
-RETRY_WAIT_SECONDS = 5  # wait 5s after the first failure, 10s after the second
 
 PROMPT = """You are extracting a commercial real estate rent roll into JSON.
 
@@ -97,15 +83,6 @@ class RentRollExtraction(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     units: list[RentRollUnit] = Field(min_length=1)
-
-
-def get_client():
-    """Build a Gemini client using the key in .env."""
-    load_dotenv(PROJECT_ROOT / ".env")
-    api_key = os.getenv("GEMINI_API_KEY", "").strip()
-    if not api_key or api_key == KEY_PLACEHOLDER:
-        raise ExtractionError("GEMINI_API_KEY is not set. Put your real key in the .env file.")
-    return genai.Client(api_key=api_key)
 
 
 def _cell_text(value):
@@ -180,78 +157,17 @@ def _build_config():
     )
 
 
-def _model_name(model=None):
-    return model or os.getenv("GEMINI_MODEL") or DEFAULT_MODEL
-
-
-def _request_extraction(client, sheet_text, model):
-    """Make one Gemini request and return the response."""
-    response = client.models.generate_content(
-        model=_model_name(model),
-        contents=PROMPT.format(sheet_text=sheet_text),
-        config=_build_config(),
-    )
-    if not response.text:
-        raise ExtractionError("Gemini returned an empty response.")
-    return response
-
-
-def _token_note(response):
-    """Describe token usage for the timing log, if the response reports it."""
-    usage = getattr(response, "usage_metadata", None)
-    if usage is None:
-        return ""
-    return (f" (prompt {usage.prompt_token_count} tokens, "
-            f"thinking {usage.thoughts_token_count or 0}, output {usage.candidates_token_count})")
-
-
-def _is_daily_quota(exc):
-    """True when a 429 is the per-day quota, which waiting a few seconds cannot fix."""
-    return exc.code == 429 and "PerDay" in str(exc.details)
-
-
-def _daily_quota_message(exc):
-    wait = re.search(r"retry in ((?:\d+h)?(?:\d+m)?)", exc.message or "")
-    when = f" Google says it resets in about {wait.group(1)}." if wait and wait.group(1) else ""
-    return (
-        "Gemini daily quota is used up, so trying again now will not help. Nothing was saved."
-        f"{when} Until then, replay a recorded response or use a key with a higher quota."
-    )
-
-
 def call_gemini(client, sheet_text, model=None):
-    """Send the rent roll text to Gemini, retrying temporary errors up to MAX_TRIES times.
-
-    A used-up daily quota stops straight away instead of retrying.
-    """
-    started = time.perf_counter()
-    for attempt in range(1, MAX_TRIES + 1):
-        attempt_started = time.perf_counter()
-        try:
-            response = _request_extraction(client, sheet_text, model)
-        except errors.APIError as exc:
-            log.info("Gemini attempt %d/%d: failed with %s %s after %.1fs",
-                     attempt, MAX_TRIES, exc.code, exc.status, time.perf_counter() - attempt_started)
-            if _is_daily_quota(exc):
-                raise ExtractionError(_daily_quota_message(exc)) from exc
-            if exc.code not in RETRYABLE_CODES:
-                raise ExtractionError(
-                    f"Gemini rejected the request ({exc.code} {exc.status}): {exc.message} Nothing was saved."
-                ) from exc
-            last_error = exc
-            if attempt < MAX_TRIES:
-                time.sleep(RETRY_WAIT_SECONDS * attempt)
-        else:
-            log.info("Gemini attempt %d/%d: ok in %.1fs%s",
-                     attempt, MAX_TRIES, time.perf_counter() - attempt_started, _token_note(response))
-            log.info("Gemini total: %.1fs over %d attempt(s)", time.perf_counter() - started, attempt)
-            return response.text
-    log.info("Gemini total: %.1fs over %d attempt(s), all failed", time.perf_counter() - started, MAX_TRIES)
-    raise ExtractionError(
-        f"Gemini was unavailable after {MAX_TRIES} tries "
-        f"(last error: {last_error.code} {last_error.status}). "
-        "Nothing was saved. Please try again in a few minutes."
-    ) from last_error
+    """Send the rent roll text to Gemini and return its raw JSON string."""
+    try:
+        client = client or gemini.get_client()
+        return gemini.generate(client, PROMPT.format(sheet_text=sheet_text), _build_config(), model)
+    except gemini.GeminiQuotaError as exc:
+        raise ExtractionError(
+            f"{exc} Nothing was saved. Until then, replay a recorded response or use a key with a higher quota."
+        ) from exc
+    except gemini.GeminiError as exc:
+        raise ExtractionError(f"{exc} Nothing was saved.") from exc
 
 
 def _prompt_fingerprint(sheet_text):
@@ -263,7 +179,7 @@ def save_recording(path, raw_json, sheet_text, model=None):
     """Save a real Gemini response to a file so it can be replayed without calling the API."""
     recording = {
         "recorded_at": datetime.now().isoformat(timespec="seconds"),
-        "model": _model_name(model),
+        "model": gemini.model_name(model),
         "prompt_sha256": _prompt_fingerprint(sheet_text),
         "response_text": raw_json,
     }
@@ -320,7 +236,7 @@ def extract_rent_roll(xlsx_path, deal_id, client=None, db_path=None, model=None,
     if replay_from:
         raw_json = load_recording(replay_from, sheet_text)
     else:
-        raw_json = call_gemini(client or get_client(), sheet_text, model)
+        raw_json = call_gemini(client, sheet_text, model)
         if record_to:
             save_recording(record_to, raw_json, sheet_text, model)
     units = validate_extraction(raw_json, source_rows)

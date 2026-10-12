@@ -9,5 +9,9 @@ textColor = "#16241d"
 font = "'Public Sans', sans-serif"
 headingFont = "Fraunces, Georgia, serif"
 
+# Hide the Deploy button and developer menu items.
+[client]
+toolbarMode = "minimal"
+
 [browser]
 gatherUsageStats = false

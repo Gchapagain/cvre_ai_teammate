@@ -23,7 +23,7 @@ from google.genai import errors
 from openpyxl import Workbook, load_workbook
 
 import db
-from services import extraction, validation
+from services import extraction, gemini, validation
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 RENT_ROLL = PROJECT_ROOT / "sample_data" / "rent_roll.xlsx"
@@ -390,7 +390,7 @@ class TestFileLevelProblemsAreRejected(ExtractionTestCase):
 class TestGeminiRetry(ExtractionTestCase):
     def setUp(self):
         super().setUp()
-        patcher = mock.patch.object(extraction.time, "sleep")
+        patcher = mock.patch.object(gemini.time, "sleep")
         self.sleep = patcher.start()
         self.addCleanup(patcher.stop)
 
@@ -443,7 +443,7 @@ class TestGeminiRetry(ExtractionTestCase):
 
     def test_each_attempt_and_the_total_are_logged(self):
         client, _ = flaky_client([gemini_error(503, "UNAVAILABLE"), self.source])
-        with self.assertLogs("services.extraction", level="INFO") as logs:
+        with self.assertLogs("services.gemini", level="INFO") as logs:
             extraction.extract_rent_roll(RENT_ROLL, self.deal_id, client=client, db_path=self.db_path)
         lines = [record.getMessage() for record in logs.records]
         self.assertEqual(len(lines), 3)
@@ -508,7 +508,7 @@ class TestRecordAndReplay(ExtractionTestCase):
         self.assertIn("No recorded Gemini response", str(caught.exception))
 
     def test_nothing_is_recorded_when_gemini_fails(self):
-        with mock.patch.object(extraction.time, "sleep"):
+        with mock.patch.object(gemini.time, "sleep"):
             client, _ = flaky_client([daily_quota_error()])
             with self.assertRaises(extraction.ExtractionError):
                 extraction.extract_rent_roll(

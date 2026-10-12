@@ -1,15 +1,20 @@
 """Tests that drive the Streamlit app with Streamlit's own test tool. No browser, no Gemini calls."""
 
 import hashlib
+import io
+import json
 import tempfile
 import unittest
 from pathlib import Path
 from unittest import mock
 
+import pandas as pd
 from streamlit.testing.v1 import AppTest
 
 import db
 import seed
+from services import gemini, qa
+from tests.test_extraction import daily_quota_error, gemini_error
 
 APP = str(Path(__file__).resolve().parent.parent / "streamlit_app.py")
 
@@ -97,13 +102,24 @@ class TestDashboard(AppTestCase):
 
     def test_every_deal_has_a_card_with_its_status(self):
         text = self.page_text()
-        for name in ("Fallowmere Industrial Park", "Quillhaven Flex Center", "Brindlewick Retail Row"):
-            self.assertIn(name, text)
         for status in ("Needs Review", "Extracting", "Approved"):
             self.assertIn(f">{status}</span>", text)
         self.assertIn("1 anomaly", text)
-        for deal_id in self.deals.values():
-            self.assertFalse(self.app.button(key=f"open_deal_{deal_id}").disabled)
+
+    def test_the_deal_name_is_the_only_button_on_each_card(self):
+        labels = {button.key: button.label for button in self.app.button}
+        self.assertEqual(labels, {
+            "sign_out": "Sign out",
+            f"open_deal_{self.deals['fallowmere']}": "Fallowmere Industrial Park (SAMPLE - fictional)",
+            f"open_deal_{self.deals['quillhaven']}": "Quillhaven Flex Center (SAMPLE - fictional)",
+            f"open_deal_{self.deals['brindlewick']}": "Brindlewick Retail Row (SAMPLE - fictional)",
+        })
+        self.assertNotIn("Open deal", [button.label for button in self.app.button])
+
+    def test_clicking_a_deal_name_opens_that_deal(self):
+        self.open_deal("brindlewick")
+        self.assertEqual(self.app.session_state["deal_id"], self.deals["brindlewick"])
+        self.assertIn("Brindlewick Retail Row", self.page_text())
 
 
 class TestDealWorkspace(AppTestCase):
@@ -115,8 +131,7 @@ class TestDealWorkspace(AppTestCase):
         self.open_deal("fallowmere")
         self.assertFalse(self.app.exception)
         self.assertEqual([tab.label for tab in self.app.tabs], ["Review", "Documents", "Data", "Ask AI"])
-        later = [message.value for message in self.app.info]
-        self.assertEqual(later, [f"{name}: coming in a later step." for name in ("Documents", "Data", "Ask AI")])
+        self.assertIn("Documents: coming in a later step.", [message.value for message in self.app.info])
 
     def test_review_shows_the_anomaly_banner_for_unit_110(self):
         self.open_deal("fallowmere")
@@ -158,6 +173,173 @@ class TestDealWorkspace(AppTestCase):
         self.open_deal("fallowmere")
         self.app.button(key="back_to_deals").click().run()
         self.assertIn("Active deals", self.page_text())
+
+
+class TestDataTabDownloads(AppTestCase):
+    def setUp(self):
+        super().setUp()
+        self.sign_in()
+
+    def downloads(self):
+        """Every download button on the page as {key: element}."""
+        return {element.key: element for element in self.app.get("download_button")}
+
+    def test_fallowmere_offers_rent_roll_and_t12_as_csv_and_excel(self):
+        self.open_deal("fallowmere")
+        self.assertFalse(self.app.exception)
+        self.assertEqual(set(self.downloads()), {
+            "download_rent_roll_csv", "download_rent_roll_xlsx", "download_t12_csv", "download_t12_xlsx",
+        })
+        text = self.page_text()
+        self.assertIn("fallowmere_industrial_park_rent_roll.csv", text)
+        self.assertIn("fallowmere_industrial_park_t12.xlsx", text)
+        self.assertIn("Draft narrative: none yet", text)
+
+    def test_deal_without_a_t12_only_offers_the_rent_roll(self):
+        self.open_deal("brindlewick")
+        self.assertEqual(set(self.downloads()), {"download_rent_roll_csv", "download_rent_roll_xlsx"})
+        self.assertIn("T-12: nothing saved for this deal yet.", self.page_text())
+
+    def test_deal_with_no_numbers_offers_no_downloads(self):
+        self.open_deal("quillhaven")
+        self.assertFalse(self.app.exception)
+        self.assertEqual(self.downloads(), {})
+
+    def test_draft_download_appears_when_a_draft_exists(self):
+        conn = db.get_connection(self.db_path)
+        with conn:
+            draft_id = conn.execute(
+                "INSERT INTO drafts (deal_id, draft_type, title, body) VALUES (?, 'Pricing narrative', 'Made-up title', 'Made-up body.')",
+                (self.deals["brindlewick"],),
+            ).lastrowid
+        conn.close()
+        try:
+            self.open_deal("brindlewick")
+            self.assertIn("download_draft", self.downloads())
+            self.assertIn("brindlewick_retail_row_draft_narrative.txt", self.page_text())
+        finally:
+            conn = db.get_connection(self.db_path)
+            with conn:
+                conn.execute("DELETE FROM drafts WHERE id = ?", (draft_id,))
+            conn.close()
+
+
+def reply_client(calls, answer, found=True, sources=("rent_roll.xlsx",)):
+    """A stand-in Gemini client that records each prompt and gives one fixed reply."""
+    def generate_content(**kwargs):
+        calls.append(kwargs["contents"])
+        if isinstance(answer, Exception):
+            raise answer
+        text = json.dumps({"answer": answer, "found_in_deal": found, "sources": list(sources)})
+        return type("Reply", (), {"text": text})()
+    return type("Client", (), {"models": type("Models", (), {"generate_content": staticmethod(generate_content)})()})()
+
+
+class TestAskAiTab(AppTestCase):
+    def setUp(self):
+        super().setUp()
+        self.calls = []
+        # Skip the wait between retries. (time.sleep itself is left alone: the test tool uses it.)
+        no_wait = mock.patch.object(gemini, "RETRY_WAIT_SECONDS", 0)
+        no_wait.start()
+        self.addCleanup(no_wait.stop)
+        self.sign_in()
+
+    def use_gemini(self, answer, **options):
+        patcher = mock.patch.object(gemini, "get_client", lambda: reply_client(self.calls, answer, **options))
+        patcher.start()
+        self.addCleanup(patcher.stop)
+
+    def ask(self, question, deal="fallowmere"):
+        key = f"chat_input_{self.deals[deal]}"
+        self.app.chat_input(key=key).set_value(question).run()
+        return self.app.session_state[f"chat_{self.deals[deal]}"]
+
+    def test_opening_the_tab_does_not_contact_gemini(self):
+        self.use_gemini(AssertionError("Gemini must not be called before a message is sent"))
+        self.open_deal("fallowmere")
+        self.assertFalse(self.app.exception)
+        self.assertEqual(self.calls, [])
+        self.assertEqual(self.app.session_state[f"chat_{self.deals['fallowmere']}"], [])
+
+    def test_web_search_switch_is_shown_but_disabled(self):
+        self.open_deal("fallowmere")
+        toggle = self.app.toggle(key=f"web_search_{self.deals['fallowmere']}")
+        self.assertTrue(toggle.disabled)
+        self.assertFalse(toggle.value)
+        self.assertIn("Web search: coming in a later step.", self.page_text())
+
+    def test_an_answer_from_the_deal_is_labelled_and_sourced(self):
+        self.use_gemini("Unit 110 pays 20.33 per SF.")
+        self.open_deal("fallowmere")
+        messages = self.ask("What does unit 110 pay per SF?")
+        self.assertFalse(self.app.exception)
+        self.assertEqual(len(self.calls), 1)
+        self.assertEqual([m["role"] for m in messages], ["user", "assistant"])
+        self.assertEqual(messages[1]["label"], qa.LABEL_FROM_DEAL)
+        self.assertEqual(messages[1]["sources"], ["rent_roll.xlsx"])
+        text = self.page_text()
+        self.assertIn(">From this deal</span>", text)
+        self.assertIn("Unit 110 pays 20.33 per SF.", text)
+        self.assertIn("Source: rent_roll.xlsx", text)
+
+    def test_a_question_the_deal_cannot_answer(self):
+        self.use_gemini("The cap rate is probably 6%.", found=False, sources=())
+        self.open_deal("fallowmere")
+        messages = self.ask("What cap rate should we use?")
+        self.assertEqual(messages[1]["label"], qa.LABEL_NOT_VERIFIED)
+        self.assertEqual(messages[1]["text"], "I don't have that in this deal.")
+        self.assertIn(">Not verified</span>", self.page_text())
+        self.assertNotIn("6%", self.page_text())
+
+    def test_daily_quota_shows_a_friendly_message_and_does_not_crash(self):
+        self.use_gemini(daily_quota_error())
+        self.open_deal("fallowmere")
+        messages = self.ask("What is the total annual rent?")
+        self.assertFalse(self.app.exception)
+        self.assertEqual(len(self.calls), 1)
+        self.assertEqual(messages[1]["label"], "No answer")
+        self.assertIn("daily quota is used up", messages[1]["text"])
+        self.assertIn("3h52m", messages[1]["text"])
+        self.assertIn(">No answer</span>", self.page_text())
+
+    def test_rate_limit_shows_a_friendly_message_after_three_tries(self):
+        self.use_gemini(gemini_error(429, "RESOURCE_EXHAUSTED"))
+        self.open_deal("fallowmere")
+        messages = self.ask("What is the total annual rent?")
+        self.assertFalse(self.app.exception)
+        self.assertEqual(len(self.calls), 3)
+        self.assertIn("busy or rate-limited", messages[1]["text"])
+
+    def test_missing_key_or_unexpected_failure_does_not_crash(self):
+        for failure in (gemini.GeminiError("GEMINI_API_KEY is not set."), RuntimeError("network down")):
+            with self.subTest(type(failure).__name__):
+                with mock.patch.object(gemini, "get_client", side_effect=failure):
+                    self.app = AppTest.from_file(APP, default_timeout=15).run()
+                    self.sign_in()
+                    self.open_deal("fallowmere")
+                    messages = self.ask("What is the total annual rent?")
+                self.assertFalse(self.app.exception)
+                self.assertEqual(messages[1]["label"], "No answer")
+                self.assertNotIn("network down", messages[1]["text"])
+
+    def test_each_deal_has_its_own_chat_and_only_its_own_data(self):
+        self.use_gemini("There are 5 units.", sources=("brindlewick_rent_roll.xlsx",))
+        self.open_deal("brindlewick")
+        self.ask("How many units?", deal="brindlewick")
+        self.assertIn("Pemberly Sock Emporium", self.calls[0])
+        self.assertNotIn("Vantor Robotics Lab", self.calls[0])
+        self.app.button(key="back_to_deals").click().run()
+        self.open_deal("fallowmere")
+        self.assertEqual(self.app.session_state[f"chat_{self.deals['fallowmere']}"], [])
+
+    def test_deal_with_no_numbers_answers_without_calling_gemini(self):
+        self.use_gemini(AssertionError("Gemini must not be called for a deal with no data"))
+        self.open_deal("quillhaven")
+        messages = self.ask("What is the NOI?", deal="quillhaven")
+        self.assertEqual(self.calls, [])
+        self.assertEqual(messages[1]["label"], qa.LABEL_NOT_VERIFIED)
+        self.assertIn("I don't have that in this deal.", messages[1]["text"])
 
 
 class TestAppNeverChangesData(AppTestCase):

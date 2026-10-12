@@ -68,5 +68,15 @@ def deal_flags(deal_id):
     return _all("SELECT * FROM flags WHERE deal_id = ? ORDER BY id", (deal_id,))
 
 
+def deal_t12(deal_id):
+    return _all(
+        "SELECT category, line_item, period, amount FROM t12_line_items WHERE deal_id = ? ORDER BY id", (deal_id,)
+    )
+
+
+def latest_draft(deal_id):
+    return _one("SELECT title, body, status FROM drafts WHERE deal_id = ? ORDER BY id DESC LIMIT 1", (deal_id,))
+
+
 def deal_documents(deal_id):
     return _all("SELECT * FROM documents WHERE deal_id = ? ORDER BY id", (deal_id,))
