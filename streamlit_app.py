@@ -8,7 +8,7 @@ from html import escape
 import streamlit as st
 
 from app import queries, style
-from app.views import dashboard, deal, login
+from app.views import assistant, dashboard, deal, login
 
 st.set_page_config(page_title="CBRE AI Teammate", layout="wide")
 style.apply()
@@ -19,11 +19,15 @@ def _sign_out():
 
 
 def _top_bar(user):
-    style.html(
-        '<div class="topbar"><div class="brand">CBRE AI Teammate</div>'
-        f'<div class="who">{escape(user["full_name"])} · {escape(user["role"])} · demo login</div></div>'
-    )
-    st.button("Sign out", key="sign_out", on_click=_sign_out)
+    with st.container(key="topbar"):
+        brand, who, action = st.columns([5, 4, 1], vertical_alignment="center")
+        with brand:
+            style.html('<div class="brand">CBRE AI Teammate</div>')
+        with who:
+            style.html(f'<div class="who"><span class="demo">Demo login</span><span>{escape(user["full_name"])}</span>'
+                       f'<span class="role-badge">{escape(user["role"])}</span></div>')
+        with action:
+            st.button("Sign out", key="sign_out", on_click=_sign_out)
 
 
 if not queries.database_ready():
@@ -41,3 +45,4 @@ else:
         deal.render()
     else:
         dashboard.render()
+    assistant.render()

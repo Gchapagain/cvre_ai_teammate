@@ -47,12 +47,20 @@ def dashboard_stats():
     )
 
 
+def needs_attention(deal):
+    """A deal a person should look at first: it is waiting for review or has an anomaly."""
+    return deal["status"] == "Needs Review" or deal["flag_count"] > 0
+
+
 def list_deals():
+    """Every deal, the ones needing attention first, approved ones last."""
     return _all(
         """SELECT d.id, d.name, d.property_type, d.submarket, d.status,
                   (SELECT COUNT(*) FROM rent_roll_units u WHERE u.deal_id = d.id) AS unit_count,
                   (SELECT COUNT(*) FROM flags f WHERE f.deal_id = d.id)           AS flag_count
-           FROM deals d ORDER BY d.id"""
+           FROM deals d
+           ORDER BY CASE WHEN flag_count > 0 OR d.status = 'Needs Review' THEN 0
+                         WHEN d.status = 'Approved' THEN 2 ELSE 1 END, d.id"""
     )
 
 

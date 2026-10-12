@@ -1,11 +1,15 @@
-"""Q&A service: a chat limited to one deal. It answers only from that deal's data in SQLite.
+"""Q&A service: a chat that answers only from deal data saved in SQLite.
 
-Every answer carries a label. "From this deal" is only used when Gemini says the
-answer is in the data, names a real source, and every number in the answer can
-be found in the deal data. Otherwise the label is "Not verified".
+ask() is limited to one deal. ask_all() covers every deal and reports which deals it used.
+
+Every answer carries a label. "From this deal" (or "From these deals") is only
+used when Gemini says the answer is in the data, names a real source, and every
+number in the answer can be found in the data it cites. Otherwise the label is
+"Not verified".
 """
 
 import re
+from collections import Counter
 from dataclasses import dataclass, field
 
 from google.genai import types
@@ -15,8 +19,10 @@ import db
 from services import gemini
 
 LABEL_FROM_DEAL = "From this deal"
+LABEL_FROM_DEALS = "From these deals"
 LABEL_NOT_VERIFIED = "Not verified"
 NOT_IN_DEAL = "I don't have that in this deal."
+NOT_IN_ANY_DEAL = "I don't have that in any of the deals."
 NO_NUMBERS_YET = "This deal's documents have not been read yet, so there is nothing I can answer from. " + NOT_IN_DEAL
 UNMATCHED_NOTE = ("Treat this as not verified: it includes a figure or a source "
                   "I could not match to this deal's data.")
@@ -46,6 +52,36 @@ QUESTION
 """
 
 
+ALL_DEALS_PROMPT = """You answer questions about a set of commercial real estate deals for a broker or analyst.
+
+Rules:
+- Use ONLY the DEAL DATA below. Do not use outside knowledge, market opinions or guesses.
+- If the answer is not in the DEAL DATA, set found_in_deals to false and set answer to "{not_in_deal}"
+- Copy figures exactly as they appear in the DEAL DATA. Do not round or estimate.
+- In deals_used, list the exact deal names your answer came from.
+- In sources, list the names from each deal's "Sources you may cite" that your answer came from.
+- Answer in one to three plain sentences. No lists, no headings.
+
+DEAL DATA
+{context}
+
+EARLIER IN THIS CHAT
+{history}
+
+QUESTION
+{question}
+"""
+
+
+class QaAllReply(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    answer: str
+    found_in_deals: bool
+    deals_used: list[str]
+    sources: list[str]
+
+
 class QaReply(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -60,6 +96,7 @@ class Answer:
     label: str
     sources: list[str] = field(default_factory=list)
     note: str = ""
+    deals: list[str] = field(default_factory=list)
 
 
 def _rows(conn, sql, deal_id):
@@ -145,14 +182,6 @@ def _history_text(history):
     return "\n".join(turns) or "(nothing yet)"
 
 
-def _config():
-    return types.GenerateContentConfig(
-        temperature=0,
-        response_mime_type="application/json",
-        response_json_schema=QaReply.model_json_schema(),
-    )
-
-
 def label_reply(reply, data, context):
     """Turn Gemini's reply into a labelled answer, downgrading anything that cannot be matched."""
     if not reply.found_in_deal:
@@ -163,6 +192,62 @@ def label_reply(reply, data, context):
     return Answer(reply.answer, LABEL_FROM_DEAL, sources)
 
 
+def _config(reply_model=QaReply):
+    return types.GenerateContentConfig(
+        temperature=0,
+        response_mime_type="application/json",
+        response_json_schema=reply_model.model_json_schema(),
+    )
+
+
+def _generate(reply_model, prompt, client, model):
+    raw = gemini.generate(client or gemini.get_client(), prompt, _config(reply_model), model)
+    try:
+        return reply_model.model_validate_json(raw)
+    except ValidationError as exc:
+        raise gemini.GeminiError("Gemini's reply was not in the expected format.") from exc
+
+
+def _overview(all_data):
+    """Counts across every deal, worked out in plain Python."""
+    statuses = Counter(data["deal"][0]["status"] for data in all_data)
+    lines = [f"Number of deals: {len(all_data)}"]
+    lines += [f"Deals with status {status}: {count}" for status, count in statuses.items()]
+    lines.append(f"Validation flags across all deals: {sum(len(data['flags']) for data in all_data)}")
+    return "\n".join(lines)
+
+
+def label_all_reply(reply, all_data, contexts, overview):
+    """Label an all-deals reply, checking it only against the deals it says it used."""
+    if not reply.found_in_deals:
+        return Answer(NOT_IN_ANY_DEAL, LABEL_NOT_VERIFIED)
+    deals = [name for name in reply.deals_used if name in contexts]
+    allowed = [s for data in all_data if data["deal"][0]["name"] in deals for s in allowed_sources(data)]
+    sources = [s for s in dict.fromkeys(reply.sources) if s in allowed]
+    cited = overview + "\n" + "\n".join(contexts[name] for name in deals)
+    if not deals or not sources or unmatched_numbers(reply.answer, cited):
+        return Answer(reply.answer, LABEL_NOT_VERIFIED, sources, UNMATCHED_NOTE, deals)
+    return Answer(reply.answer, LABEL_FROM_DEALS, sources, deals=deals)
+
+
+def ask_all(question, history=(), client=None, db_path=None, model=None):
+    """Answer one question from every deal in the database, naming the deals the answer used."""
+    conn = db.get_connection(db_path)
+    try:
+        deal_ids = [row["id"] for row in conn.execute("SELECT id FROM deals ORDER BY id")]
+    finally:
+        conn.close()
+    all_data = [load_deal_data(deal_id, db_path) for deal_id in deal_ids]
+    if not all_data:
+        return Answer(NOT_IN_ANY_DEAL, LABEL_NOT_VERIFIED)
+    contexts = {data["deal"][0]["name"]: build_context(data) for data in all_data}
+    overview = _overview(all_data)
+    context = "ALL DEALS\n" + overview + "".join(f"\n\n=== {name} ===\n{text}" for name, text in contexts.items())
+    prompt = ALL_DEALS_PROMPT.format(not_in_deal=NOT_IN_ANY_DEAL, context=context,
+                                     history=_history_text(list(history)), question=question)
+    return label_all_reply(_generate(QaAllReply, prompt, client, model), all_data, contexts, overview)
+
+
 def ask(deal_id, question, history=(), client=None, db_path=None, model=None):
     """Answer one question about one deal. Raises gemini.GeminiError if Gemini cannot be reached."""
     data = load_deal_data(deal_id, db_path)
@@ -171,9 +256,4 @@ def ask(deal_id, question, history=(), client=None, db_path=None, model=None):
     context = build_context(data)
     prompt = PROMPT.format(not_in_deal=NOT_IN_DEAL, context=context,
                            history=_history_text(list(history)), question=question)
-    raw = gemini.generate(client or gemini.get_client(), prompt, _config(), model)
-    try:
-        reply = QaReply.model_validate_json(raw)
-    except ValidationError as exc:
-        raise gemini.GeminiError("Gemini's reply was not in the expected format.") from exc
-    return label_reply(reply, data, context)
+    return label_reply(_generate(QaReply, prompt, client, model), data, context)

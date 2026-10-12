@@ -37,10 +37,12 @@ class TestSeededDeals(SeedTestCase):
             self.assertIn("SAMPLE - fictional", deal["name"])
 
     def test_one_demo_user_per_role(self):
-        users = self.query("SELECT email, role FROM users ORDER BY id")
+        users = self.query("SELECT email, full_name, role FROM users ORDER BY id")
         self.assertEqual([u["role"] for u in users], ["Agent", "Analyst", "Administrator"])
         for user in users:
             self.assertTrue(user["email"].endswith("@example.com"))
+            # The header shows name and role side by side, so the name must not repeat the role.
+            self.assertNotIn(user["role"], user["full_name"])
 
     def test_extracting_deal_has_a_document_and_no_numbers(self):
         deal_id = self.deals["quillhaven"]

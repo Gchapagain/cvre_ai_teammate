@@ -29,9 +29,9 @@ T12_TOTAL_LINES = {"Total Income", "Total Expenses", "Net Operating Income"}
 T12_SECTIONS = {"INCOME": "Income", "EXPENSES": "Expense"}
 
 DEMO_USERS = [
-    ("demo.agent@example.com", "Demo Agent", "Agent"),
-    ("demo.analyst@example.com", "Demo Analyst", "Analyst"),
-    ("demo.admin@example.com", "Demo Administrator", "Administrator"),
+    ("demo.agent@example.com", "Avery Sample", "Agent"),
+    ("demo.analyst@example.com", "Noor Sample", "Analyst"),
+    ("demo.admin@example.com", "Sam Sample", "Administrator"),
 ]
 
 # A second, clean rent roll for the Approved deal: unit, tenant, SF, annual rent per SF, start, end.

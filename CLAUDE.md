@@ -34,7 +34,7 @@ Services live in `/services`: extraction, validation, drafting, qa, research. `g
 
 ## Screens (Streamlit, desktop only, wide layout)
 1. **Login**: Step 1 pick role, Step 2 sign in (locked until a role is chosen).
-2. **Deals dashboard**: stats (active deals, needs review, time saved, anomalies) and deal cards with status pills. Clicking a card opens the deal.
+2. **Deals dashboard**: stats (active deals, needs review, time saved, anomalies) and deal cards with status pills. Deals needing attention (Needs Review or an anomaly) come first with a coloured left border. Clicking a card opens the deal.
 3. **Deal workspace**, opened by clicking a deal, with four tabs:
    - **Review**: anomaly banner, extracted fields table, draft narrative with Flag / Edit / Approve, market research panel.
    - **Documents**: all files for the deal with status (Received / Read / Reference only / Needs password), source, an add-document box, and an expected-documents checklist. Locked PDFs get "Needs password": the user enters the password (used once, not stored) or requests an unlocked copy. Scanned PDFs go to OCR.
@@ -42,6 +42,7 @@ Services live in `/services`: extraction, validation, drafting, qa, research. `g
    - **Ask AI**: deal-only chat. Gemini is called only when a message is sent; quota and rate-limit problems show as a friendly chat message. The web search toggle is shown disabled until Step 7. Every answer is labeled "From this deal", "From the web (Tier 1-3)" or "Not verified".
 4. **Inbox & Chat**: captured emails with extraction chips and linked deal, plus a general chat.
 5. **All Data**: master table across every deal, compare two deals, export everything.
+6. **AI Teammate assistant**: a floating button on every page after login. It opens a chat where the user picks one deal or "All deals". One deal uses the same logic as the Ask AI tab. "All deals" answers only from the database, is labeled "From these deals" and lists the deals used.
 
 Desktop only. No mobile layout, bottom navigation or tables-as-cards.
 
@@ -65,7 +66,7 @@ Tables:
 - Secrets only in .env, never committed, never printed in logs.
 - Web search queries use generic terms only (property type + submarket). Never send client names or deal figures out.
 - Every AI statement is traceable to a source (document or URL).
-- Label every AI answer: From this deal / From the web (Tier 1-3) / Not verified.
+- Label every AI answer: From this deal / From these deals (all-deals questions) / From the web (Tier 1-3) / Not verified.
 - Research is advisory and labeled "sourced", not "verified".
 - Validation flags rent/SF above 2x the average of the building's other units. Flag, never hide. Flags never change the data or block saving.
 - Extraction rejects a whole file (and saves nothing) only when the file is unreadable, a required column is missing, or Gemini's reply is not valid JSON. A bad value in one row is saved exactly as extracted and flagged by validation.
@@ -79,7 +80,8 @@ Tables:
 - Gold accent: #c9a227
 - Amber for warnings, red for flags
 - Fonts: Fraunces (headings), Public Sans (body)
-- Streamlit theme goes in `.streamlit/config.toml` with a little custom CSS.
+- Streamlit theme goes in `.streamlit/config.toml`. The design system lives in `app/style.py`: 8px spacing grid, 24px card padding, 12px radius, 40px buttons, 48px tabs. Use its tokens and classes instead of one-off styles.
+- The Ask AI tab and the assistant button use the gold accent with a sparkle icon so AI features are recognisable.
 
 ## How to work with me
 - I'm a student and the technical lead. Explain in simple words what you did and why, not just code.

@@ -172,6 +172,79 @@ class TestWhenGeminiIsNotAvailable(QaTestCase):
         self.assertEqual(self.db_path.read_bytes(), before)
 
 
+FALLOWMERE = "Fallowmere Industrial Park (SAMPLE - fictional)"
+BRINDLEWICK = "Brindlewick Retail Row (SAMPLE - fictional)"
+
+
+def fake_gemini_all(answer, found=True, deals=(), sources=(), prompts=None):
+    def generate_content(**kwargs):
+        if prompts is not None:
+            prompts.append(kwargs["contents"])
+        if isinstance(answer, Exception):
+            raise answer
+        return SimpleNamespace(text=json.dumps({"answer": answer, "found_in_deals": found,
+                                                "deals_used": list(deals), "sources": list(sources)}))
+    return SimpleNamespace(models=SimpleNamespace(generate_content=generate_content))
+
+
+class TestAllDeals(QaTestCase):
+    def ask_all(self, answer, **options):
+        return qa.ask_all("A question", client=fake_gemini_all(answer, **options), db_path=self.db_path)
+
+    def test_grounded_answer_names_its_deals_and_sources(self):
+        answer = self.ask_all("Unit 110 at Fallowmere pays $20.33 per SF and is flagged.",
+                              deals=[FALLOWMERE], sources=["rent_roll.xlsx", "Validation flags"])
+        self.assertEqual(answer.label, qa.LABEL_FROM_DEALS)
+        self.assertEqual(answer.deals, [FALLOWMERE])
+        self.assertEqual(answer.sources, ["rent_roll.xlsx", "Validation flags"])
+
+    def test_answer_can_use_more_than_one_deal(self):
+        answer = self.ask_all("Fallowmere has 12 units and Brindlewick has 5 units.",
+                              deals=[FALLOWMERE, BRINDLEWICK], sources=["rent_roll.xlsx", "brindlewick_rent_roll.xlsx"])
+        self.assertEqual(answer.label, qa.LABEL_FROM_DEALS)
+        self.assertEqual(answer.deals, [FALLOWMERE, BRINDLEWICK])
+
+    def test_counts_across_deals_are_worked_out_in_python(self):
+        answer = self.ask_all("There are 3 deals and 1 validation flag.", deals=[FALLOWMERE], sources=["Validation flags"])
+        self.assertEqual(answer.label, qa.LABEL_FROM_DEALS)
+
+    def test_a_number_from_a_deal_it_did_not_cite_is_downgraded(self):
+        # 20.33 is Fallowmere's figure, but the reply only cites Brindlewick.
+        answer = self.ask_all("The top rent is $20.33 per SF.", deals=[BRINDLEWICK], sources=["brindlewick_rent_roll.xlsx"])
+        self.assertEqual(answer.label, qa.LABEL_NOT_VERIFIED)
+
+    def test_no_real_deal_named_is_downgraded(self):
+        for deals in ([], ["Some Other Tower"]):
+            with self.subTest(deals=deals):
+                answer = self.ask_all("Unit 110 is flagged.", deals=deals, sources=["Validation flags"])
+                self.assertEqual(answer.label, qa.LABEL_NOT_VERIFIED)
+                self.assertEqual(answer.deals, [])
+
+    def test_source_from_a_deal_it_did_not_cite_is_dropped(self):
+        answer = self.ask_all("Brindlewick has 5 units.", deals=[BRINDLEWICK], sources=["rent_roll.xlsx"])
+        self.assertEqual(answer.label, qa.LABEL_NOT_VERIFIED)
+        self.assertEqual(answer.sources, [])
+
+    def test_not_in_any_deal_gives_the_standard_reply(self):
+        answer = self.ask_all("Cap rates are about 6%.", found=False)
+        self.assertEqual(answer.label, qa.LABEL_NOT_VERIFIED)
+        self.assertEqual(answer.text, "I don't have that in any of the deals.")
+
+    def test_prompt_holds_every_deal_and_only_database_data(self):
+        prompts = []
+        self.ask_all("x", deals=[FALLOWMERE], sources=["rent_roll.xlsx"], prompts=prompts)
+        for expected in (FALLOWMERE, BRINDLEWICK, "Quillhaven Flex Center", "Vantor Robotics Lab",
+                         "Pemberly Sock Emporium", "Number of deals: 3", "Use ONLY the DEAL DATA"):
+            self.assertIn(expected, prompts[0])
+
+    def test_quota_and_bad_replies_raise_errors(self):
+        with mock.patch.object(gemini.time, "sleep"):
+            with self.assertRaises(gemini.GeminiQuotaError):
+                self.ask_all(daily_quota_error())
+        with self.assertRaises(gemini.GeminiError):
+            qa.ask_all("x", client=fake_gemini("not json", found=None), db_path=self.db_path)
+
+
 class TestNumberMatching(unittest.TestCase):
     def test_commas_currency_and_trailing_zeros_do_not_matter(self):
         self.assertEqual(qa.unmatched_numbers("$1,244,311.44 and 12,000 and 8.50", "1244311.44 | 12000 | 8.5"), [])

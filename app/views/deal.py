@@ -13,6 +13,8 @@ COLUMNS = {
     "lease_start": "Lease start", "lease_end": "Lease end", "monthly_rent": "Monthly rent",
     "annual_rent": "Annual rent", "rent_per_sf": "Rent / SF", "lease_type": "Lease type",
 }
+# The last tab is styled as the gold AI tab in app/style.py.
+TABS = ["Review", "Documents", "Data", ":material/auto_awesome: Ask AI"]
 FLAG_ROW_STYLE = "background-color: #fbe1df; color: #5e130d; font-weight: 600"
 
 
@@ -78,10 +80,10 @@ def render():
         st.warning("That deal could not be found.")
         return
     st.header(deal["name"])
-    style.html(f'<div class="deal-meta">{escape(deal["property_type"] or "")} · '
-               f'{escape(deal["submarket"] or "")}</div>{style.pill(deal["status"])}')
+    style.html(f'<div class="deal-head"><div class="deal-meta">{escape(deal["property_type"] or "")} · '
+               f'{escape(deal["submarket"] or "")}</div>{style.pill(deal["status"])}</div>')
 
-    review, documents, data, ask_ai_tab = st.tabs(["Review", "Documents", "Data", "Ask AI"])
+    review, documents, data, ask_ai_tab = st.tabs(TABS)
     with review:
         _review_tab(deal)
     with documents:

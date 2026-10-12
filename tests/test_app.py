@@ -75,7 +75,8 @@ class TestLogin(AppTestCase):
                 self.sign_in(role, provider)
                 self.assertFalse(self.app.exception)
                 self.assertEqual(self.app.session_state["user"]["role"], role)
-                self.assertIn(f"{role} · demo login", self.page_text())
+                self.assertIn(f'<span class="role-badge">{role}</span>', self.page_text())
+                self.assertIn("Demo login", self.page_text())
 
     def test_sign_out_returns_to_the_locked_login(self):
         self.sign_in()
@@ -110,11 +111,31 @@ class TestDashboard(AppTestCase):
         labels = {button.key: button.label for button in self.app.button}
         self.assertEqual(labels, {
             "sign_out": "Sign out",
+            "open_assistant": "Ask the AI Teammate",
             f"open_deal_{self.deals['fallowmere']}": "Fallowmere Industrial Park (SAMPLE - fictional)",
             f"open_deal_{self.deals['quillhaven']}": "Quillhaven Flex Center (SAMPLE - fictional)",
             f"open_deal_{self.deals['brindlewick']}": "Brindlewick Retail Row (SAMPLE - fictional)",
         })
         self.assertNotIn("Open deal", [button.label for button in self.app.button])
+
+    def test_deals_needing_attention_come_first(self):
+        order = [button.key for button in self.app.button if button.key.startswith("open_deal_")]
+        self.assertEqual(order, [f"open_deal_{self.deals[name]}" for name in ("fallowmere", "quillhaven", "brindlewick")])
+        text = self.page_text()
+        self.assertLess(text.index("Needs your attention (1)"), text.index("Other deals (2)"))
+
+    def test_card_accent_follows_the_deal(self):
+        from app import queries
+        from app.views import dashboard
+        kinds = {deal["name"].split()[0]: dashboard.card_kind(deal) for deal in queries.list_deals()}
+        self.assertEqual(kinds, {"Fallowmere": "flagged", "Quillhaven": "plain", "Brindlewick": "plain"})
+        self.assertEqual(dashboard.card_kind({"flag_count": 0, "status": "Needs Review"}), "review")
+
+    def test_header_shows_the_name_once_with_a_role_badge(self):
+        text = self.page_text()
+        self.assertEqual(text.count("Noor Sample"), 1)
+        self.assertEqual(text.count("Analyst"), 1)
+        self.assertIn('<span class="role-badge">Analyst</span>', text)
 
     def test_clicking_a_deal_name_opens_that_deal(self):
         self.open_deal("brindlewick")
@@ -130,7 +151,8 @@ class TestDealWorkspace(AppTestCase):
     def test_four_tabs(self):
         self.open_deal("fallowmere")
         self.assertFalse(self.app.exception)
-        self.assertEqual([tab.label for tab in self.app.tabs], ["Review", "Documents", "Data", "Ask AI"])
+        self.assertEqual([tab.label for tab in self.app.tabs],
+                         ["Review", "Documents", "Data", ":material/auto_awesome: Ask AI"])
         self.assertIn("Documents: coming in a later step.", [message.value for message in self.app.info])
 
     def test_review_shows_the_anomaly_banner_for_unit_110(self):
@@ -340,6 +362,125 @@ class TestAskAiTab(AppTestCase):
         self.assertEqual(self.calls, [])
         self.assertEqual(messages[1]["label"], qa.LABEL_NOT_VERIFIED)
         self.assertIn("I don't have that in this deal.", messages[1]["text"])
+
+
+def all_deals_client(calls, answer, found=True, deals=(), sources=()):
+    """A stand-in Gemini client for all-deals questions."""
+    def generate_content(**kwargs):
+        calls.append(kwargs["contents"])
+        if isinstance(answer, Exception):
+            raise answer
+        text = json.dumps({"answer": answer, "found_in_deals": found,
+                           "deals_used": list(deals), "sources": list(sources)})
+        return type("Reply", (), {"text": text})()
+    return type("Client", (), {"models": type("Models", (), {"generate_content": staticmethod(generate_content)})()})()
+
+
+FALLOWMERE = "Fallowmere Industrial Park (SAMPLE - fictional)"
+
+
+class TestFloatingAssistant(AppTestCase):
+    def setUp(self):
+        super().setUp()
+        self.calls = []
+        no_wait = mock.patch.object(gemini, "RETRY_WAIT_SECONDS", 0)
+        no_wait.start()
+        self.addCleanup(no_wait.stop)
+        self.sign_in()
+
+    def use_client(self, client):
+        patcher = mock.patch.object(gemini, "get_client", lambda: client)
+        patcher.start()
+        self.addCleanup(patcher.stop)
+
+    def open_assistant(self):
+        self.app.button(key="open_assistant").click().run()
+
+    def test_button_is_on_the_dashboard_and_the_deal_page_but_not_the_login(self):
+        self.assertEqual(self.app.button(key="open_assistant").label, "Ask the AI Teammate")
+        self.open_deal("fallowmere")
+        self.assertEqual(self.app.button(key="open_assistant").label, "Ask the AI Teammate")
+        self.app.button(key="sign_out").click().run()
+        self.assertNotIn("open_assistant", [button.key for button in self.app.button])
+
+    def test_nothing_opens_and_gemini_is_not_called_until_the_button_is_clicked(self):
+        self.use_client(all_deals_client(self.calls, AssertionError("must not be called")))
+        self.assertEqual(len(self.app.selectbox), 0)
+        self.open_assistant()
+        self.assertFalse(self.app.exception)
+        self.assertEqual(self.calls, [])
+
+    def test_picker_lists_all_deals_then_every_deal(self):
+        self.open_assistant()
+        picker = self.app.selectbox(key="assistant_scope")
+        self.assertEqual(picker.value, "All deals")
+        self.assertEqual(len(picker.options), 4)
+        self.assertEqual(picker.options[0], "All deals")
+        self.assertIn(FALLOWMERE, picker.options)
+
+    def test_opened_from_a_deal_page_it_starts_on_that_deal(self):
+        self.open_deal("brindlewick")
+        self.open_assistant()
+        self.assertEqual(self.app.selectbox(key="assistant_scope").value, self.deals["brindlewick"])
+        self.assertIn(f"assistant_chat_input_{self.deals['brindlewick']}", [c.key for c in self.app.chat_input])
+
+    def test_web_search_is_disabled(self):
+        self.open_assistant()
+        self.assertTrue(self.app.toggle(key="assistant_web_search_all").disabled)
+        self.assertIn("Web search: coming in a later step.", self.page_text())
+
+    def test_all_deals_answer_names_the_deals_it_used(self):
+        self.use_client(all_deals_client(self.calls, "Only Fallowmere has an anomaly: unit 110 is flagged.",
+                                         deals=[FALLOWMERE], sources=["Validation flags"]))
+        self.open_assistant()
+        self.app.chat_input(key="assistant_chat_input_all").set_value("Which deals have anomalies?").run()
+        self.assertFalse(self.app.exception)
+        self.assertEqual(len(self.calls), 1)
+        reply = self.app.session_state["chat_all"][1]
+        self.assertEqual(reply["label"], qa.LABEL_FROM_DEALS)
+        self.assertEqual(reply["deals"], [FALLOWMERE])
+        text = self.page_text()
+        self.assertIn(">From these deals</span>", text)
+        self.assertIn(f"Deals used: {FALLOWMERE}", text)
+        for name in ("Fallowmere", "Quillhaven", "Brindlewick"):
+            self.assertIn(name, self.calls[0])
+
+    def test_all_deals_question_that_cannot_be_answered(self):
+        self.use_client(all_deals_client(self.calls, "Probably around 6%.", found=False))
+        self.open_assistant()
+        self.app.chat_input(key="assistant_chat_input_all").set_value("What cap rate is typical?").run()
+        reply = self.app.session_state["chat_all"][1]
+        self.assertEqual(reply["label"], qa.LABEL_NOT_VERIFIED)
+        self.assertEqual(reply["text"], "I don't have that in any of the deals.")
+
+    def test_picking_one_deal_uses_the_deal_only_logic(self):
+        self.use_client(reply_client(self.calls, "There are 5 units.", sources=("brindlewick_rent_roll.xlsx",)))
+        self.open_assistant()
+        self.app.selectbox(key="assistant_scope").set_value(self.deals["brindlewick"]).run()
+        key = f"assistant_chat_input_{self.deals['brindlewick']}"
+        self.app.chat_input(key=key).set_value("How many units?").run()
+        reply = self.app.session_state[f"chat_{self.deals['brindlewick']}"][1]
+        self.assertEqual(reply["label"], qa.LABEL_FROM_DEAL)
+        self.assertIn("Pemberly Sock Emporium", self.calls[0])
+        self.assertNotIn("Vantor Robotics Lab", self.calls[0])
+
+    def test_assistant_and_the_ask_ai_tab_share_one_chat_per_deal(self):
+        self.use_client(reply_client(self.calls, "There are 12 units."))
+        self.open_deal("fallowmere")
+        self.app.chat_input(key=f"chat_input_{self.deals['fallowmere']}").set_value("How many units?").run()
+        self.open_assistant()
+        self.assertEqual(len(self.app.session_state[f"chat_{self.deals['fallowmere']}"]), 2)
+        self.assertEqual(self.page_text().count("There are 12 units."), 2)
+
+    def test_quota_used_up_shows_a_friendly_message(self):
+        self.use_client(all_deals_client(self.calls, daily_quota_error()))
+        self.open_assistant()
+        self.app.chat_input(key="assistant_chat_input_all").set_value("Which deals have anomalies?").run()
+        self.assertFalse(self.app.exception)
+        self.assertEqual(len(self.calls), 1)
+        reply = self.app.session_state["chat_all"][1]
+        self.assertEqual(reply["label"], "No answer")
+        self.assertIn("daily quota is used up", reply["text"])
 
 
 class TestAppNeverChangesData(AppTestCase):
