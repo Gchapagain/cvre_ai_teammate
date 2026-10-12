@@ -65,7 +65,8 @@ def _review_tab(deal):
     flags = queries.deal_flags(deal["id"])
     _anomaly_banner(flags)
     st.subheader("Extracted fields")
-    st.dataframe(_styled(units_table(units, flags)), hide_index=True, width="stretch")
+    st.dataframe(_styled(units_table(units, flags)), hide_index=True, width="stretch",
+                 column_config={"Flag": st.column_config.TextColumn(width=90)})
     sources = [doc["filename"] for doc in queries.deal_documents(deal["id"]) if doc["used_for"] == "Rent roll"]
     st.caption(f"From this deal: {', '.join(sources)} (sample data). Scroll sideways on a phone to see every column.")
 
