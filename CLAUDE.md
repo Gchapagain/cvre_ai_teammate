@@ -1,0 +1,98 @@
+# CBRE AI Teammate
+
+## What we're building
+Prototype "AI Teammate" (project name: Agentic Broker Experience) for CBRE, a global commercial real estate firm. TCU Business Information Systems capstone (INSC 40813).
+
+Priority 1 is **Research & Value**: the AI Teammate does the document-heavy prep work that brokers (Agents) and Analysts do by hand before pricing a property. The AI drafts, flags and cites. Humans always approve. It never sends anything to a client by itself.
+
+### KPIs (from the charter)
+- 95% accuracy on tested financial figures.
+- Voice-to-deal under 90 seconds (stretch).
+- No producer interaction longer than 5 minutes.
+
+### Scope
+Scope additions (email ingestion, proactive research, mobile, locked-file handling) must be flagged to the PM. Keep scope tight and say so when something feels like scope creep.
+
+## How it works end to end
+1. **Capture**: a deal starts from an uploaded document (OM, BOV, rent roll, T-12) or an email captured from a connected inbox (Gmail API / Microsoft Graph, pointed at a safe demo inbox).
+2. **Extract (Service A)**: Gemini reads the documents and returns strict JSON (rent roll units, T-12 line items, key terms). We validate the JSON and save to SQLite.
+3. **Validate (Service B)**: plain Python rules check the numbers, e.g. flag any unit whose rent/SF is above 2x the building average. Flag it, never hide it.
+4. **Draft (Service C)**: Gemini writes a pricing narrative from the validated numbers. Indicative value = NOI / cap rate, labeled as a draft working number, not a pricing decision.
+5. **Review**: the human reviews, edits, flags or approves in the app.
+6. **Q&A (Service D)**: a chat limited to one deal. It answers from that deal's data.
+7. **Research (Service E)**: proactive market research. When a deal arrives: plan questions, search the web with a search API (Tavily, Brave or Serper), score source reliability, write a cited brief. Advisory only.
+
+Source reliability tiers: Tier 1 government/primary, Tier 2 brokerage research, Tier 3 trade press. Unrecognized sources are skipped.
+
+Services live in `/services`: extraction, validation, drafting, qa, research.
+
+## Users and login
+- Roles: Agent (broker/producer), Analyst, Administrator.
+- Google or Microsoft OAuth proves identity only.
+- Prototype: the user must pick a role on the login screen BEFORE the sign-in buttons unlock.
+- Production alternative (not built now): an email-to-role table.
+
+## Screens (Streamlit, desktop and mobile friendly)
+1. **Login**: Step 1 pick role, Step 2 sign in (locked until a role is chosen).
+2. **Deals dashboard**: stats (active deals, needs review, time saved, anomalies) and deal cards with status pills.
+3. **Deal workspace**, opened by clicking a deal, with four tabs:
+   - **Review**: anomaly banner, extracted fields table, draft narrative with Flag / Edit / Approve, market research panel.
+   - **Documents**: all files for the deal with status (Read / Reference only / Needs password), source, an add-document box, and an expected-documents checklist. Locked PDFs get "Needs password": the user enters the password (used once, not stored) or requests an unlocked copy. Scanned PDFs go to OCR.
+   - **Data**: this deal's rent roll, T-12 summary, indicative value, draft versions, per-deal export (CSV/JSON/PDF).
+   - **Ask AI**: deal-only chat with a web search toggle. Every answer is labeled "From this deal", "From the web (Tier 1-3)" or "Not verified".
+4. **Inbox & Chat**: captured emails with extraction chips and linked deal, plus a general chat.
+5. **All Data**: master table across every deal, compare two deals, export everything.
+
+Mobile: 390px wide, tap targets at least 44px, bottom navigation (Deals, Inbox, All Data), tables shown as cards.
+
+## Data (SQLite)
+Tables:
+- deals
+- rent_roll_units
+- t12_line_items
+- valuation_outputs
+- drafts
+- users (email to role)
+- documents (deal_id, filename, source, received_at, status, used_for)
+- research_jobs
+- research_sources (url, date, reliability tier)
+- research_briefs
+
+## Rules that must always hold
+- Human in the loop. Nothing leaves the system without approval.
+- Sample or synthetic data only. No real client data in the repo.
+- Secrets only in .env, never committed, never printed in logs.
+- Web search queries use generic terms only (property type + submarket). Never send client names or deal figures out.
+- Every AI statement is traceable to a source (document or URL).
+- Label every AI answer: From this deal / From the web (Tier 1-3) / Not verified.
+- Research is advisory and labeled "sourced", not "verified".
+- Validation flags rent/SF above 2x building average. Flag, never hide.
+- Locked PDFs get status "Needs password". Never guess or bypass passwords.
+
+## Design
+- Background: #faf8fb
+- Primary dark green: #1d3c2f
+- Top bar: #13271e
+- Secondary green: #30654f
+- Gold accent: #c9a227
+- Amber for warnings, red for flags
+- Fonts: Fraunces (headings), Public Sans (body)
+- Streamlit theme goes in `.streamlit/config.toml` with a little custom CSS.
+
+## How to work with me
+- I'm a student and the technical lead. Explain in simple words what you did and why, not just code.
+- One step at a time. After each step, run the tests, show me the results, and wait.
+- Ask before big decisions (new libraries, changing the schema, anything that adds scope).
+- Keep functions small, add comments only where logic isn't obvious, and keep tests for every number we extract.
+- Commit to git after each working step with a clear message.
+
+## Roadmap
+- Step 1 (done): structure, db.py, sample data, extraction service, test.
+- Step 2: validation service + T-12 extraction + tests.
+- Step 3: drafting service.
+- Step 4: Streamlit shell: login with role gate, dashboard, deal workspace tabs.
+- Step 5: Documents tab and locked-file flow.
+- Step 6: Ask AI chat, deal-only.
+- Step 7: web research with source tiers.
+- Step 8: Gmail connection to a demo inbox.
+- Step 9: mobile polish and an accuracy report against the 95% KPI.

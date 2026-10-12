@@ -1,0 +1,9 @@
+google-genai==2.29.0
+openpyxl==3.1.5
+pandas==3.0.6
+pikepdf==10.17.0
+pydantic==2.14.1
+pypdf==6.20.1
+pytest==9.1.1
+python-dotenv==1.2.4
+streamlit==1.65.0
