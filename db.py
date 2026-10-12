@@ -56,8 +56,6 @@ CREATE TABLE IF NOT EXISTS rent_roll_units (
     annual_rent  REAL,
     rent_per_sf  REAL,
     lease_type   TEXT,
-    is_flagged   INTEGER NOT NULL DEFAULT 0,
-    flag_reason  TEXT,
     created_at   TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 
@@ -69,9 +67,23 @@ CREATE TABLE IF NOT EXISTS t12_line_items (
     line_item   TEXT NOT NULL,
     period      TEXT NOT NULL,
     amount      REAL,
-    is_flagged  INTEGER NOT NULL DEFAULT 0,
-    flag_reason TEXT,
     created_at  TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+-- Validation flags. A flag points at data, it never changes or hides it.
+-- actual_value and threshold are text so they can hold a number, a date, or a
+-- bad value exactly as it was found.
+CREATE TABLE IF NOT EXISTS flags (
+    id                INTEGER PRIMARY KEY AUTOINCREMENT,
+    deal_id           INTEGER NOT NULL REFERENCES deals(id) ON DELETE CASCADE,
+    rent_roll_unit_id INTEGER REFERENCES rent_roll_units(id) ON DELETE CASCADE,
+    unit_number       TEXT,
+    rule              TEXT NOT NULL,
+    field             TEXT,
+    actual_value      TEXT,
+    threshold         TEXT,
+    message           TEXT NOT NULL,
+    created_at        TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 
 CREATE TABLE IF NOT EXISTS valuation_outputs (
@@ -141,6 +153,7 @@ CREATE TABLE IF NOT EXISTS research_briefs (
 CREATE INDEX IF NOT EXISTS idx_documents_deal        ON documents(deal_id);
 CREATE INDEX IF NOT EXISTS idx_rent_roll_units_deal  ON rent_roll_units(deal_id);
 CREATE INDEX IF NOT EXISTS idx_t12_line_items_deal   ON t12_line_items(deal_id);
+CREATE INDEX IF NOT EXISTS idx_flags_deal            ON flags(deal_id);
 CREATE INDEX IF NOT EXISTS idx_valuation_deal        ON valuation_outputs(deal_id);
 CREATE INDEX IF NOT EXISTS idx_drafts_deal           ON drafts(deal_id);
 CREATE INDEX IF NOT EXISTS idx_research_jobs_deal    ON research_jobs(deal_id);

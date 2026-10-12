@@ -9,7 +9,7 @@ import db
 
 EXPECTED_TABLES = {
     "deals", "rent_roll_units", "t12_line_items", "valuation_outputs", "drafts",
-    "users", "documents", "research_jobs", "research_sources", "research_briefs",
+    "users", "documents", "research_jobs", "research_sources", "research_briefs", "flags",
 }
 
 
@@ -55,6 +55,26 @@ class TestSchema(SchemaTestCase):
             self.conn.execute(
                 "INSERT INTO documents (deal_id, filename) VALUES (?, 'file.pdf')", (self.deal_id,)
             )
+
+    def test_flags_has_every_part_of_a_flag(self):
+        expected = {"deal_id", "unit_number", "rule", "field", "actual_value", "threshold", "message"}
+        self.assertLessEqual(expected, self.columns("flags"))
+
+    def test_flags_must_belong_to_a_real_deal(self):
+        with self.assertRaises(sqlite3.IntegrityError):
+            self.conn.execute("INSERT INTO flags (deal_id, rule, message) VALUES (9999, 'rule', 'message')")
+
+    def test_deleting_a_deal_deletes_its_flags(self):
+        self.conn.execute(
+            "INSERT INTO flags (deal_id, rule, message) VALUES (?, 'rule', 'message')", (self.deal_id,)
+        )
+        self.conn.execute("DELETE FROM deals WHERE id = ?", (self.deal_id,))
+        self.assertEqual(self.conn.execute("SELECT COUNT(*) FROM flags").fetchone()[0], 0)
+
+    def test_old_flag_columns_are_gone(self):
+        for table in ("rent_roll_units", "t12_line_items"):
+            with self.subTest(table):
+                self.assertFalse({"is_flagged", "flag_reason"} & self.columns(table))
 
     def test_research_sources_stores_published_and_retrieved_dates(self):
         job_id = self.conn.execute(

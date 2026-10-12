@@ -16,7 +16,7 @@ Scope additions (email ingestion, proactive research, mobile, locked-file handli
 ## How it works end to end
 1. **Capture**: a deal starts from an uploaded document (OM, BOV, rent roll, T-12) or an email captured from a connected inbox (Gmail API / Microsoft Graph, pointed at a safe demo inbox).
 2. **Extract (Service A)**: Gemini reads the documents and returns strict JSON (rent roll units, T-12 line items, key terms). We validate the JSON and save to SQLite.
-3. **Validate (Service B)**: plain Python rules check the numbers, e.g. flag any unit whose rent/SF is above 2x the building average. Flag it, never hide it.
+3. **Validate (Service B)**: plain Python rules check the numbers, e.g. flag any unit whose rent/SF is above 2x the average of the building's other units. Flag it, never hide it.
 4. **Draft (Service C)**: Gemini writes a pricing narrative from the validated numbers. Indicative value = NOI / cap rate, labeled as a draft working number, not a pricing decision.
 5. **Review**: the human reviews, edits, flags or approves in the app.
 6. **Q&A (Service D)**: a chat limited to one deal. It answers from that deal's data.
@@ -50,6 +50,7 @@ Tables:
 - deals
 - rent_roll_units
 - t12_line_items
+- flags (deal_id, unit, rule, field, actual value, threshold, message)
 - valuation_outputs
 - drafts
 - users (email to role)
@@ -66,7 +67,7 @@ Tables:
 - Every AI statement is traceable to a source (document or URL).
 - Label every AI answer: From this deal / From the web (Tier 1-3) / Not verified.
 - Research is advisory and labeled "sourced", not "verified".
-- Validation flags rent/SF above 2x building average. Flag, never hide.
+- Validation flags rent/SF above 2x the average of the building's other units. Flag, never hide. Flags never change the data or block saving.
 - Locked PDFs get status "Needs password". Never guess or bypass passwords.
 
 ## Design
