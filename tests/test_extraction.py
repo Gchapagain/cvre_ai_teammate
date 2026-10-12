@@ -12,8 +12,10 @@ import tempfile
 import unittest
 from pathlib import Path
 from types import SimpleNamespace
+from unittest import mock
 
 from dotenv import load_dotenv
+from google.genai import errors
 from openpyxl import load_workbook
 
 import db
@@ -53,6 +55,27 @@ def fake_client(units):
     return SimpleNamespace(models=SimpleNamespace(generate_content=lambda **kwargs: reply))
 
 
+def gemini_error(code, status):
+    """Build the error the Gemini SDK raises for an HTTP error code."""
+    error_class = errors.ServerError if code >= 500 else errors.ClientError
+    return error_class(code, {"error": {"code": code, "message": "simulated", "status": status}})
+
+
+def flaky_client(outcomes):
+    """A stand-in client that works through outcomes in order: raise errors, return units as JSON."""
+    calls = []
+
+    def generate_content(**kwargs):
+        outcome = outcomes[len(calls)]
+        calls.append(outcome)
+        if isinstance(outcome, Exception):
+            raise outcome
+        return SimpleNamespace(text=json.dumps({"units": outcome}))
+
+    client = SimpleNamespace(models=SimpleNamespace(generate_content=generate_content))
+    return client, calls
+
+
 class ExtractionTestCase(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
@@ -74,6 +97,12 @@ class ExtractionTestCase(unittest.TestCase):
         ).fetchall()
         conn.close()
         return {row["unit_number"]: dict(row) for row in rows}
+
+    def saved_documents(self):
+        conn = db.get_connection(self.db_path)
+        rows = conn.execute("SELECT * FROM documents WHERE deal_id = ?", (self.deal_id,)).fetchall()
+        conn.close()
+        return [dict(row) for row in rows]
 
     def find_mismatches(self):
         """Return a list of every value in the database that differs from the source file."""
@@ -115,6 +144,18 @@ class TestPipelineWithoutGemini(ExtractionTestCase):
         )
         self.assertEqual(count, 12)
         self.assertEqual(self.find_mismatches(), [])
+
+    def test_document_is_recorded_as_read(self):
+        extraction.extract_rent_roll(
+            RENT_ROLL, self.deal_id, client=fake_client(self.source), db_path=self.db_path
+        )
+        documents = self.saved_documents()
+        self.assertEqual(len(documents), 1)
+        self.assertEqual(documents[0]["filename"], "rent_roll.xlsx")
+        self.assertEqual(documents[0]["status"], "Read")
+        self.assertEqual(documents[0]["source"], "Upload")
+        self.assertEqual(documents[0]["used_for"], "Rent roll")
+        self.assertTrue(documents[0]["received_at"])
 
     def test_comparison_catches_a_wrong_value(self):
         wrong = [dict(u) for u in self.source]
@@ -161,14 +202,57 @@ class TestPipelineWithoutGemini(ExtractionTestCase):
             extraction.extract_rent_roll(RENT_ROLL, self.deal_id, client=client, db_path=self.db_path)
 
 
+class TestGeminiRetry(ExtractionTestCase):
+    def setUp(self):
+        super().setUp()
+        patcher = mock.patch.object(extraction.time, "sleep")
+        self.sleep = patcher.start()
+        self.addCleanup(patcher.stop)
+
+    def test_temporary_errors_are_retried_then_succeed(self):
+        outcomes = [gemini_error(503, "UNAVAILABLE"), gemini_error(429, "RESOURCE_EXHAUSTED"), self.source]
+        client, calls = flaky_client(outcomes)
+        count = extraction.extract_rent_roll(RENT_ROLL, self.deal_id, client=client, db_path=self.db_path)
+        self.assertEqual(count, 12)
+        self.assertEqual(len(calls), 3)
+        self.assertEqual(self.sleep.call_count, 2)
+        self.assertEqual(self.find_mismatches(), [])
+
+    def test_three_failures_stop_with_clear_error_and_save_nothing(self):
+        for code, status in [(503, "UNAVAILABLE"), (429, "RESOURCE_EXHAUSTED")]:
+            with self.subTest(code):
+                client, calls = flaky_client([gemini_error(code, status)] * 5)
+                with self.assertRaises(extraction.ExtractionError) as caught:
+                    extraction.extract_rent_roll(RENT_ROLL, self.deal_id, client=client, db_path=self.db_path)
+                self.assertEqual(len(calls), 3)
+                message = str(caught.exception)
+                self.assertIn("after 3 tries", message)
+                self.assertIn(str(code), message)
+                self.assertIn("Nothing was saved", message)
+                self.assertEqual(self.saved_units(), {})
+                self.assertEqual(self.saved_documents(), [])
+
+    def test_permanent_error_is_not_retried(self):
+        client, calls = flaky_client([gemini_error(400, "INVALID_ARGUMENT"), self.source])
+        with self.assertRaises(extraction.ExtractionError) as caught:
+            extraction.extract_rent_roll(RENT_ROLL, self.deal_id, client=client, db_path=self.db_path)
+        self.assertEqual(len(calls), 1)
+        self.sleep.assert_not_called()
+        self.assertIn("400", str(caught.exception))
+        self.assertEqual(self.saved_units(), {})
+        self.assertEqual(self.saved_documents(), [])
+
+
 @unittest.skipUnless(HAS_REAL_KEY, "GEMINI_API_KEY in .env is still the placeholder")
 class TestLiveExtraction(ExtractionTestCase):
     def test_gemini_extraction_matches_source_exactly(self):
         count = extraction.extract_rent_roll(RENT_ROLL, self.deal_id, db_path=self.db_path)
         self.assertEqual(count, 12)
         mismatches = self.find_mismatches()
-        self.assertEqual(mismatches, [], "\n" + "\n".join(mismatches))
-        print(f"\n  Gemini: {count} units x {len(FIELDS)} fields = {count * len(FIELDS)} values, all match the source")
+        total = len(self.source) * len(FIELDS)
+        summary = f"Gemini: {total - len(mismatches)} of {total} values match the source"
+        print(f"\n  {summary}")
+        self.assertEqual(mismatches, [], f"\n{summary}\n" + "\n".join(mismatches))
 
 
 if __name__ == "__main__":

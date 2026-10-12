@@ -6,12 +6,13 @@ rent/SF flag) is the validation service's job.
 """
 
 import os
+import time
 from datetime import date, datetime
 from pathlib import Path
 
 from dotenv import load_dotenv
 from google import genai
-from google.genai import types
+from google.genai import errors, types
 from openpyxl import load_workbook
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
@@ -23,6 +24,11 @@ KEY_PLACEHOLDER = "PASTE_KEY_HERE"
 # Current stable Flash model per https://ai.google.dev/gemini-api/docs/models
 # (checked 2026-10-12). Override with GEMINI_MODEL in .env if it changes.
 DEFAULT_MODEL = "gemini-3.8-flash"
+
+# Temporary Gemini errors (rate limited or server busy) that are worth another try.
+RETRYABLE_CODES = {429, 500, 502, 503, 504}
+MAX_TRIES = 3
+RETRY_WAIT_SECONDS = 5  # wait 5s after the first failure, 10s after the second
 
 PROMPT = """You are extracting a commercial real estate rent roll into JSON.
 
@@ -113,8 +119,8 @@ def validate_extraction(raw_json, source_rows):
     return extraction.units
 
 
-def call_gemini(client, sheet_text, model=None):
-    """Send the rent roll text to Gemini and return its raw JSON string."""
+def _request_extraction(client, sheet_text, model):
+    """Make one Gemini request and return its raw JSON string."""
     response = client.models.generate_content(
         model=model or os.getenv("GEMINI_MODEL") or DEFAULT_MODEL,
         contents=PROMPT.format(sheet_text=sheet_text),
@@ -127,6 +133,26 @@ def call_gemini(client, sheet_text, model=None):
     if not response.text:
         raise ExtractionError("Gemini returned an empty response.")
     return response.text
+
+
+def call_gemini(client, sheet_text, model=None):
+    """Send the rent roll text to Gemini, retrying temporary errors up to MAX_TRIES times."""
+    for attempt in range(1, MAX_TRIES + 1):
+        try:
+            return _request_extraction(client, sheet_text, model)
+        except errors.APIError as exc:
+            if exc.code not in RETRYABLE_CODES:
+                raise ExtractionError(
+                    f"Gemini rejected the request ({exc.code} {exc.status}): {exc.message} Nothing was saved."
+                ) from exc
+            last_error = exc
+            if attempt < MAX_TRIES:
+                time.sleep(RETRY_WAIT_SECONDS * attempt)
+    raise ExtractionError(
+        f"Gemini was unavailable after {MAX_TRIES} tries "
+        f"(last error: {last_error.code} {last_error.status}). "
+        "Nothing was saved. Please try again in a few minutes."
+    ) from last_error
 
 
 def save_units(conn, deal_id, document_id, units):
@@ -146,7 +172,7 @@ def save_units(conn, deal_id, document_id, units):
     )
 
 
-def extract_rent_roll(xlsx_path, deal_id, client=None, db_path=None, model=None):
+def extract_rent_roll(xlsx_path, deal_id, client=None, db_path=None, model=None, source="Upload"):
     """Extract a rent roll file into rent_roll_units. Returns the number of units saved."""
     xlsx_path = Path(xlsx_path)
     source_rows = read_sheet_rows(xlsx_path)
@@ -162,8 +188,9 @@ def extract_rent_roll(xlsx_path, deal_id, client=None, db_path=None, model=None)
     try:
         with conn:
             cursor = conn.execute(
-                "INSERT INTO documents (deal_id, filename, doc_type, file_path, status) VALUES (?, ?, ?, ?, ?)",
-                (deal_id, xlsx_path.name, "Rent roll", str(xlsx_path), "Extracted"),
+                """INSERT INTO documents (deal_id, filename, doc_type, file_path, source, status, used_for)
+                   VALUES (?, ?, ?, ?, ?, ?, ?)""",
+                (deal_id, xlsx_path.name, "Rent roll", str(xlsx_path), source, "Read", "Rent roll"),
             )
             save_units(conn, deal_id, cursor.lastrowid, units)
     finally:

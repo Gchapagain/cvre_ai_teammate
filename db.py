@@ -27,16 +27,20 @@ CREATE TABLE IF NOT EXISTS deals (
     updated_at    TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 
--- status examples: Uploaded, Extracted, Needs password, Failed
+-- source: where the file came from (Upload or Email).
+-- used_for: what the AI used the file for (for example Rent roll, T-12).
 CREATE TABLE IF NOT EXISTS documents (
     id          INTEGER PRIMARY KEY AUTOINCREMENT,
     deal_id     INTEGER NOT NULL REFERENCES deals(id) ON DELETE CASCADE,
     filename    TEXT NOT NULL,
     doc_type    TEXT,
     file_path   TEXT,
-    status      TEXT NOT NULL DEFAULT 'Uploaded',
+    source      TEXT NOT NULL DEFAULT 'Upload',
+    status      TEXT NOT NULL
+                CHECK (status IN ('Read', 'Reference only', 'Needs password')),
+    used_for    TEXT,
     uploaded_by INTEGER REFERENCES users(id),
-    uploaded_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+    received_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 
 CREATE TABLE IF NOT EXISTS rent_roll_units (
@@ -110,15 +114,18 @@ CREATE TABLE IF NOT EXISTS research_jobs (
     completed_at  TEXT
 );
 
+-- published_date is when the source says it was published (empty if it does not say).
+-- retrieved_at is when we fetched it.
 CREATE TABLE IF NOT EXISTS research_sources (
-    id           INTEGER PRIMARY KEY AUTOINCREMENT,
-    job_id       INTEGER NOT NULL REFERENCES research_jobs(id) ON DELETE CASCADE,
-    url          TEXT NOT NULL,
-    title        TEXT,
-    publisher    TEXT,
-    tier         INTEGER CHECK (tier IN (1, 2, 3)),
-    snippet      TEXT,
-    retrieved_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+    id             INTEGER PRIMARY KEY AUTOINCREMENT,
+    job_id         INTEGER NOT NULL REFERENCES research_jobs(id) ON DELETE CASCADE,
+    url            TEXT NOT NULL,
+    title          TEXT,
+    publisher      TEXT,
+    tier           INTEGER CHECK (tier IN (1, 2, 3)),
+    snippet        TEXT,
+    published_date TEXT,
+    retrieved_at   TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 
 CREATE TABLE IF NOT EXISTS research_briefs (

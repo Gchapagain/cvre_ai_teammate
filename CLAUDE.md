@@ -55,7 +55,7 @@ Tables:
 - users (email to role)
 - documents (deal_id, filename, source, received_at, status, used_for)
 - research_jobs
-- research_sources (url, date, reliability tier)
+- research_sources (url, published date, retrieved date, reliability tier)
 - research_briefs
 
 ## Rules that must always hold
