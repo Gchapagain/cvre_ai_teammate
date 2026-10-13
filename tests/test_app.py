@@ -45,7 +45,7 @@ class AppTestCase(unittest.TestCase):
         parts = []
         for kind in ("title", "header", "subheader", "markdown", "caption", "info", "warning", "error"):
             parts += [element.value for element in getattr(self.app, kind)]
-        return "\n".join(parts)
+        return "\n".join(part for part in parts if "<style>" not in part)  # leave out the stylesheet
 
 
 class TestLogin(AppTestCase):
@@ -76,7 +76,6 @@ class TestLogin(AppTestCase):
                 self.assertFalse(self.app.exception)
                 self.assertEqual(self.app.session_state["user"]["role"], role)
                 self.assertIn(f'<span class="role-badge">{role}</span>', self.page_text())
-                self.assertIn("Demo login", self.page_text())
 
     def test_sign_out_returns_to_the_locked_login(self):
         self.sign_in()
@@ -90,12 +89,86 @@ class TestDashboard(AppTestCase):
         super().setUp()
         self.sign_in()
 
+    def deal_buttons(self):
+        return [button.key for button in self.app.button if button.key.startswith("open_deal_")]
+
+    def deal_keys(self, *names):
+        return [f"open_deal_{self.deals[name]}" for name in names]
+
+    def click_stat(self, name):
+        self.app.button(key=f"statbtn_{name}").click().run()
+        self.assertFalse(self.app.exception)
+
     def test_stat_cards(self):
+        labels = [self.app.button(key=f"statbtn_{name}").label for name in ("active", "review", "time", "anomalies")]
+        self.assertEqual(labels, ["Active deals", "Needs review", "Time saved", "Anomalies"])
+        self.assertIn("Not measured yet", self.page_text())
+
+    def test_nothing_is_filtered_at_first(self):
+        self.assertEqual(self.deal_buttons(), self.deal_keys("fallowmere", "quillhaven", "brindlewick"))
+        self.assertNotIn("Showing:", self.page_text())
+        self.assertNotIn("show_all_deals", [button.key for button in self.app.button])
+
+    def test_active_deals_card_shows_only_deals_not_yet_approved(self):
+        self.click_stat("active")
+        self.assertEqual(self.deal_buttons(), self.deal_keys("fallowmere", "quillhaven"))
+        self.assertIn("Showing: Active deals (2)", self.page_text())
+
+    def test_needs_review_card_shows_only_deals_needing_review(self):
+        self.click_stat("review")
+        self.assertEqual(self.deal_buttons(), self.deal_keys("fallowmere"))
+        self.assertIn("Showing: Needs Review (1)", self.page_text())
+
+    def test_anomalies_card_shows_only_deals_with_flags(self):
+        self.click_stat("anomalies")
+        self.assertEqual(self.deal_buttons(), self.deal_keys("fallowmere"))
+        self.assertIn("Showing: Anomalies (1)", self.page_text())
+
+    def test_show_all_deals_resets_the_filter(self):
+        self.click_stat("review")
+        self.app.button(key="show_all_deals").click().run()
+        self.assertEqual(len(self.deal_buttons()), 3)
+        self.assertNotIn("Showing:", self.page_text())
+
+    def test_clicking_the_selected_card_again_clears_it(self):
+        self.click_stat("review")
+        self.click_stat("review")
+        self.assertEqual(len(self.deal_buttons()), 3)
+
+    def test_switching_cards_switches_the_filter(self):
+        self.click_stat("review")
+        self.click_stat("active")
+        self.assertEqual(self.app.session_state["deal_filter"], "active")
+        self.assertEqual(len(self.deal_buttons()), 2)
+
+    def test_time_saved_card_opens_an_explanation_and_filters_nothing(self):
+        self.click_stat("time")
         text = self.page_text()
-        for label in ("Active deals", "Needs review", "Time saved", "Anomalies"):
-            self.assertIn(label, text)
-        self.assertIn("Not measured yet", text)
-        self.assertIn("Real timings arrive with the accuracy report", text)
+        self.assertIn("Time saved is not measured yet.", text)
+        self.assertIn("accuracy report", text)
+        self.assertEqual(len(self.deal_buttons()), 3)
+        self.app.button(key="close_time_saved").click().run()
+        self.assertNotIn("Time saved is not measured yet.", self.page_text())
+
+    def test_a_filtered_deal_still_opens(self):
+        self.click_stat("anomalies")
+        self.open_deal("fallowmere")
+        self.assertIn("Extracted fields", self.page_text())
+
+    def test_filter_rules(self):
+        from app.views import dashboard
+        deals = [
+            {"id": 1, "status": "Needs Review", "flag_count": 0},
+            {"id": 2, "status": "Extracting", "flag_count": 2},
+            {"id": 3, "status": "Approved", "flag_count": 1},
+            {"id": 4, "status": "Approved", "flag_count": 0},
+        ]
+        ids = lambda name: [deal["id"] for deal in dashboard.filter_deals(deals, name)]
+        self.assertEqual(ids("active"), [1, 2])
+        self.assertEqual(ids("review"), [1])
+        self.assertEqual(ids("anomalies"), [2, 3])
+        self.assertEqual(ids(None), [1, 2, 3, 4])
+        self.assertEqual(ids("time"), [1, 2, 3, 4])
 
     def test_stat_numbers_come_from_the_database(self):
         from app import queries
@@ -108,7 +181,7 @@ class TestDashboard(AppTestCase):
         self.assertIn("1 anomaly", text)
 
     def test_the_deal_name_is_the_only_button_on_each_card(self):
-        labels = {button.key: button.label for button in self.app.button}
+        labels = {button.key: button.label for button in self.app.button if not button.key.startswith("statbtn_")}
         self.assertEqual(labels, {
             "sign_out": "Sign out",
             "open_assistant": "Ask the AI Teammate",
@@ -135,7 +208,9 @@ class TestDashboard(AppTestCase):
         text = self.page_text()
         self.assertEqual(text.count("Noor Sample"), 1)
         self.assertEqual(text.count("Analyst"), 1)
-        self.assertIn('<span class="role-badge">Analyst</span>', text)
+        self.assertIn('<span class="user-name">Noor Sample</span><span class="role-badge">Analyst</span>', text)
+        self.assertIn("CBRE AI Teammate", text)
+        self.assertIn("<svg", text)
 
     def test_clicking_a_deal_name_opens_that_deal(self):
         self.open_deal("brindlewick")
@@ -194,7 +269,7 @@ class TestDealWorkspace(AppTestCase):
     def test_back_button_returns_to_the_dashboard(self):
         self.open_deal("fallowmere")
         self.app.button(key="back_to_deals").click().run()
-        self.assertIn("Active deals", self.page_text())
+        self.assertIn("Needs your attention", self.page_text())
 
 
 class TestDataTabDownloads(AppTestCase):
@@ -402,6 +477,31 @@ class TestFloatingAssistant(AppTestCase):
         self.assertEqual(self.app.button(key="open_assistant").label, "Ask the AI Teammate")
         self.app.button(key="sign_out").click().run()
         self.assertNotIn("open_assistant", [button.key for button in self.app.button])
+
+    def test_clicking_the_button_then_picking_all_deals_and_one_deal_never_errors(self):
+        """The path that crashed in the browser: open the dialog, use the picker both ways."""
+        self.use_client(all_deals_client(self.calls, AssertionError("Gemini must not be called just by looking")))
+        self.open_assistant()
+        self.assertFalse(self.app.exception)
+        picker = self.app.selectbox(key="assistant_scope")
+        self.assertEqual(picker.value, "All deals")
+        self.assertIn("assistant_chat_input_all", [c.key for c in self.app.chat_input])
+        for name, deal_id in self.deals.items():
+            with self.subTest(name):
+                self.app.selectbox(key="assistant_scope").set_value(deal_id).run()
+                self.assertFalse(self.app.exception)
+                self.assertIn(f"assistant_chat_input_{deal_id}", [c.key for c in self.app.chat_input])
+        self.app.selectbox(key="assistant_scope").set_value("All deals").run()
+        self.assertFalse(self.app.exception)
+        self.assertIn("assistant_chat_input_all", [c.key for c in self.app.chat_input])
+        self.assertEqual(self.calls, [])
+
+    def test_the_dialog_uses_functions_that_really_exist(self):
+        """Guards against a screen calling a helper another module does not have."""
+        from app.views import ask_ai, assistant
+        self.assertTrue(callable(ask_ai.render_chat))
+        self.assertTrue(callable(ask_ai.get_answer))
+        self.assertTrue(callable(assistant.render))
 
     def test_nothing_opens_and_gemini_is_not_called_until_the_button_is_clicked(self):
         self.use_client(all_deals_client(self.calls, AssertionError("must not be called")))

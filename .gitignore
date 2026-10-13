@@ -2,3 +2,5 @@
 .venv/
 *.db
 __pycache__/
+screenshots/
+.pytest_cache/

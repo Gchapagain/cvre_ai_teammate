@@ -39,7 +39,7 @@ def render():
 
     CSS in app/style.py pins the button to the bottom-right corner.
     """
-    with st.container(key="assistant_fab"):
+    with st.container(key="fab"):
         st.button(BUTTON_LABEL, key="open_assistant", icon=":material/auto_awesome:", on_click=_open)
     if st.session_state.get("assistant_open"):
         _dialog()

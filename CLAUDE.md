@@ -34,7 +34,7 @@ Services live in `/services`: extraction, validation, drafting, qa, research. `g
 
 ## Screens (Streamlit, desktop only, wide layout)
 1. **Login**: Step 1 pick role, Step 2 sign in (locked until a role is chosen).
-2. **Deals dashboard**: stats (active deals, needs review, time saved, anomalies) and deal cards with status pills. Deals needing attention (Needs Review or an anomaly) come first with a coloured left border. Clicking a card opens the deal.
+2. **Deals dashboard**: stat cards (active deals, needs review, time saved, anomalies) and deal cards with status pills. The stat cards are filters: clicking one shows only the matching deals, with "Showing: ..." above the list and a "Show all deals" link. Time saved opens a note explaining it is not measured yet. Deals needing attention (Needs Review or an anomaly) come first with a coloured left border. Clicking a card opens the deal.
 3. **Deal workspace**, opened by clicking a deal, with four tabs:
    - **Review**: anomaly banner, extracted fields table, draft narrative with Flag / Edit / Approve, market research panel.
    - **Documents**: all files for the deal with status (Received / Read / Reference only / Needs password), source, an add-document box, and an expected-documents checklist. Locked PDFs get "Needs password": the user enters the password (used once, not stored) or requests an unlocked copy. Scanned PDFs go to OCR.
@@ -42,7 +42,7 @@ Services live in `/services`: extraction, validation, drafting, qa, research. `g
    - **Ask AI**: deal-only chat. Gemini is called only when a message is sent; quota and rate-limit problems show as a friendly chat message. The web search toggle is shown disabled until Step 7. Every answer is labeled "From this deal", "From the web (Tier 1-3)" or "Not verified".
 4. **Inbox & Chat**: captured emails with extraction chips and linked deal, plus a general chat.
 5. **All Data**: master table across every deal, compare two deals, export everything.
-6. **AI Teammate assistant**: a floating button on every page after login. It opens a chat where the user picks one deal or "All deals". One deal uses the same logic as the Ask AI tab. "All deals" answers only from the database, is labeled "From these deals" and lists the deals used.
+6. **AI Teammate assistant**: a round floating button fixed to the bottom-right of every page after login. It opens a chat where the user picks one deal or "All deals". One deal uses the same logic as the Ask AI tab. "All deals" answers only from the database, is labeled "From these deals" and lists the deals used.
 
 Desktop only. No mobile layout, bottom navigation or tables-as-cards.
 
@@ -81,7 +81,8 @@ Tables:
 - Amber for warnings, red for flags
 - Fonts: Fraunces (headings), Public Sans (body)
 - Streamlit theme goes in `.streamlit/config.toml`. The design system lives in `app/style.py`: 8px spacing grid, 24px card padding, 12px radius, 40px buttons, 48px tabs. Use its tokens and classes instead of one-off styles.
-- The Ask AI tab and the assistant button use the gold accent with a sparkle icon so AI features are recognisable.
+- A full-width dark green top bar sits across every signed-in page: sparkle and app name on the left; user name, role badge and Sign out on the right.
+- The Ask AI tab (a gold oval pill) and the assistant button use the gold accent with a sparkle icon so AI features are recognisable.
 
 ## How to work with me
 - I'm a student and the technical lead. Explain in simple words what you did and why, not just code.
@@ -98,6 +99,8 @@ Tables:
 - "Time saved" shows "Not measured yet" until the accuracy report. No assumed numbers anywhere.
 
 ## Testing
+- After any UI change, look at the real app, not only the tests: `.venv/bin/python tools/screenshots.py` (add `webkit` for Safari's engine). It starts its own copy of the app, clicks through it, checks the layout, fails on any error box or traceback, and saves screenshots to `screenshots/` (git-ignored). It never sends a chat message, so Gemini is not called. It needs `requirements-dev.txt`.
+- Restart the app after code changes. `app/fresh.py` reloads all app code together if a file changes while the app is running, but a restart is the safe habit.
 - Offline (default, no API calls): `.venv/bin/python -m pytest`
 - Live (one real Gemini request per extraction): `RUN_LIVE_GEMINI=1 .venv/bin/python -m pytest -s -o log_cli=true`
 - Only run the live test when I explicitly ask. The free-tier key allows 20 requests per day.

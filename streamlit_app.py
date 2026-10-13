@@ -7,8 +7,12 @@ from html import escape
 
 import streamlit as st
 
-from app import queries, style
-from app.views import assistant, dashboard, deal, login
+from app import fresh
+
+fresh.ensure()  # must run before the imports below: see app/fresh.py
+
+from app import queries, style  # noqa: E402
+from app.views import assistant, dashboard, deal, login  # noqa: E402
 
 st.set_page_config(page_title="CBRE AI Teammate", layout="wide")
 style.apply()
@@ -19,14 +23,14 @@ def _sign_out():
 
 
 def _top_bar(user):
-    with st.container(key="topbar"):
-        brand, who, action = st.columns([5, 4, 1], vertical_alignment="center")
-        with brand:
-            style.html('<div class="brand">CBRE AI Teammate</div>')
-        with who:
-            style.html(f'<div class="who"><span class="demo">Demo login</span><span>{escape(user["full_name"])}</span>'
-                       f'<span class="role-badge">{escape(user["role"])}</span></div>')
-        with action:
+    """The full-width bar across the top: brand on the left, user, role and sign out on the right."""
+    with st.container(key="topbar", horizontal=True, horizontal_alignment="distribute", vertical_alignment="center"):
+        st.markdown(f'<div class="brand">{style.SPARKLE}<span>CBRE AI Teammate</span></div>',
+                    unsafe_allow_html=True, width="content")
+        with st.container(key="topbar_user", horizontal=True, vertical_alignment="center", width="content"):
+            st.markdown(f'<div class="who"><span class="user-name">{escape(user["full_name"])}</span>'
+                        f'<span class="role-badge">{escape(user["role"])}</span></div>',
+                        unsafe_allow_html=True, width="content")
             st.button("Sign out", key="sign_out", on_click=_sign_out)
 
 
