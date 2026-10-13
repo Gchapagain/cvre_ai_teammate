@@ -24,6 +24,7 @@ OUT = ROOT / "screenshots"
 PORT = 8765
 URL = f"http://localhost:{PORT}"
 problems = []
+FAKE_MICROPHONE = False  # set in main() for Chrome only
 
 
 def check(name, ok, detail=""):
@@ -210,7 +211,12 @@ def run(page, suffix):
           and dialog.get_by_role("button", name="Draft with AI").count() == 1)
     dialog.locator("textarea").first.fill("Oakmere Depot is a 40,000 sf warehouse in Fort Worth with three tenants.")
     page.wait_for_timeout(300)
+    check("describe box has the record control", dialog.get_by_text("Record or upload audio").count() == 1)
     shot("8_new_deal_describe")
+    dialog.get_by_text("Record or upload audio").click()
+    dialog.get_by_text("Audio is sent to Gemini for transcription and is not saved.").wait_for()
+    page.wait_for_timeout(600)
+    shot("8b_new_deal_describe_recorder_open")
     # A real upload through the browser, using only a T-12 so that nothing is sent to Gemini.
     dialog.get_by_text("Upload files", exact=True).click()
     dialog.get_by_label("Deal name").wait_for()
@@ -236,6 +242,7 @@ def run(page, suffix):
     dialog.get_by_text("Ask about", exact=True).wait_for()
     page.wait_for_timeout(1000)
     no_error_box(page, "with the AI dialog open on All deals")
+    check("assistant chat has the record control", dialog.get_by_text("Record or upload audio").count() == 1)
     picker = dialog.locator('[data-testid="stSelectbox"]')
     check("dialog has the deal picker on All deals", "All deals" in picker.inner_text() or picker.locator("input").input_value() == "All deals",
           picker.inner_text())
@@ -288,6 +295,55 @@ def run(page, suffix):
     no_error_box(page, "on the Ask AI tab")
     shot("4b_deal_tabs_ask_ai_active")
 
+    print("Record button in the deal chat")
+    panel = page.get_by_role("tabpanel")
+    recorder = panel.locator(".st-key-chat_1_voice")
+    check("record control with a microphone icon is under the chat box",
+          recorder.count() == 1 and "mic" in recorder.inner_text() and "Record or upload audio" in recorder.inner_text())
+    recorder.locator("summary").click()
+    panel.get_by_text("Audio is sent to Gemini for transcription and is not saved.").wait_for()
+    page.wait_for_timeout(800)
+    check("privacy notice is shown next to it", True)
+    check("has a microphone recorder and an audio upload box", panel.locator('[data-testid="stAudioInput"]').count() == 1
+          and panel.locator('[data-testid="stFileUploader"]').count() == 1)
+    transcribe_button = panel.get_by_role("button", name="Transcribe")
+    check("Transcribe is disabled until there is audio", transcribe_button.is_disabled())
+    no_error_box(page, "with the recorder open")
+    shot("10_chat_record_button")
+    if FAKE_MICROPHONE:
+        # Chrome's built-in fake microphone (a test tone). This shows the recorder works in Chrome.
+        # It is not your real microphone and not Safari. Transcribe is never pressed, so nothing is sent.
+        try:
+            audio_box = panel.locator('[data-testid="stAudioInput"]')
+            print("  info recorder buttons:", [b.get_attribute("aria-label") or b.inner_text() for b in audio_box.locator("button").all()])
+            audio_box.get_by_role("button", name="Record").click()
+            page.wait_for_timeout(3000)
+            print("  info while recording:", [b.get_attribute("aria-label") or b.inner_text() for b in audio_box.locator("button").all()],
+                  audio_box.inner_text().replace("\n", " ")[-20:])
+            audio_box.get_by_role("button", name="Stop recording").click()
+            page.wait_for_timeout(3000)
+            check("fake microphone: a recording unlocks Transcribe", transcribe_button.is_enabled())
+            shot("10b_chat_after_fake_recording")
+        except Exception as exc:
+            check("fake microphone: a recording unlocks Transcribe", False, str(exc)[:120])
+    else:
+        print("  skip microphone recording is not tried in this browser engine")
+
+    print("Notes on the Review tab")
+    tabs.first.click()
+    panel = page.get_by_role("tabpanel")
+    panel.get_by_role("heading", name="Notes").scroll_into_view_if_needed()
+    panel.get_by_label("Add a note").fill("Seller prefers a quick close.\nCall back Friday.")
+    panel.get_by_role("button", name="Save note").click()
+    page.locator(".note-text").first.wait_for()
+    page.wait_for_timeout(600)
+    check("a typed note is shown as written, with its source", "Seller prefers a quick close." in page.locator(".note-text").first.inner_text()
+          and "Typed" in page.locator(".note-meta").first.inner_text())
+    no_error_box(page, "after saving a note")
+    page.locator(".note-text").first.scroll_into_view_if_needed()
+    shot("11_deal_notes")
+    page.mouse.wheel(0, -5000)
+
     print("Going home")
     page.locator(".st-key-nav_home button").click()
     page.get_by_text("Needs your attention").wait_for()
@@ -300,14 +356,22 @@ def run(page, suffix):
 
 
 def main():
+    global FAKE_MICROPHONE
     engine = sys.argv[1] if len(sys.argv) > 1 else "chrome"
+    FAKE_MICROPHONE = engine == "chrome"
     OUT.mkdir(exist_ok=True)
     log_path = OUT / "streamlit.log"
     app = start_app(log_path)
     try:
         with sync_playwright() as p:
-            browser = p.webkit.launch() if engine == "webkit" else p.chromium.launch(channel="chrome")
-            page = browser.new_page(viewport={"width": 1440, "height": 900})
+            if engine == "webkit":
+                browser = p.webkit.launch()
+                page = browser.new_page(viewport={"width": 1440, "height": 900})
+            else:
+                browser = p.chromium.launch(channel="chrome", args=[
+                    "--use-fake-device-for-media-stream", "--use-fake-ui-for-media-stream"])
+                context = browser.new_context(viewport={"width": 1440, "height": 900}, permissions=["microphone"])
+                page = context.new_page()
             page.set_default_timeout(15000)
             run(page, "" if engine == "chrome" else f"_{engine}")
             browser.close()

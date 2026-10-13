@@ -24,7 +24,7 @@ Scope additions (email ingestion, proactive research, locked-file handling) must
 
 Source reliability tiers: Tier 1 government/primary, Tier 2 brokerage research, Tier 3 trade press. Unrecognized sources are skipped.
 
-Services live in `/services`: extraction, validation, drafting, qa, research. `gemini.py` is the shared Gemini access (client, retries, quota handling, timing log) used by every service. `pipeline.process_deal` runs extraction then validation and returns a short summary (units saved, flags raised, which rules).
+Services live in `/services`: extraction, validation, drafting, qa, research, plus deals (the only writes the screens make), new_deal (uploads and AI drafts) and transcribe (audio to text). `gemini.py` is the shared Gemini access (client, retries, quota handling, timing log) used by every service. `pipeline.process_deal` runs extraction then validation and returns a short summary (units saved, flags raised, which rules).
 
 ## Users and login
 - Roles: Agent (broker/producer), Analyst, Administrator.
@@ -36,7 +36,7 @@ Services live in `/services`: extraction, validation, drafting, qa, research. `g
 1. **Login**: two columns. Left: dark green brand panel. Right: a card with Step 1 pick a role (three role cards), Step 2 sign in (Google / Microsoft buttons, locked until a role is chosen). Demo login only for now.
 2. **Deals dashboard**: stat cards (active deals, needs review, time saved, anomalies) and deal cards with status pills. The stat cards are filters: clicking one shows only the matching deals, with "Showing: ..." above the list and a small Clear button. Time saved opens a note explaining it is not measured yet. Deals needing attention (Needs Review or an anomaly) come first with a coloured left border. Clicking a card opens the deal.
 3. **Deal workspace**, opened by clicking a deal, with four tabs:
-   - **Review**: anomaly banner, extracted fields table, draft narrative with Flag / Edit / Approve, market research panel.
+   - **Review**: anomaly banner, extracted fields table, draft narrative with Flag / Edit / Approve, market research panel, and a Notes section (typed notes and checked transcripts, shown exactly as the person saved them).
    - **Documents**: all files for the deal with status (Received / Read / Reference only / Needs password), source, an add-document box, and an expected-documents checklist. Locked PDFs get "Needs password": the user enters the password (used once, not stored) or requests an unlocked copy. Scanned PDFs go to OCR.
    - **Data**: this deal's rent roll, T-12 summary, indicative value, draft versions, per-deal export. Built so far: rent roll and T-12 as CSV and Excel, draft narrative as text. PDF later.
    - **Ask AI**: deal-only chat. Gemini is called only when a message is sent; quota and rate-limit problems show as a friendly chat message. The web search toggle is shown disabled until Step 7. Every answer is labeled "From this deal", "From the web (Tier 1-3)" or "Not verified".
@@ -66,6 +66,7 @@ Tables:
 - Sample or synthetic data only. No real client data in the repo.
 - Secrets only in .env, never committed, never printed in logs.
 - The AI never creates or saves a deal on its own. It drafts; a person presses Create deal.
+- Voice: a person can record or upload audio (mp3, m4a, wav) in either chat and in the New deal box. It is sent to Gemini only when Transcribe is pressed. The audio is never saved; only the transcript the person has checked is used or stored (as a deal note, source "Recording"). The UI says: "Audio is sent to Gemini for transcription and is not saved."
 - The free Gemini tier allows 20 requests a day. Each of these uses one: reading a rent roll, a chat message, drafting a deal from a description, transcribing a recording.
 - Web search queries use generic terms only (property type + submarket). Never send client names or deal figures out.
 - Every AI statement is traceable to a source (document or URL).

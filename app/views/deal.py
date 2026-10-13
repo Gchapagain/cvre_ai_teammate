@@ -6,7 +6,7 @@ import pandas as pd
 import streamlit as st
 
 from app import nav, queries, style
-from app.views import ask_ai, data_tab
+from app.views import ask_ai, data_tab, notes
 
 COLUMNS = {
     "unit_number": "Unit", "tenant_name": "Tenant", "square_feet": "SF",
@@ -88,6 +88,7 @@ def render():
     review, documents, data, ask_ai_tab = st.tabs(TABS)
     with review:
         _review_tab(deal)
+        notes.render(deal)
     with documents:
         st.info("Documents: coming in a later step.")
     with data:

@@ -86,5 +86,13 @@ def latest_draft(deal_id):
     return _one("SELECT title, body, status FROM drafts WHERE deal_id = ? ORDER BY id DESC LIMIT 1", (deal_id,))
 
 
+def deal_notes(deal_id):
+    """Notes on a deal, oldest first. A database from before notes existed simply has none."""
+    try:
+        return _all("SELECT id, text, source, created_at FROM deal_notes WHERE deal_id = ? ORDER BY id", (deal_id,))
+    except sqlite3.OperationalError:
+        return []
+
+
 def deal_documents(deal_id):
     return _all("SELECT * FROM documents WHERE deal_id = ? ORDER BY id", (deal_id,))

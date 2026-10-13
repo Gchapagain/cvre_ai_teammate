@@ -188,6 +188,13 @@ h1, h2, h3, h4, .stat-value { font-family: 'Fraunces', Georgia, serif !important
 .stTabs [role="tab"]:last-of-type:focus-visible { box-shadow: var(--focus), 0 2px 8px rgba(201, 162, 39, 0.45); }
 .stTabs [role="tabpanel"] { padding-top: var(--s3); }
 
+/* ---- Notes ---- */
+[class*="st-key-note_"] { background: var(--surface); border: 1px solid var(--line) !important;
+  border-radius: var(--radius) !important; padding: var(--s2) var(--card-pad) !important; }
+[class*="st-key-note_"] [data-testid="stMarkdownContainer"] { margin-bottom: 0; }
+.note-text { white-space: pre-wrap; color: var(--ink); }
+.note-meta { margin-top: var(--s1); font-size: 0.8rem; color: var(--ink-soft); }
+
 /* ---- Banners ---- */
 .banner { border-radius: var(--radius); padding: var(--s2) var(--card-pad); margin: 0 0 var(--s3); border: 1px solid; border-left-width: 6px; }
 .banner.flagged { background: var(--red-tint); border-color: var(--red); color: var(--red-ink); }

@@ -13,7 +13,7 @@ from streamlit.testing.v1 import AppTest
 
 import db
 import seed
-from services import gemini, qa
+from services import gemini, qa, transcribe
 from tests.test_extraction import daily_quota_error, gemini_error
 
 APP = str(Path(__file__).resolve().parent.parent / "streamlit_app.py")
@@ -822,6 +822,188 @@ class TestNewDealDescribe(NewDealAppTestCase):
         self.describe("   ")
         self.assertEqual(self.calls, [])
         self.assertIn("Describe the deal first.", self.messages())
+
+
+AUDIO = b"RIFF" + b"\x00" * 4000  # made-up bytes standing in for a short recording
+
+
+class TestVoice(NewDealAppTestCase):
+    """The recorder, driven through its upload box (the test tool cannot press a microphone)."""
+
+    def use_transcript(self, reply):
+        """Simulate Gemini: audio requests get the transcript, text requests get a chat answer."""
+        def generate_content(**kwargs):
+            self.calls.append(kwargs["contents"])
+            if isinstance(kwargs["contents"], list):
+                if isinstance(reply, Exception):
+                    raise reply
+                return type("Reply", (), {"text": reply})()
+            return type("Reply", (), {"text": json.dumps({"answer": "There are 12 units.", "found_in_deal": True,
+                                                         "sources": ["rent_roll.xlsx"]})})()
+        client = type("Client", (), {"models": type("Models", (), {"generate_content": staticmethod(generate_content)})()})()
+        patcher = mock.patch.object(gemini, "get_client", lambda: client)
+        patcher.start()
+        self.addCleanup(patcher.stop)
+
+    def open_fallowmere(self):
+        self.app.button(key=f"open_deal_{self.deals['fallowmere']}").click().run()
+        return f"chat_{self.deals['fallowmere']}"
+
+    def upload_and_transcribe(self, key, filename="memo.wav", data=AUDIO):
+        self.app.file_uploader(key=f"{key}_audio_0").set_value((filename, data, "audio/wav")).run()
+        self.app.button(key=f"{key}_transcribe").click().run()
+        self.assertFalse(self.app.exception)
+
+    def audio_calls(self):
+        return [call for call in self.calls if isinstance(call, list)]
+
+    def test_recorder_shows_the_privacy_notice_and_sends_nothing_by_itself(self):
+        self.use_transcript(AssertionError("must not be called"))
+        key = self.open_fallowmere()
+        captions = [caption.value for caption in self.app.caption]
+        self.assertIn("Audio is sent to Gemini for transcription and is not saved.", captions)
+        self.assertTrue(self.app.button(key=f"{key}_transcribe").disabled)
+        self.app.file_uploader(key=f"{key}_audio_0").set_value(("memo.wav", AUDIO, "audio/wav")).run()
+        self.assertFalse(self.app.button(key=f"{key}_transcribe").disabled)
+        self.assertEqual(self.calls, [])
+
+    def test_audio_box_accepts_mp3_m4a_and_wav(self):
+        key = self.open_fallowmere()
+        self.assertEqual(self.app.file_uploader(key=f"{key}_audio_0").allowed_type, [".mp3", ".m4a", ".wav"])
+
+    def test_transcript_is_shown_for_checking_before_anything_is_done_with_it(self):
+        self.use_transcript("How many units are in the building")
+        key = self.open_fallowmere()
+        self.upload_and_transcribe(key)
+        box = self.app.text_area(key=f"{key}_text_0")
+        self.assertEqual(box.label, "AI transcript - please check it")
+        self.assertEqual(box.value, "How many units are in the building")
+        self.assertEqual(len(self.audio_calls()), 1)
+        self.assertEqual(len(self.calls), 1)  # transcribed, but not yet asked
+        self.assertEqual(self.app.session_state[key], [])
+        self.assertEqual(self.rows("SELECT id FROM deal_notes"), [])
+
+    def test_use_as_my_message_sends_the_edited_text_to_the_chat(self):
+        self.use_transcript("How many units are in the building")
+        key = self.open_fallowmere()
+        self.upload_and_transcribe(key)
+        self.app.text_area(key=f"{key}_text_0").set_value("How many units are in this building?")
+        self.app.button(key=f"{key}_use").click().run()
+        self.assertFalse(self.app.exception)
+        messages = self.app.session_state[key]
+        self.assertEqual(messages[0], {"role": "user", "text": "How many units are in this building?"})
+        self.assertEqual(messages[1]["label"], qa.LABEL_FROM_DEAL)
+        self.assertEqual(len(self.calls), 2)  # one transcription, one chat answer
+        self.assertIn("How many units are in this building?", self.calls[1])
+
+    def test_save_as_a_note_stores_the_edited_transcript_and_no_audio(self):
+        self.use_transcript("Owner wants to sell by quarter two")
+        key = self.open_fallowmere()
+        self.upload_and_transcribe(key)
+        self.app.text_area(key=f"{key}_text_0").set_value("Owner wants to sell by Q2.")
+        self.app.button(key=f"{key}_save_note").click().run()
+        self.assertFalse(self.app.exception)
+        self.assertEqual(self.rows("SELECT deal_id, text, source FROM deal_notes"),
+                         [{"deal_id": self.deals["fallowmere"], "text": "Owner wants to sell by Q2.", "source": "Recording"}])
+        self.assertEqual(len(self.calls), 1)  # saving a note does not ask the AI anything
+        self.assertNotIn(AUDIO, self.db_path.read_bytes())
+        self.assertFalse(self.uploads.exists())  # the audio file was not written to the uploads folder
+        self.assertIn("Owner wants to sell by Q2.", "\n".join(m.value for m in self.app.markdown))
+
+    def test_after_use_the_recorder_is_cleared_so_audio_cannot_be_sent_twice(self):
+        self.use_transcript("How many units")
+        key = self.open_fallowmere()
+        self.upload_and_transcribe(key)
+        self.app.button(key=f"{key}_use").click().run()
+        self.assertTrue(self.app.button(key=f"{key}_transcribe").disabled)
+        self.assertEqual(self.app.file_uploader(key=f"{key}_audio_1").value, None)
+
+    def test_friendly_messages_for_each_problem(self):
+        cases = {
+            "empty recording": ("memo.wav", b"RIFF", "anything", "The recording is empty"),
+            "no speech": ("memo.wav", AUDIO, "NO_SPEECH", "No speech was heard"),
+            "quota used up": ("memo.wav", AUDIO, daily_quota_error(), "daily quota is used up"),
+            "rate limited": ("memo.wav", AUDIO, gemini_error(429, "RESOURCE_EXHAUSTED"), "busy or rate-limited"),
+            "unexpected failure": ("memo.wav", AUDIO, RuntimeError("network down"), "could not be transcribed"),
+        }
+        for name, (filename, data, reply, expected) in cases.items():
+            with self.subTest(name):
+                self.calls.clear()
+                self.use_transcript(reply)
+                self.app = AppTest.from_file(APP, default_timeout=20).run()
+                self.app.button(key="rolebtn_agent").click().run()
+                self.app.button(key="sign_in_google").click().run()
+                key = self.open_fallowmere()
+                self.upload_and_transcribe(key, filename, data)
+                self.assertIn(expected, self.app.warning[0].value)
+                self.assertNotIn("network down", self.app.warning[0].value)
+                self.assertNotIn(f"{key}_text_0", [area.key for area in self.app.text_area])
+
+    def test_too_large_a_file_is_refused_without_calling_gemini(self):
+        self.use_transcript(AssertionError("must not be called"))
+        key = self.open_fallowmere()
+        with mock.patch.object(transcribe, "MAX_AUDIO_BYTES", 3000):
+            self.upload_and_transcribe(key)
+        self.assertIn("too large", self.app.warning[0].value)
+        self.assertEqual(self.calls, [])
+
+    def test_assistant_dialog_has_the_recorder_and_no_note_button_on_all_deals(self):
+        self.use_transcript("Which deals have anomalies")
+        self.app.button(key="open_assistant").click().run()
+        self.upload_and_transcribe("assistant_chat_all")
+        keys = [button.key for button in self.app.button]
+        self.assertIn("assistant_chat_all_use", keys)
+        self.assertNotIn("assistant_chat_all_save_note", keys)
+
+    def test_new_deal_describe_box_takes_the_transcript_as_the_description(self):
+        self.use_transcript("Oakmere Depot is a warehouse in Fort Worth")
+        self.app.button(key="new_deal").click().run()
+        self.app.button_group(key="nd_mode").set_value("Describe it to the AI").run()
+        self.upload_and_transcribe("nd")
+        self.assertEqual(self.app.button(key="nd_use").label, "Use as my description")
+        self.assertNotIn("nd_save_note", [button.key for button in self.app.button])
+        self.app.button(key="nd_use").click().run()
+        self.assertFalse(self.app.exception)
+        self.assertEqual(self.app.text_area(key="nd_description").value, "Oakmere Depot is a warehouse in Fort Worth")
+        self.assertEqual(len(self.calls), 1)  # transcribed only; no draft was requested
+        self.assertEqual(len(self.rows("SELECT id FROM deals")), 3)
+
+
+class TestNotes(NewDealAppTestCase):
+    def open_deal(self, name):
+        self.app.button(key=f"open_deal_{self.deals[name]}").click().run()
+
+    def test_typed_note_is_saved_and_shown_as_written(self):
+        self.use_gemini(AssertionError("notes never call the AI"))
+        self.open_deal("fallowmere")
+        self.assertIn("Notes", [h.value for h in self.app.subheader])
+        deal_id = self.deals["fallowmere"]
+        self.app.text_area(key=f"new_note_{deal_id}").set_value("Seller prefers a quick close.\nCall back Friday.").run()
+        self.app.button(key=f"save_note_{deal_id}").click().run()
+        self.assertFalse(self.app.exception)
+        self.assertEqual(self.rows("SELECT deal_id, text, source FROM deal_notes"),
+                         [{"deal_id": deal_id, "text": "Seller prefers a quick close.\nCall back Friday.", "source": "Typed"}])
+        page = "\n".join(m.value for m in self.app.markdown)
+        self.assertIn("Seller prefers a quick close.\nCall back Friday.", page)
+        self.assertIn(">Typed</span>", page)
+        self.assertEqual(self.app.text_area(key=f"new_note_{deal_id}").value, "")
+        self.assertEqual(self.calls, [])
+
+    def test_an_empty_note_is_not_saved(self):
+        self.open_deal("fallowmere")
+        self.app.button(key=f"save_note_{self.deals['fallowmere']}").click().run()
+        self.assertEqual(self.rows("SELECT id FROM deal_notes"), [])
+
+    def test_notes_show_on_a_deal_with_no_numbers_and_only_on_their_own_deal(self):
+        from services import deals as deal_writes
+        deal_writes.add_note(self.deals["quillhaven"], "Waiting on the rent roll <b>from</b> the owner.", "Recording", self.db_path)
+        self.open_deal("quillhaven")
+        page = "\n".join(m.value for m in self.app.markdown)
+        self.assertIn("Waiting on the rent roll &lt;b&gt;from&lt;/b&gt; the owner.", page)  # shown as text, not as HTML
+        self.assertIn(">Recording</span>", page)
+        self.app.button(key="back_to_deals").click().run()
+        self.open_deal("fallowmere")
+        self.assertNotIn("Waiting on the rent roll", "\n".join(m.value for m in self.app.markdown))
 
 
 class TestAppNeverChangesData(AppTestCase):

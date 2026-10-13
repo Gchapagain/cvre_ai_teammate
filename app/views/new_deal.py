@@ -9,6 +9,7 @@ import logging
 import streamlit as st
 
 from app import nav
+from app.views import voice
 from services import deals, gemini, new_deal
 
 log = logging.getLogger(__name__)
@@ -48,7 +49,7 @@ def _upload_form():
                                    placeholder="Choose a type")
     location = right.text_input("Location", key="nd_location")
     files = st.file_uploader("Rent roll and T-12 files (xlsx or csv)", type=["xlsx", "csv"],
-                             accept_multiple_files=True, key="nd_files")
+                             accept_multiple_files=True, max_upload_size=20, key="nd_files")
     st.caption("Sample data only: do not upload real client files. Reading a rent roll uses one AI request. "
                "T-12 files are saved but not read yet.")
     if st.button("Create deal and read files", key="nd_create_upload", type="primary", icon=":material/upload_file:"):
@@ -110,12 +111,19 @@ def _draft_form(draft):
 
 
 def _describe_form():
+    if "nd_description_spoken" in st.session_state:  # a checked transcript, added before the box is drawn
+        typed = st.session_state.get("nd_description", "").strip()
+        st.session_state.nd_description = (typed + "\n" if typed else "") + st.session_state.pop("nd_description_spoken")
     description = st.text_area("What do you know about the deal?", key="nd_description", height=110,
                                placeholder="For example: a 40,000 sf warehouse in Fort Worth with three tenants...")
     st.caption("The AI turns this into a draft for you to check. It uses one AI request and saves nothing.")
     if st.button("Draft with AI", key="nd_draft_button", icon=":material/auto_awesome:"):
         with st.spinner("Drafting..."):
             _draft(description)
+    spoken = voice.render("nd", use_label="Use as my description")
+    if spoken:
+        st.session_state.nd_description_spoken = spoken
+        st.rerun()
     if st.session_state.get("nd_draft_message"):
         st.warning(st.session_state.nd_draft_message)
     if st.session_state.get("nd_draft") is not None:

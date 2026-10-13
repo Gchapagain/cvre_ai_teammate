@@ -5,6 +5,7 @@ import logging
 import streamlit as st
 
 from app import style
+from app.views import voice
 from services import gemini, qa
 
 log = logging.getLogger(__name__)
@@ -73,6 +74,8 @@ def render_chat(deal_id, prefix=""):
     history = st.container()
     question = st.chat_input("Ask about all deals" if deal_id is None else "Ask about this deal",
                              key=f"{prefix}chat_input_{scope}")
+    # A checked transcript is sent exactly like a typed message.
+    question = question or voice.render(f"{prefix}chat_{scope}", deal_id=deal_id)
     if question:
         with st.spinner("Reading the deal data..."):
             reply = get_answer(deal_id, question, messages)
