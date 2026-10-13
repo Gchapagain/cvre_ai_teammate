@@ -106,8 +106,14 @@ def run(page, suffix):
     check("sign out is inside the bar", sign_out["y"] > 0 and sign_out["y"] + sign_out["height"] < bar["height"], sign_out)
     check("space between name and badge", badge["x"] - (name["x"] + name["width"]) >= 8)
     check("space between badge and sign out", sign_out["x"] - (badge["x"] + badge["width"]) >= 16)
-    check("brand has a sparkle icon", page.locator(".brand svg").count() == 1)
-    check("brand font is Fraunces", "Fraunces" in css(page, ".brand", "fontFamily"))
+    check("brand has a sparkle icon", "svg" in page.evaluate(
+        "getComputedStyle(document.querySelector('.st-key-nav_home button'), '::before').backgroundImage"))
+    check("brand font is Fraunces", "Fraunces" in css(page, ".st-key-nav_home button p", "fontFamily"))
+    brand, all_deals = box(page, ".st-key-nav_home button"), box(page, ".st-key-nav_all_deals button")
+    check("All deals link sits next to the brand, inside the bar", all_deals["x"] - (brand["x"] + brand["width"]) >= 16
+          and all_deals["y"] > 0 and all_deals["y"] + all_deals["height"] < bar["height"], all_deals)
+    title = page.get_by_role("heading", name="All deals").bounding_box()
+    check("at least 32px between the top bar and the page title", title["y"] - bar["height"] >= 32, title["y"] - bar["height"])
 
     print("Floating AI button")
     fab = box(page, ".st-key-fab button")
@@ -144,6 +150,9 @@ def run(page, suffix):
     page.mouse.move(400, 700)
     page.wait_for_timeout(400)
     shot("2_dashboard_filtered_needs_review")
+    clear = page.get_by_role("button", name="Clear")
+    check("small Clear button next to the Showing label", clear.count() == 1 and clear.bounding_box()["height"] <= 32
+          and page.get_by_role("button", name="Show all deals").count() == 0)
     page.get_by_role("button", name="Active deals").click()
     page.get_by_text("Showing: Active deals (2)").wait_for()
     check("active deals filter lists 2", page.locator('[class*="st-key-deal_card_"]').count() == 2)
@@ -156,9 +165,14 @@ def run(page, suffix):
     shot("6_time_saved_panel")
     page.get_by_role("button", name="Review", exact=False).first.click()
     page.get_by_text("Showing: Needs Review (1)").wait_for()
-    page.get_by_role("button", name="Show all deals").click()
+    page.get_by_role("button", name="Clear").click()
     page.get_by_text("Needs your attention").wait_for()
-    check("show all deals resets the list", page.locator('[class*="st-key-deal_card_"]').count() == 3)
+    check("Clear resets the list", page.locator('[class*="st-key-deal_card_"]').count() == 3)
+    page.get_by_role("button", name="Anomalies").click()
+    page.get_by_text("Showing: Anomalies (1)").wait_for()
+    page.locator(".st-key-nav_all_deals button").click()
+    page.get_by_text("Needs your attention").wait_for()
+    check("All deals in the top bar clears the filter", page.locator('[class*="st-key-deal_card_"]').count() == 3)
     no_error_box(page, "after using the filters")
 
     print("AI dialog")
@@ -207,6 +221,10 @@ def run(page, suffix):
     check("active tab has a green underline", "inset" in css(page, '.stTabs [role="tab"][aria-selected="true"]', "boxShadow"))
     check("top bar and AI button are on the deal page too",
           css(page, ".st-key-topbar", "position") == "fixed" and css(page, ".st-key-fab", "position") == "fixed")
+    crumb = box(page, ".st-key-breadcrumb")
+    check("breadcrumb reads All deals > deal name", "Fallowmere" in page.locator(".crumb .here").inner_text()
+          and page.locator(".st-key-back_to_deals button").inner_text().strip() == "All deals")
+    check("at least 32px between the top bar and the breadcrumb", crumb["y"] - 67 >= 32, crumb["y"] - 67)
     shot("4_deal_tabs")
     tabs.last.click()
     page.get_by_text("Web search: coming in a later step.").first.wait_for()
@@ -214,6 +232,16 @@ def run(page, suffix):
     page.wait_for_timeout(600)
     no_error_box(page, "on the Ask AI tab")
     shot("4b_deal_tabs_ask_ai_active")
+
+    print("Going home")
+    page.locator(".st-key-nav_home button").click()
+    page.get_by_text("Needs your attention").wait_for()
+    check("the logo goes to the dashboard", page.get_by_role("heading", name="All deals").count() == 1)
+    page.locator('[class*="st-key-deal_card_"]').first.click()
+    page.get_by_text("Extracted fields").wait_for()
+    page.locator(".st-key-back_to_deals button").click()
+    page.get_by_text("Needs your attention").wait_for()
+    check("the breadcrumb link goes to the dashboard", page.get_by_role("heading", name="All deals").count() == 1)
 
 
 def main():

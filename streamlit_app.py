@@ -11,7 +11,7 @@ from app import fresh
 
 fresh.ensure()  # must run before the imports below: see app/fresh.py
 
-from app import queries, style  # noqa: E402
+from app import nav, queries, style  # noqa: E402
 from app.views import assistant, dashboard, deal, login  # noqa: E402
 
 st.set_page_config(page_title="CBRE AI Teammate", layout="wide")
@@ -23,10 +23,12 @@ def _sign_out():
 
 
 def _top_bar(user):
-    """The full-width bar across the top: brand on the left, user, role and sign out on the right."""
+    """The full-width bar across the top: brand and All deals on the left; user, role and sign out on the right."""
     with st.container(key="topbar", horizontal=True, horizontal_alignment="distribute", vertical_alignment="center"):
-        st.markdown(f'<div class="brand">{style.SPARKLE}<span>CBRE AI Teammate</span></div>',
-                    unsafe_allow_html=True, width="content")
+        with st.container(key="topbar_nav", horizontal=True, vertical_alignment="center", width="content"):
+            # Both go to the main dashboard and clear any filter.
+            st.button("CBRE AI Teammate", key="nav_home", type="tertiary", on_click=nav.go_home)
+            st.button("All deals", key="nav_all_deals", type="tertiary", on_click=nav.go_home)
         with st.container(key="topbar_user", horizontal=True, vertical_alignment="center", width="content"):
             st.markdown(f'<div class="who"><span class="user-name">{escape(user["full_name"])}</span>'
                         f'<span class="role-badge">{escape(user["role"])}</span></div>',

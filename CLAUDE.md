@@ -33,8 +33,8 @@ Services live in `/services`: extraction, validation, drafting, qa, research. `g
 - Production alternative (not built now): an email-to-role table.
 
 ## Screens (Streamlit, desktop only, wide layout)
-1. **Login**: Step 1 pick role, Step 2 sign in (locked until a role is chosen).
-2. **Deals dashboard**: stat cards (active deals, needs review, time saved, anomalies) and deal cards with status pills. The stat cards are filters: clicking one shows only the matching deals, with "Showing: ..." above the list and a "Show all deals" link. Time saved opens a note explaining it is not measured yet. Deals needing attention (Needs Review or an anomaly) come first with a coloured left border. Clicking a card opens the deal.
+1. **Login**: two columns. Left: dark green brand panel. Right: a card with Step 1 pick a role (three role cards), Step 2 sign in (Google / Microsoft buttons, locked until a role is chosen). Demo login only for now.
+2. **Deals dashboard**: stat cards (active deals, needs review, time saved, anomalies) and deal cards with status pills. The stat cards are filters: clicking one shows only the matching deals, with "Showing: ..." above the list and a small Clear button. Time saved opens a note explaining it is not measured yet. Deals needing attention (Needs Review or an anomaly) come first with a coloured left border. Clicking a card opens the deal.
 3. **Deal workspace**, opened by clicking a deal, with four tabs:
    - **Review**: anomaly banner, extracted fields table, draft narrative with Flag / Edit / Approve, market research panel.
    - **Documents**: all files for the deal with status (Received / Read / Reference only / Needs password), source, an add-document box, and an expected-documents checklist. Locked PDFs get "Needs password": the user enters the password (used once, not stored) or requests an unlocked copy. Scanned PDFs go to OCR.
@@ -81,7 +81,8 @@ Tables:
 - Amber for warnings, red for flags
 - Fonts: Fraunces (headings), Public Sans (body)
 - Streamlit theme goes in `.streamlit/config.toml`. The design system lives in `app/style.py`: 8px spacing grid, 24px card padding, 12px radius, 40px buttons, 48px tabs. Use its tokens and classes instead of one-off styles.
-- A full-width dark green top bar sits across every signed-in page: sparkle and app name on the left; user name, role badge and Sign out on the right.
+- A full-width dark green top bar sits across every signed-in page: sparkle, app name and an "All deals" link on the left (both go to the dashboard and clear any filter); user name, role badge and Sign out on the right.
+- Deal pages show a breadcrumb: All deals > Deal name.
 - The Ask AI tab (a gold oval pill) and the assistant button use the gold accent with a sparkle icon so AI features are recognisable.
 
 ## How to work with me

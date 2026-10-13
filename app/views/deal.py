@@ -5,7 +5,7 @@ from html import escape
 import pandas as pd
 import streamlit as st
 
-from app import queries, style
+from app import nav, queries, style
 from app.views import ask_ai, data_tab
 
 COLUMNS = {
@@ -16,10 +16,6 @@ COLUMNS = {
 # The last tab is styled as the gold AI tab in app/style.py.
 TABS = ["Review", "Documents", "Data", ":material/auto_awesome: Ask AI"]
 FLAG_ROW_STYLE = "background-color: #fbe1df; color: #5e130d; font-weight: 600"
-
-
-def _back():
-    st.session_state.page = "dashboard"
 
 
 def _number(decimals):
@@ -75,7 +71,11 @@ def _review_tab(deal):
 
 def render():
     deal = queries.get_deal(st.session_state.get("deal_id"))
-    st.button("← All deals", key="back_to_deals", on_click=_back)
+    with st.container(key="breadcrumb", horizontal=True, vertical_alignment="center"):
+        st.button("All deals", key="back_to_deals", type="tertiary", on_click=nav.go_home)
+        name = escape(deal["name"]) if deal else "Deal not found"
+        st.markdown(f'<div class="crumb"><span class="sep">›</span><span class="here">{name}</span></div>',
+                    unsafe_allow_html=True, width="content")
     if deal is None:
         st.warning("That deal could not be found.")
         return

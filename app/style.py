@@ -8,6 +8,7 @@ from html import escape
 
 import streamlit as st
 
+from app import icons
 from app.icons import SPARKLE  # noqa: F401  (kept here so screens can use style.SPARKLE)
 
 CSS = """
@@ -33,7 +34,8 @@ CSS = """
 
 /* ---- Page ---- */
 h1, h2, h3, h4, .stat-value { font-family: 'Fraunces', Georgia, serif !important; color: var(--green); }
-.block-container { max-width: 1320px; padding: calc(var(--topbar-h) + var(--s2)) var(--s4) 96px; }
+.block-container { max-width: 1320px; padding: calc(var(--topbar-h) + var(--s4)) var(--s4) 96px; }
+.block-container h2 { padding-top: 0; }  /* the page title starts exactly 32px under the top bar */
 [data-testid="stHeader"] { display: none; }  /* Streamlit's own empty strip; our top bar replaces it */
 [data-testid="stCaptionContainer"], [data-testid="stCaptionContainer"] p { color: var(--ink-soft); }
 .section-title { font-size: 0.8rem; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase;
@@ -55,9 +57,31 @@ h1, h2, h3, h4, .stat-value { font-family: 'Fraunces', Georgia, serif !important
   background: var(--green-dark); border-bottom: 3px solid var(--gold); box-shadow: 0 2px 8px rgba(19, 39, 30, 0.25); }
 .st-key-topbar [data-testid="stMarkdownContainer"] { margin-bottom: 0; }
 .st-key-topbar_user { gap: var(--s3) !important; flex-wrap: nowrap !important; }
-.brand { display: flex; align-items: center; gap: 10px; font-family: 'Fraunces', Georgia, serif;
-         font-size: 1.3rem; font-weight: 600; color: #ffffff; white-space: nowrap; }
-.brand svg { width: 22px; height: 22px; flex: none; }
+.st-key-topbar_nav { gap: var(--s4) !important; flex-wrap: nowrap !important; }
+/* The brand and the All deals link are real buttons, so both can take the person home. */
+.st-key-nav_home button, .st-key-nav_all_deals button { min-height: var(--control-h); border: none; background: none;
+  box-shadow: none; white-space: nowrap; border-radius: var(--radius-sm); }
+.st-key-nav_home button { padding: 0; gap: 10px; }
+.st-key-nav_home button::before { content: ""; width: 22px; height: 22px; flex: none;
+  background: """ + icons.SPARKLE_URL + """ center / contain no-repeat; }
+.st-key-nav_home button p { font-family: 'Fraunces', Georgia, serif; font-size: 1.3rem; font-weight: 600; color: #ffffff; }
+.st-key-nav_home button:hover { background: none; }
+.st-key-nav_all_deals button { padding: 0 12px; }
+.st-key-nav_all_deals button p { color: #dfe7e2; font-weight: 500; }
+.st-key-nav_all_deals button:hover { background: rgba(255, 255, 255, 0.12); }
+.st-key-nav_all_deals button:hover p { color: #ffffff; }
+.st-key-nav_home button:focus-visible, .st-key-nav_all_deals button:focus-visible { box-shadow: var(--focus); }
+
+/* ---- Breadcrumb on a deal page: All deals > Deal name ---- */
+.st-key-breadcrumb { gap: var(--s1) !important; margin-bottom: var(--s1); }
+.st-key-breadcrumb [data-testid="stMarkdownContainer"] { margin-bottom: 0; }
+.st-key-back_to_deals button { min-height: 0; padding: 0; border: none; background: none; box-shadow: none; }
+.st-key-back_to_deals button:hover { background: none; }
+.st-key-back_to_deals button p { color: var(--green-mid); font-weight: 600; }
+.st-key-back_to_deals button:hover p { text-decoration: underline; }
+.crumb { display: flex; align-items: center; gap: var(--s1); color: var(--ink-soft); font-size: 0.95rem; }
+.crumb .sep { color: #8b958f; }
+.crumb .here { color: var(--ink); font-weight: 500; }
 .who { display: flex; align-items: center; gap: 12px; color: #ffffff; font-weight: 500; white-space: nowrap; }
 .role-badge { background: var(--gold); color: var(--green-dark); border-radius: var(--pill); padding: 3px 12px;
               font-size: 0.72rem; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; }
@@ -86,11 +110,12 @@ h1, h2, h3, h4, .stat-value { font-family: 'Fraunces', Georgia, serif !important
 .stat-note { font-size: 0.82rem; color: var(--ink-soft); }
 
 /* ---- Filter line above the deal list ---- */
-.showing { font-size: 1rem; font-weight: 600; color: var(--green); }
-.st-key-filter_bar { margin-top: var(--s2); align-items: baseline !important; }
-.st-key-show_all_deals button { min-height: 0; padding: 0; border: none; background: none; box-shadow: none; }
-.st-key-show_all_deals button:hover { background: none; }
-.st-key-show_all_deals button p { color: var(--green-mid); font-weight: 600; text-decoration: underline; }
+.showing { font-size: 1rem; font-weight: 600; color: var(--green); line-height: 28px; }
+.st-key-filter_bar { margin-top: var(--s2); align-items: center !important; }
+.st-key-filter_bar { gap: 12px !important; }
+.st-key-clear_filter button { min-height: 28px; padding: 0 10px 0 6px; border-radius: var(--pill); gap: 2px; }
+.st-key-clear_filter button p { font-size: 0.85rem; font-weight: 600; }
+.st-key-clear_filter button [data-testid="stIconMaterial"] { font-size: 16px; }
 .st-key-time_saved_panel { background: var(--surface); border: 1px solid var(--line) !important;
   border-left: 4px solid var(--gold) !important; border-radius: var(--radius) !important;
   padding: var(--s2) var(--card-pad) !important; margin-top: var(--s2); }

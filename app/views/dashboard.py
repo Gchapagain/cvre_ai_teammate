@@ -4,7 +4,7 @@ from html import escape
 
 import streamlit as st
 
-from app import queries, style
+from app import nav, queries, style
 
 # Stat cards that filter the deal list: key -> (name shown above the list, which deals match).
 FILTERS = {
@@ -15,18 +15,9 @@ FILTERS = {
 TIME_SAVED = "time"
 
 
-def _open_deal(deal_id):
-    st.session_state.deal_id = deal_id
-    st.session_state.page = "deal"
-
-
 def _select(name):
     """Clicking a card selects it; clicking the selected card again clears it."""
     st.session_state.deal_filter = None if st.session_state.get("deal_filter") == name else name
-
-
-def _show_all():
-    st.session_state.deal_filter = None
 
 
 def filter_deals(deals, name):
@@ -65,7 +56,7 @@ def _time_saved_panel():
             "- compare that with how long the same prep takes by hand. That baseline has to come from the "
             "team or CBRE, and none has been collected yet."
         )
-        st.button("Close", key="close_time_saved", on_click=_show_all)
+        st.button("Close", key="close_time_saved", on_click=nav.go_home)
 
 
 def card_kind(deal):
@@ -79,7 +70,7 @@ def _deal_card(deal):
     with st.container(border=True, key=f"deal_card_{card_kind(deal)}_{deal['id']}"):
         # The name is the button. CSS in app/style.py stretches its click area over the whole card.
         st.button(deal["name"], key=f"open_deal_{deal['id']}", type="tertiary",
-                  on_click=_open_deal, args=(deal["id"],))
+                  on_click=nav.open_deal, args=(deal["id"],))
         flags = deal["flag_count"]
         flag_pill = style.pill(f"{flags} anomal{'y' if flags == 1 else 'ies'}", "flag") if flags else ""
         units = f"{deal['unit_count']} units" if deal["unit_count"] else "No numbers yet"
@@ -102,7 +93,7 @@ def _filtered_list(deals, name):
     with st.container(key="filter_bar", horizontal=True, vertical_alignment="center"):
         st.markdown(f'<div class="showing">Showing: {escape(FILTERS[name][0])} ({len(shown)})</div>',
                     unsafe_allow_html=True, width="content")
-        st.button("Show all deals", key="show_all_deals", type="tertiary", on_click=_show_all)
+        st.button("Clear", key="clear_filter", icon=":material/close:", on_click=nav.go_home)
     if not shown:
         st.info("No deals match this filter.")
     for deal in shown:
@@ -110,7 +101,7 @@ def _filtered_list(deals, name):
 
 
 def render():
-    st.header("Deals")
+    st.header("All deals")
     _stat_cards()
     deals = queries.list_deals()
     selected = st.session_state.get("deal_filter")

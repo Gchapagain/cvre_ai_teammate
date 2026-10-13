@@ -130,7 +130,7 @@ class TestDashboard(AppTestCase):
     def test_nothing_is_filtered_at_first(self):
         self.assertEqual(self.deal_buttons(), self.deal_keys("fallowmere", "quillhaven", "brindlewick"))
         self.assertNotIn("Showing:", self.page_text())
-        self.assertNotIn("show_all_deals", [button.key for button in self.app.button])
+        self.assertNotIn("clear_filter", [button.key for button in self.app.button])
 
     def test_active_deals_card_shows_only_deals_not_yet_approved(self):
         self.click_stat("active")
@@ -147,11 +147,32 @@ class TestDashboard(AppTestCase):
         self.assertEqual(self.deal_buttons(), self.deal_keys("fallowmere"))
         self.assertIn("Showing: Anomalies (1)", self.page_text())
 
-    def test_show_all_deals_resets_the_filter(self):
+    def test_clear_button_resets_the_filter(self):
         self.click_stat("review")
-        self.app.button(key="show_all_deals").click().run()
+        self.assertEqual(self.app.button(key="clear_filter").label, "Clear")
+        self.app.button(key="clear_filter").click().run()
         self.assertEqual(len(self.deal_buttons()), 3)
         self.assertNotIn("Showing:", self.page_text())
+        self.assertNotIn("show_all_deals", [button.key for button in self.app.button])
+
+    def test_page_title_is_all_deals(self):
+        self.assertEqual([header.value for header in self.app.header], ["All deals"])
+
+    def test_top_bar_links_go_home_and_clear_the_filter(self):
+        for key in ("nav_home", "nav_all_deals"):
+            with self.subTest(key):
+                self.click_stat("review")
+                self.open_deal("fallowmere")
+                self.app.button(key=key).click().run()
+                self.assertFalse(self.app.exception)
+                self.assertEqual([header.value for header in self.app.header], ["All deals"])
+                self.assertIsNone(self.app.session_state["deal_filter"])
+                self.assertEqual(len(self.deal_buttons()), 3)
+
+    def test_top_bar_links_also_clear_a_filter_from_the_dashboard(self):
+        self.click_stat("anomalies")
+        self.app.button(key="nav_all_deals").click().run()
+        self.assertEqual(len(self.deal_buttons()), 3)
 
     def test_clicking_the_selected_card_again_clears_it(self):
         self.click_stat("review")
@@ -206,6 +227,8 @@ class TestDashboard(AppTestCase):
     def test_the_deal_name_is_the_only_button_on_each_card(self):
         labels = {button.key: button.label for button in self.app.button if not button.key.startswith("statbtn_")}
         self.assertEqual(labels, {
+            "nav_home": "CBRE AI Teammate",
+            "nav_all_deals": "All deals",
             "sign_out": "Sign out",
             "open_assistant": "Ask the AI Teammate",
             f"open_deal_{self.deals['fallowmere']}": "Fallowmere Industrial Park (SAMPLE - fictional)",
@@ -232,8 +255,7 @@ class TestDashboard(AppTestCase):
         self.assertEqual(text.count("Noor Sample"), 1)
         self.assertEqual(text.count("Analyst"), 1)
         self.assertIn('<span class="user-name">Noor Sample</span><span class="role-badge">Analyst</span>', text)
-        self.assertIn("CBRE AI Teammate", text)
-        self.assertIn("<svg", text)
+        self.assertEqual(self.app.button(key="nav_home").label, "CBRE AI Teammate")
 
     def test_clicking_a_deal_name_opens_that_deal(self):
         self.open_deal("brindlewick")
@@ -288,6 +310,12 @@ class TestDealWorkspace(AppTestCase):
         self.assertFalse(self.app.exception)
         self.assertIn("No numbers yet", self.page_text())
         self.assertEqual(len(self.app.dataframe), 0)
+
+    def test_breadcrumb_shows_all_deals_then_the_deal_name(self):
+        self.open_deal("brindlewick")
+        self.assertEqual(self.app.button(key="back_to_deals").label, "All deals")
+        self.assertIn('<span class="sep">›</span><span class="here">Brindlewick Retail Row (SAMPLE - fictional)</span>',
+                      self.page_text())
 
     def test_back_button_returns_to_the_dashboard(self):
         self.open_deal("fallowmere")
