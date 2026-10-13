@@ -92,6 +92,15 @@ def add_sample_drafts():
     conn.close()
 
 
+def add_simulated_research(nothing_found=False):
+    """Run the real research service on the script's own database with simulated search and Gemini."""
+    sys.path.insert(0, str(ROOT))
+    from services import research
+    from tests import research_fakes
+    research.run_research(1, search=research_fakes.fake_search({} if nothing_found else None),
+                          client=research_fakes.fake_gemini(), db_path=OUT / "tmp" / "screenshots.db")
+
+
 def sign_in_again(page):
     page.get_by_text("Welcome back").wait_for()
     page.locator(".st-key-rolecard_agent").click(position={"x": 300, "y": 40})
@@ -368,6 +377,57 @@ def run(page, suffix):
     narrative.get_by_text("Approved", exact=True).first.wait_for()
     check("a person can approve it", narrative.get_by_role("button", name="Approve").is_disabled())
     no_error_box(page, "after editing and approving a draft")
+
+    print("Market research")
+    research_card = page.locator(".st-key-card_research")
+    check("research has not run and says what it is about", "Not run yet" in research_card.inner_text()
+          and "not about this property" in research_card.inner_text()
+          and research_card.get_by_role("button", name="Run research").count() == 1)
+    # Findings are produced by the real research service, but fed simulated search results and a
+    # simulated Gemini reply (tests/research_fakes.py). No search and no AI request is made.
+    add_simulated_research()
+    page.reload()
+    sign_in_again(page)
+    page.locator('[class*="st-key-deal_card_"]').first.click()
+    page.locator(".finding-topic").first.wait_for()
+    page.wait_for_timeout(1000)
+    research_card = page.locator(".st-key-card_research")
+    text = research_card.inner_text()
+    check("four finding cards", research_card.locator(".finding-topic").count() == 4)
+    check("tier labels, source names, dates and figures are shown", all(part in text for part in
+          ("Tier 1", "Tier 2", "Tier 3", "bls.gov", "cbre.com", "2026-09-20", "4.1%", "no figure stated")))
+    check("sources that disagree are tagged red and both figures are shown", "Sources disagree" in text
+          and "6.2%" in text and "7.5%" in text
+          and css(page, ".finding-topic .pill.flag", "backgroundColor") == "rgb(251, 225, 223)")
+    check("skipped sources are counted", "1 source skipped" in text)
+    check("each finding has Accept and Dismiss", research_card.get_by_role("button", name="Accept").count() == 4
+          and research_card.get_by_role("button", name="Dismiss").count() == 4)
+    research_card.get_by_role("button", name="Accept").last.click()
+    research_card.locator('[class*="st-key-finding_accepted_"]').wait_for()
+    research_card.get_by_role("button", name="Dismiss").nth(1).click()
+    research_card.locator('[class*="st-key-finding_dismissed_"]').wait_for()
+    page.wait_for_timeout(600)
+    check("a person can accept one and dismiss another", "Accepted" in research_card.inner_text()
+          and "Dismissed" in research_card.inner_text())
+    no_error_box(page, "with research findings showing")
+    tall_shot(page, f"14_review_research{suffix}", height=3100)
+    research_card.locator('[class*="st-key-finding_"]').first.scroll_into_view_if_needed()
+    page.wait_for_timeout(400)
+    shot("14b_research_sources_disagree")
+    add_simulated_research(nothing_found=True)
+    page.reload()
+    sign_in_again(page)
+    page.locator('[class*="st-key-deal_card_"]').first.click()
+    page.locator(".finding-topic").first.wait_for()
+    research_card = page.locator(".st-key-card_research")
+    check("when nothing is found it says so and offers nothing to accept",
+          research_card.inner_text().count("No reliable public sources found.") == 4
+          and research_card.get_by_role("button", name="Accept").count() == 0)
+    research_card.scroll_into_view_if_needed()
+    page.wait_for_timeout(400)
+    shot("14c_research_nothing_found")
+    page.mouse.wheel(0, -6000)
+    page.wait_for_timeout(300)
     tabs = page.get_by_role("tab")
     page.locator(".st-key-go_documents button").click()
     page.get_by_text("Documents: coming in a later step.").wait_for()

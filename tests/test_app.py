@@ -990,6 +990,123 @@ class TestDraftNarrative(NewDealAppTestCase):
         self.assertEqual(len(self.calls), 2)
 
 
+class TestMarketResearch(NewDealAppTestCase):
+    def setUp(self):
+        super().setUp()
+        self.queries = []
+
+    def use(self, results=None, reply=None):
+        from services import research
+        from tests import research_fakes
+        client = research_fakes.fake_gemini(reply, self.calls)
+        for target, name, value in ((research, "tavily_search", research_fakes.fake_search(results, self.queries)),
+                                    (gemini, "get_client", lambda: client)):
+            patcher = mock.patch.object(target, name, value)
+            patcher.start()
+            self.addCleanup(patcher.stop)
+
+    def open_fallowmere(self):
+        self.app.button(key=f"open_deal_{self.deals['fallowmere']}").click().run()
+
+    def run_research(self):
+        self.open_fallowmere()
+        self.app.button(key="research_run").click().run()
+        self.assertFalse(self.app.exception)
+
+    def page(self):
+        parts = [e.value for kind in ("markdown", "caption", "warning") for e in getattr(self.app, kind)]
+        return "\n".join(part for part in parts if "<style>" not in part)
+
+    def finding_id(self, topic):
+        return self.rows(f"SELECT id FROM research_findings WHERE topic = '{topic}'")[0]["id"]
+
+    def test_opening_the_review_tab_searches_nothing(self):
+        self.use(results=AssertionError("must not search"), reply=AssertionError("must not be called"))
+        self.open_fallowmere()
+        self.assertEqual((self.queries, self.calls), ([], []))
+        page = self.page()
+        self.assertIn("Not run yet", page)
+        self.assertIn("About the Industrial market in Alliance, Fort Worth, TX, not about this property", page)
+        self.assertIn("Advisory only: sourced, not verified.", page)
+
+    def test_run_research_uses_four_searches_and_one_ai_request_and_shows_cards(self):
+        self.use()
+        self.run_research()
+        self.assertEqual((len(self.queries), len(self.calls)), (4, 1))
+        page = self.page()
+        for topic in ("Vacancy", "Asking rent trend", "New supply", "Employment and demand"):
+            self.assertIn(f'<div class="finding-topic"><span>{topic}</span>', page)
+        self.assertIn('<span class="pill tier1">Tier 1</span>', page)
+        self.assertIn('<span class="pill tier2">Tier 2</span>', page)
+        self.assertIn('<span class="pill tier3">Tier 3</span>', page)
+        self.assertIn('href="https://www.bls.gov/eag/eag.tx_fortworth_md.htm"', page)
+        self.assertIn('<span class="when">2026-09-20</span><span class="figure">4.1%</span>', page)
+        self.assertIn("no figure stated", page)
+        self.assertIn("1 source skipped (not on the trusted list).", page)
+        self.assertIn("Last run", page)
+        self.assertEqual(self.app.button(key="research_run").label, "Run research again")
+
+    def test_sources_that_disagree_are_tagged_and_both_figures_shown(self):
+        self.use()
+        self.run_research()
+        page = self.page()
+        self.assertEqual(page.count("Sources disagree"), 1)
+        self.assertIn('<span class="figure">6.2%</span>', page)
+        self.assertIn('<span class="figure">7.5%</span>', page)
+        self.assertIn("The sources give different figures for vacancy rate. Both are shown above; they have not been combined.", page)
+
+    def test_nothing_reaches_the_narrative_until_a_person_accepts(self):
+        from services import drafting
+        self.use()
+        self.run_research()
+        deal_id = self.deals["fallowmere"]
+        self.assertIn("None accepted", drafting.deal_facts(deal_id, self.db_path)[0])
+        self.app.button(key=f"accept_finding_{self.finding_id('Employment and demand')}").click().run()
+        self.assertFalse(self.app.exception)
+        facts = drafting.deal_facts(deal_id, self.db_path)[0]
+        self.assertIn("bls.gov (Tier 1, 2026-09-20): 4.1%", facts)
+        self.assertNotIn("cbre.com", facts)
+        self.assertIn(">Accepted</span>", self.page())
+        self.assertEqual((len(self.queries), len(self.calls)), (4, 1))  # accepting costs nothing
+
+    def test_dismiss(self):
+        self.use()
+        self.run_research()
+        finding_id = self.finding_id("Vacancy")
+        self.app.button(key=f"dismiss_finding_{finding_id}").click().run()
+        self.assertEqual(self.rows(f"SELECT status FROM research_findings WHERE id = {finding_id}"), [{"status": "dismissed"}])
+        self.assertTrue(self.app.button(key=f"dismiss_finding_{finding_id}").disabled)
+
+    def test_nothing_found_says_so_and_offers_nothing_to_accept(self):
+        self.use(results={}, reply=AssertionError("must not be called"))
+        self.run_research()
+        self.assertEqual(self.page().count("No reliable public sources found."), 4)
+        self.assertEqual([b.key for b in self.app.button if "_finding_" in b.key], [])
+        self.assertEqual(self.calls, [])
+
+    def test_missing_search_key_shows_how_to_add_one(self):
+        from services import research
+        with mock.patch.object(research, "load_dotenv"), mock.patch.dict("os.environ", {"TAVILY_API_KEY": ""}):
+            self.open_fallowmere()
+            self.app.button(key="research_run").click().run()
+        self.assertFalse(self.app.exception)
+        self.assertIn("Add TAVILY_API_KEY=... to the .env file", self.app.warning[0].value)
+        self.assertEqual(self.rows("SELECT id FROM research_findings"), [])
+
+    def test_quota_used_up_keeps_the_earlier_findings(self):
+        self.use()
+        self.run_research()
+        self.use(reply=daily_quota_error())
+        self.app.button(key="research_run").click().run()
+        self.assertFalse(self.app.exception)
+        self.assertIn("daily quota is used up", self.app.warning[0].value)
+        self.assertEqual(len(self.rows("SELECT id FROM research_findings")), 4)
+
+    def test_web_search_in_chat_stays_disabled(self):
+        self.open_fallowmere()
+        self.assertTrue(self.app.toggle(key=f"web_search_{self.deals['fallowmere']}").disabled)
+
+
 AUDIO = b"RIFF" + b"\x00" * 4000  # made-up bytes standing in for a short recording
 
 

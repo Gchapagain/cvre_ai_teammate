@@ -14,7 +14,7 @@ import streamlit as st
 
 from app import exports, icons, queries, style
 from app.views import data_tab, notes
-from services import drafting, extraction, gemini, metrics
+from services import drafting, extraction, gemini, metrics, research
 
 log = logging.getLogger(__name__)
 
@@ -183,9 +183,73 @@ def _narrative(deal, units, flags):
         st.caption("Generating uses 1 AI request. Approving is always a person's action; nothing is sent anywhere.")
 
 
-def _research():
-    with _card("research", "Market research"):
-        st.caption("Research has not been run for this deal. It comes in a later stage and is advisory only.")
+def _run_research(deal_id):
+    """Run the research. Problems become a message on the card and the old findings are kept."""
+    try:
+        research.run_research(deal_id)
+        message = None
+    except (research.SearchError, ValueError) as exc:
+        message = str(exc)
+    except gemini.GeminiQuotaError as exc:
+        message = f"The AI's daily quota is used up, so the sources could not be summarised. {exc} Earlier findings are unchanged."
+    except gemini.GeminiBusyError:
+        message = "The AI is busy or rate-limited at the moment. Try again in a minute. Earlier findings are unchanged."
+    except gemini.GeminiError as exc:
+        message = f"The research could not be summarised just now. {exc} Earlier findings are unchanged."
+    except Exception:
+        log.exception("Research failed")
+        message = "The research could not be run just now. Something unexpected went wrong. Earlier findings are unchanged."
+    st.session_state.research_message = message
+
+
+def _source_row(source):
+    figure = escape(source["figure"]) if source.get("figure") else '<span class="none">no figure stated</span>'
+    return (f'<div class="source"><span class="pill tier{source["tier"]}">Tier {source["tier"]}</span>'
+            f'<a href="{escape(source["url"], quote=True)}" target="_blank" rel="noopener">{escape(source["name"])}</a>'
+            f'<span class="when">{escape(source.get("date") or "date not stated")}</span>'
+            f'<span class="figure">{figure}</span></div>')
+
+
+def _finding(finding):
+    disagree = research.disagreements(finding["sources"])
+    status = {"new": "", "accepted": style.pill("Accepted", "approved"), "dismissed": style.pill("Dismissed", "other")}[finding["status"]]
+    with st.container(border=True, key=f"finding_{finding['status']}_{finding['id']}"):
+        tag = '<span class="pill flag">Sources disagree</span>' if disagree else ""
+        style.html(f'<div class="finding-topic"><span>{escape(finding["topic"])}</span>{tag}{status}</div>'
+                   f'<div class="finding-summary">{escape(finding["summary"])}</div>'
+                   + "".join(_source_row(source) for source in finding["sources"]))
+        if disagree:
+            st.caption("The sources give different figures for " + ", ".join(disagree)
+                       + ". Both are shown above; they have not been combined.")
+        if finding["skipped"]:
+            count = finding["skipped"]
+            st.caption(f"{count} source{'' if count == 1 else 's'} skipped (not on the trusted list).")
+        if finding["sources"]:
+            actions = st.container(horizontal=True)
+            actions.button("Accept", key=f"accept_finding_{finding['id']}", icon=":material/check:",
+                           disabled=finding["status"] == "accepted", on_click=research.set_status,
+                           args=(finding["id"], "accepted"))
+            actions.button("Dismiss", key=f"dismiss_finding_{finding['id']}", icon=":material/close:",
+                           disabled=finding["status"] == "dismissed", on_click=research.set_status,
+                           args=(finding["id"], "dismissed"))
+
+
+def _research(deal):
+    findings = queries.deal_findings(deal["id"])
+    last_run = f"Last run {metrics.time_ago(findings[0]['fetched_at'])}" if findings else "Not run yet"
+    with _card("research", "Market research", last_run):
+        place = f"{deal['property_type'] or 'property'} market in {deal['submarket'] or 'this location'}"
+        st.caption(f"About the {place}, not about this property (the sample property is fictional). "
+                   "Advisory only: sourced, not verified. Nothing reaches the narrative until you click Accept.")
+        if st.session_state.get("research_message"):
+            st.warning(st.session_state.research_message)
+        for finding in findings:
+            _finding(finding)
+        st.button("Run research again" if findings else "Run research", key="research_run", icon=":material/travel_explore:",
+                  on_click=_run_research, args=(deal["id"],),
+                  help="Uses 4 web searches and at most 1 AI request. Replaces the findings shown here.")
+        st.caption("Each run uses 4 web searches and at most 1 AI request. Searches use only the property type and "
+                   "location, never the deal's name, tenants or figures.")
 
 
 def _snapshot(units, flags, t12):
@@ -247,7 +311,7 @@ def render(deal):
         _anomaly_banner(flags)
         _extracted_fields(units, flags, documents)
         _narrative(deal, units, flags)
-        _research()
+        _research(deal)
         notes.render(deal)
     with side:
         _snapshot(units, flags, t12)

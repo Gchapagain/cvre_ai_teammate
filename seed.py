@@ -20,6 +20,9 @@ SAMPLE_DIR = Path(__file__).resolve().parent / "sample_data"
 RENT_ROLL_FILE = SAMPLE_DIR / "rent_roll.xlsx"
 T12_FILE = SAMPLE_DIR / "t12.xlsx"
 DOCUMENT_SOURCE = "Sample data"
+# A real industrial submarket, so market research has something to find. The property itself,
+# its tenants and every number stay made up.
+FALLOWMERE_MARKET = "Alliance, Fort Worth, TX"
 
 UNIT_FIELDS = [
     "unit_number", "tenant_name", "square_feet", "lease_start", "lease_end",
@@ -125,7 +128,7 @@ def seed(db_path=None):
             conn.executemany("INSERT INTO users (email, full_name, role) VALUES (?, ?, ?)", DEMO_USERS)
 
             fallowmere = add_deal(conn, "Fallowmere Industrial Park (SAMPLE - fictional)",
-                                  "Industrial", "Northmarsh (fictional)", "Needs Review")
+                                  "Industrial", FALLOWMERE_MARKET, "Needs Review")
             doc = add_document(conn, fallowmere, RENT_ROLL_FILE.name, "Rent roll", "Read", "Rent roll", RENT_ROLL_FILE)
             add_units(conn, fallowmere, doc, read_rent_roll(RENT_ROLL_FILE))
             doc = add_document(conn, fallowmere, T12_FILE.name, "T-12", "Read", "T-12", T12_FILE)

@@ -1,0 +1,31 @@
+{
+  "_about": "Which web sources the research service trusts, and how much. A source is matched by its domain (sub-domains count). Anything not listed here is skipped and counted, never shown. Edit this file to change the list.",
+  "tiers": [
+    {
+      "tier": 1,
+      "label": "Official / government",
+      "suffixes": [".gov", ".mil"],
+      "domains": ["census.gov", "bls.gov", "bea.gov", "federalreserve.gov", "stlouisfed.org", "dallasfed.org",
+                  "hud.gov", "texas.gov", "twc.texas.gov", "comptroller.texas.gov", "fortworthtexas.gov",
+                  "dallascityhall.com", "nctcog.org"]
+    },
+    {
+      "tier": 2,
+      "label": "Brokerage / research firm",
+      "suffixes": [],
+      "domains": ["cbre.com", "jll.com", "cushmanwakefield.com", "colliers.com", "nmrk.com", "avisonyoung.com",
+                  "savills.com", "savills.us", "marcusmillichap.com", "kidder.com", "lee-associates.com",
+                  "transwestern.com", "naiglobal.com", "costar.com", "moodyscre.com", "yardimatrix.com",
+                  "commercialedge.com", "prologis.com"]
+    },
+    {
+      "tier": 3,
+      "label": "News / trade press",
+      "suffixes": [],
+      "domains": ["bisnow.com", "globest.com", "connectcre.com", "commercialobserver.com", "therealdeal.com",
+                  "bizjournals.com", "dallasnews.com", "star-telegram.com", "wsj.com", "reuters.com",
+                  "bloomberg.com", "rejournals.com", "credaily.com", "commercialsearch.com", "freightwaves.com",
+                  "dmagazine.com", "dallasinnovates.com"]
+    }
+  ]
+}

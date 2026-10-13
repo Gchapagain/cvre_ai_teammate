@@ -20,9 +20,9 @@ Scope additions (email ingestion, proactive research, locked-file handling) must
 4. **Draft (Service C)**: Gemini writes a short pricing narrative from the deal's saved numbers and any accepted research, only when a person clicks "Generate draft" (1 request). A code check compares every number in the draft with the deal data; if one does not match, Approve stays locked until a person edits it. The app adds the "flagged units need confirmation" sentence itself if the AI leaves it out. Drafts are saved as "Generated, not sent"; only a person can approve. Indicative value (NOI / cap rate) is not built: no cap rate is available.
 5. **Review**: the human reviews, edits, flags or approves in the app.
 6. **Q&A (Service D)**: a chat limited to one deal. It answers only from that deal's data in SQLite. An answer is labeled "From this deal" only when it names a real source and every number in it is found in the deal data; otherwise "Not verified".
-7. **Research (Service E)**: proactive market research. When a deal arrives: plan questions, search the web with a search API (Tavily, Brave or Serper), score source reliability, write a cited brief. Advisory only.
+7. **Research (Service E)**: market research for the deal's submarket, run only when a person clicks "Run research" on the Review tab (not automatic yet, to protect the free quotas). It searches four topics (vacancy, asking rent trend, new supply, employment and demand) with Tavily, keeps only sources on the trusted list, and asks Gemini once to summarise them. Each run uses 4 searches and at most 1 Gemini request. Code checks every figure against the text of the source it is attributed to. Findings are cards with Accept / Dismiss; nothing reaches the narrative until a person accepts. Sources that give different figures get a "Sources disagree" tag and both figures are shown, never merged. If nothing is found it says "No reliable public sources found". Advisory only.
 
-Source reliability tiers: Tier 1 government/primary, Tier 2 brokerage research, Tier 3 trade press. Unrecognized sources are skipped.
+Source reliability tiers: Tier 1 official/government, Tier 2 brokerage and research firms, Tier 3 news and trade press. Anything else is skipped and counted. The domain list lives in one file: `config/source_tiers.json`.
 
 Services live in `/services`: extraction, validation, drafting, qa, research, plus deals (the only writes the screens make), new_deal (uploads and AI drafts) and transcribe (audio to text). `gemini.py` is the shared Gemini access (client, retries, quota handling, timing log) used by every service. `pipeline.process_deal` runs extraction then validation and returns a short summary (units saved, flags raised, which rules).
 
@@ -64,8 +64,8 @@ Tables:
 
 ## Rules that must always hold
 - Human in the loop. Nothing leaves the system without approval.
-- Sample or synthetic data only. No real client data in the repo.
-- Secrets only in .env, never committed, never printed in logs.
+- Sample or synthetic data only. No real client data in the repo. The Fallowmere sample deal sits in a real submarket (Alliance, Fort Worth, TX) so research has something to find; the property, tenants and numbers are still made up.
+- Secrets only in .env, never committed, never printed in logs. Keys used: GEMINI_API_KEY, TAVILY_API_KEY (web research; free tier is 1,000 searches a month).
 - The AI never creates or saves a deal on its own. It drafts; a person presses Create deal.
 - Voice: a person can record or upload audio (mp3, m4a, wav) in either chat and in the New deal box. It is sent to Gemini only when Transcribe is pressed. The audio is never saved; only the transcript the person has checked is used or stored (as a deal note, source "Recording"). The UI says: "Audio is sent to Gemini for transcription and is not saved."
 - The free Gemini tier allows 20 requests a day. Each of these uses one: reading a rent roll, a chat message, drafting a deal from a description, transcribing a recording.

@@ -36,6 +36,11 @@ class TestSeededDeals(SeedTestCase):
         for deal in deals:
             self.assertIn("SAMPLE - fictional", deal["name"])
 
+    def test_fallowmere_is_in_a_real_submarket_but_stays_marked_fictional(self):
+        deal = self.query("SELECT name, submarket FROM deals WHERE id = ?", (self.deals["fallowmere"],))[0]
+        self.assertEqual(deal["submarket"], "Alliance, Fort Worth, TX")
+        self.assertIn("SAMPLE - fictional", deal["name"])
+
     def test_one_demo_user_per_role(self):
         users = self.query("SELECT email, full_name, role FROM users ORDER BY id")
         self.assertEqual([u["role"] for u in users], ["Agent", "Analyst", "Administrator"])

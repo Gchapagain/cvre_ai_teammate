@@ -1,5 +1,6 @@
 """Every database read the screens need. The app only reads: it opens the database read-only."""
 
+import json
 import sqlite3
 
 import db
@@ -97,6 +98,17 @@ def deal_notes(deal_id):
         return _all("SELECT id, text, source, created_at FROM deal_notes WHERE deal_id = ? ORDER BY id", (deal_id,))
     except sqlite3.OperationalError:
         return []
+
+
+def deal_findings(deal_id):
+    """Saved research findings with their sources decoded. A database from before research has none."""
+    try:
+        rows = _all("SELECT * FROM research_findings WHERE deal_id = ? ORDER BY id", (deal_id,))
+    except sqlite3.OperationalError:
+        return []
+    for row in rows:
+        row["sources"] = json.loads(row["sources"])
+    return rows
 
 
 def deal_documents(deal_id):
