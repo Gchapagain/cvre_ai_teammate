@@ -83,7 +83,12 @@ def deal_t12(deal_id):
 
 
 def latest_draft(deal_id):
-    return _one("SELECT title, body, status FROM drafts WHERE deal_id = ? ORDER BY id DESC LIMIT 1", (deal_id,))
+    """The newest draft narrative, or None. A database from before drafts were reshaped has none."""
+    try:
+        return _one("SELECT id, deal_id, text, status, edited, created_at FROM drafts WHERE deal_id = ? "
+                    "ORDER BY id DESC LIMIT 1", (deal_id,))
+    except sqlite3.OperationalError:
+        return None
 
 
 def deal_notes(deal_id):

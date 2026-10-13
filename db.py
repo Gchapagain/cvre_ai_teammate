@@ -100,20 +100,30 @@ CREATE TABLE IF NOT EXISTS valuation_outputs (
     created_at  TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 
--- Human-in-the-loop: a draft is never sent unless a person approves it.
+-- Draft pricing narratives. The AI writes the first version; only a person can approve one.
+-- edited is 1 once a person has changed the text.
 CREATE TABLE IF NOT EXISTS drafts (
-    id           INTEGER PRIMARY KEY AUTOINCREMENT,
-    deal_id      INTEGER NOT NULL REFERENCES deals(id) ON DELETE CASCADE,
-    draft_type   TEXT NOT NULL,
-    title        TEXT,
-    body         TEXT NOT NULL,
-    source_label TEXT,
-    status       TEXT NOT NULL DEFAULT 'Pending review'
-                 CHECK (status IN ('Pending review', 'Approved', 'Rejected')),
-    created_by   INTEGER REFERENCES users(id),
-    reviewed_by  INTEGER REFERENCES users(id),
-    reviewed_at  TEXT,
-    created_at   TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+    id         INTEGER PRIMARY KEY AUTOINCREMENT,
+    deal_id    INTEGER NOT NULL REFERENCES deals(id) ON DELETE CASCADE,
+    text       TEXT NOT NULL,
+    status     TEXT NOT NULL DEFAULT 'Generated, not sent'
+               CHECK (status IN ('Generated, not sent', 'Flagged for producer', 'Approved')),
+    edited     INTEGER NOT NULL DEFAULT 0,
+    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+-- Market research findings for a deal. Advisory only: nothing is used until a person accepts it.
+-- sources is a JSON list of {name, url, tier, date, figure, metric}.
+CREATE TABLE IF NOT EXISTS research_findings (
+    id         INTEGER PRIMARY KEY AUTOINCREMENT,
+    deal_id    INTEGER NOT NULL REFERENCES deals(id) ON DELETE CASCADE,
+    topic      TEXT NOT NULL,
+    summary    TEXT NOT NULL,
+    sources    TEXT NOT NULL DEFAULT '[]',
+    skipped    INTEGER NOT NULL DEFAULT 0,
+    status     TEXT NOT NULL DEFAULT 'new' CHECK (status IN ('new', 'accepted', 'dismissed')),
+    fetched_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 
 -- query holds generic terms only (property type + submarket).
@@ -170,6 +180,7 @@ CREATE INDEX IF NOT EXISTS idx_deal_notes_deal       ON deal_notes(deal_id);
 CREATE INDEX IF NOT EXISTS idx_flags_deal            ON flags(deal_id);
 CREATE INDEX IF NOT EXISTS idx_valuation_deal        ON valuation_outputs(deal_id);
 CREATE INDEX IF NOT EXISTS idx_drafts_deal           ON drafts(deal_id);
+CREATE INDEX IF NOT EXISTS idx_findings_deal         ON research_findings(deal_id);
 CREATE INDEX IF NOT EXISTS idx_research_jobs_deal    ON research_jobs(deal_id);
 CREATE INDEX IF NOT EXISTS idx_research_sources_job  ON research_sources(job_id);
 CREATE INDEX IF NOT EXISTS idx_research_briefs_job   ON research_briefs(job_id);
@@ -184,10 +195,26 @@ def get_connection(db_path=None):
     return conn
 
 
+def _retire_old_drafts_table(conn):
+    """An earlier version had a drafts table with different columns. Make way for the new one.
+
+    An empty old table is dropped. One with rows is renamed and kept, never deleted.
+    """
+    columns = {row["name"] for row in conn.execute("PRAGMA table_info(drafts)")}
+    if not columns or "text" in columns:
+        return
+    conn.execute("DROP INDEX IF EXISTS idx_drafts_deal")
+    if conn.execute("SELECT COUNT(*) FROM drafts").fetchone()[0]:
+        conn.execute("ALTER TABLE drafts RENAME TO drafts_before_review_tab")
+    else:
+        conn.execute("DROP TABLE drafts")
+
+
 def init_db(db_path=None):
     """Create all tables if they do not exist yet."""
     conn = get_connection(db_path)
     try:
+        _retire_old_drafts_table(conn)
         conn.executescript(SCHEMA)
         conn.commit()
     finally:

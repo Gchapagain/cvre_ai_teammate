@@ -17,7 +17,7 @@ Scope additions (email ingestion, proactive research, locked-file handling) must
 1. **Capture**: a deal starts from an uploaded document (OM, BOV, rent roll, T-12) or an email captured from a connected inbox (Gmail API / Microsoft Graph, pointed at a safe demo inbox). Built so far: the "+ New deal" button on the dashboard, with two ways in. Upload files (xlsx or csv): the deal is created, files are saved as Received, and the first rent roll is read; T-12 files are saved but not read, because T-12 extraction is not built yet. Describe it to the AI: the AI returns a draft, anything it was not told is left blank, and nothing is saved until the person presses Create deal.
 2. **Extract (Service A)**: Gemini reads the documents and returns strict JSON (rent roll units, T-12 line items, key terms). We validate the JSON and save to SQLite.
 3. **Validate (Service B)**: plain Python rules check the numbers, e.g. flag any unit whose rent/SF is above 2x the average of the building's other units. Flag it, never hide it.
-4. **Draft (Service C)**: Gemini writes a pricing narrative from the validated numbers. Indicative value = NOI / cap rate, labeled as a draft working number, not a pricing decision.
+4. **Draft (Service C)**: Gemini writes a short pricing narrative from the deal's saved numbers and any accepted research, only when a person clicks "Generate draft" (1 request). A code check compares every number in the draft with the deal data; if one does not match, Approve stays locked until a person edits it. The app adds the "flagged units need confirmation" sentence itself if the AI leaves it out. Drafts are saved as "Generated, not sent"; only a person can approve. Indicative value (NOI / cap rate) is not built: no cap rate is available.
 5. **Review**: the human reviews, edits, flags or approves in the app.
 6. **Q&A (Service D)**: a chat limited to one deal. It answers only from that deal's data in SQLite. An answer is labeled "From this deal" only when it names a real source and every number in it is found in the deal data; otherwise "Not verified".
 7. **Research (Service E)**: proactive market research. When a deal arrives: plan questions, search the web with a search API (Tavily, Brave or Serper), score source reliability, write a cited brief. Advisory only.
@@ -54,7 +54,8 @@ Tables:
 - t12_line_items
 - flags (deal_id, unit, rule, field, actual value, threshold, message)
 - valuation_outputs
-- drafts
+- drafts (deal_id, text, status Generated not sent / Flagged for producer / Approved, edited flag, created_at)
+- research_findings (deal_id, topic, summary, sources as JSON, skipped count, status new / accepted / dismissed, fetched_at)
 - users (email to role)
 - documents (deal_id, filename, source, received_at, status, used_for). Status is one of Received (arrived, not read yet), Read, Reference only, Needs password.
 - research_jobs

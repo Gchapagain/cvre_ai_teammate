@@ -19,8 +19,9 @@ def _table_downloads(title, table, file_stem, sheet_name, key):
 
 def draft_text(deal, draft):
     """The draft as plain text, with its review status on the first line so it cannot pass as final."""
-    heading = f"{deal['name']}\nDraft narrative - status: {draft['status']}. AI draft, not a pricing decision.\n"
-    return f"{heading}\n{draft['title'] or ''}\n\n{draft['body']}\n".encode("utf-8")
+    origin = "AI-drafted, then edited by a person" if draft["edited"] else "AI-drafted"
+    heading = f"{deal['name']}\nDraft pricing narrative - status: {draft['status']}. {origin}. Not a pricing decision.\n"
+    return f"{heading}\n{draft['text']}\n".encode("utf-8")
 
 
 def render(deal):

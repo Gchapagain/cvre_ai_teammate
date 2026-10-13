@@ -3,10 +3,13 @@
 Services catch GeminiError and decide what to tell the user. Nothing here saves data.
 """
 
+import hashlib
+import json
 import logging
 import os
 import re
 import time
+from datetime import datetime
 from pathlib import Path
 
 from dotenv import load_dotenv
@@ -104,3 +107,31 @@ def generate(client, contents, config, model=None):
         f"Gemini was unavailable after {MAX_TRIES} tries "
         f"(last error: {last_error.code} {last_error.status}). Please try again in a few minutes."
     ) from last_error
+
+
+def _fingerprint(prompt):
+    return hashlib.sha256(prompt.encode()).hexdigest()
+
+
+def save_recording(path, prompt, response_text, model=None):
+    """Save a real Gemini reply to a file so it can be replayed without calling the API."""
+    recording = {
+        "recorded_at": datetime.now().isoformat(timespec="seconds"),
+        "model": model_name(model),
+        "prompt_sha256": _fingerprint(prompt),
+        "response_text": response_text,
+    }
+    path = Path(path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(recording, indent=2))
+
+
+def load_recording(path, prompt):
+    """Return the recorded reply, refusing one that was made for a different prompt."""
+    path = Path(path)
+    if not path.exists():
+        raise GeminiError(f"No recorded Gemini response at {path}. Record one with a live run first.")
+    recording = json.loads(path.read_text())
+    if recording.get("prompt_sha256") != _fingerprint(prompt):
+        raise GeminiError(f"The recording at {path} is out of date: the prompt or the data has changed since it was made.")
+    return recording["response_text"]

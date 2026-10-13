@@ -5,15 +5,18 @@ Right column: deal snapshot, key takeaways, where it all came from.
 Every figure on this tab is calculated in services/metrics.py from saved rows.
 """
 
+import logging
 from datetime import date
 from html import escape
 
 import pandas as pd
 import streamlit as st
 
-from app import exports, queries, style
-from app.views import notes
-from services import extraction, metrics
+from app import exports, icons, queries, style
+from app.views import data_tab, notes
+from services import drafting, extraction, gemini, metrics
+
+log = logging.getLogger(__name__)
 
 COLUMNS = {
     "unit_number": "Unit", "tenant_name": "Tenant", "square_feet": "SF",
@@ -91,18 +94,93 @@ def _extracted_fields(units, flags, documents):
         st.caption(f"From this deal: {names}. Shown exactly as extracted.")
 
 
-def _narrative(deal, units, flags):
-    with _card("narrative", "Draft pricing narrative"):
-        st.caption("No draft yet. Drafting comes in the next stage; nothing is written until a person asks for it.")
-        actions = st.container(key="narrative_actions", horizontal=True)
-        actions.button("Flag for producer", key="draft_flag", icon=":material/flag:", disabled=True)
-        actions.button("Edit", key="draft_edit", icon=":material/edit:", disabled=True)
-        actions.button("Approve", key="draft_approve", type="primary", icon=":material/check:", disabled=True)
+def _generate(deal_id):
+    """Ask the AI for a draft. Problems become a message on the card; nothing else changes."""
+    try:
+        drafting.generate_draft(deal_id)
+        message = None
+    except gemini.GeminiQuotaError as exc:
+        message = f"The AI's daily quota is used up, so it can't draft right now. {exc} Nothing was saved."
+    except gemini.GeminiBusyError:
+        message = "The AI is busy or rate-limited at the moment. Try again in a minute. Nothing was saved."
+    except gemini.GeminiError as exc:
+        message = f"The AI couldn't write a draft just now. {exc} Nothing was saved."
+    except Exception:
+        log.exception("Drafting failed")
+        message = "The AI couldn't write a draft just now. Something unexpected went wrong. Nothing was saved."
+    st.session_state.draft_message = message
+    st.session_state.draft_editing = False
+
+
+def _start_editing():
+    st.session_state.draft_editing = True
+
+
+def _save_edit(draft_id, key):
+    text = st.session_state.get(key, "")
+    if text.strip():
+        drafting.save_edit(draft_id, text)
+        st.session_state.draft_editing = False
+
+
+def _approve(draft_id):
+    try:
+        drafting.approve(draft_id)
+    except drafting.DraftNotVerified as exc:
+        st.session_state.draft_message = f"Not approved. {exc}"
+
+
+def _download(actions, deal, units, flags, draft):
+    """Download the draft once there is one; until then, the rent roll with its flags."""
+    stem = exports.slug(deal["name"])
+    if draft:
+        actions.download_button("Download", data_tab.draft_text(deal, draft), f"{stem}_draft_narrative.txt", "text/plain",
+                                key="review_download", icon=":material/download:",
+                                help=f"Downloads {stem}_draft_narrative.txt: the draft with its status on the first line.")
+    else:
         table = exports.rent_roll_table(units, flags)
-        stem = exports.slug(deal["name"])
         actions.download_button("Download", exports.to_excel(table, "Rent roll"), f"{stem}_rent_roll.xlsx", EXCEL_TYPE,
                                 key="review_download", icon=":material/download:",
                                 help=f"Downloads {stem}_rent_roll.xlsx: the rent roll with its flags.")
+
+
+def _narrative(deal, units, flags):
+    draft = queries.latest_draft(deal["id"])
+    editing = bool(draft) and st.session_state.get("draft_editing", False)
+    with _card("narrative", "Draft pricing narrative", draft["status"] if draft else ""):
+        if st.session_state.get("draft_message"):
+            st.warning(st.session_state.draft_message)
+        missing = []
+        if draft:
+            origin = "AI-drafted, then edited by a person" if draft["edited"] else "AI-drafted"
+            style.html(f'<div class="ai-label">{icons.SPARKLE}<span>{origin} - edit anything before it goes out</span></div>')
+            key = f"draft_text_{draft['id']}"
+            st.text_area("Draft", value=draft["text"], key=key, height=220, disabled=not editing, label_visibility="collapsed")
+            missing = drafting.unmatched_numbers(draft["text"], deal["id"])
+            if missing:
+                st.error("This draft states figures that are not in the deal data: " + drafting.show_numbers(missing)
+                         + ". Edit the draft before it can be approved.")
+            else:
+                st.caption("Checked: every number in this draft appears in the deal data or accepted research.")
+        else:
+            st.caption("No draft yet. The AI writes one only when you ask, from this deal's saved numbers "
+                       "and any research you have accepted.")
+        actions = st.container(key="narrative_actions", horizontal=True)
+        actions.button("Generate a new draft" if draft else "Generate draft", key="draft_generate",
+                       icon=":material/auto_awesome:", on_click=_generate, args=(deal["id"],),
+                       help="Uses 1 AI request.")
+        actions.button("Flag for producer", key="draft_flag", icon=":material/flag:", disabled=not draft or editing,
+                       on_click=drafting.flag_for_producer, args=(draft["id"],) if draft else None)
+        if editing:
+            actions.button("Save edits", key="draft_edit", icon=":material/save:", on_click=_save_edit,
+                           args=(draft["id"], f"draft_text_{draft['id']}"))
+        else:
+            actions.button("Edit", key="draft_edit", icon=":material/edit:", disabled=not draft, on_click=_start_editing)
+        can_approve = bool(draft) and not editing and not missing and draft["status"] != drafting.STATUS_APPROVED
+        actions.button("Approve", key="draft_approve", type="primary", icon=":material/check:", disabled=not can_approve,
+                       on_click=_approve, args=(draft["id"],) if draft else None)
+        _download(actions, deal, units, flags, draft)
+        st.caption("Generating uses 1 AI request. Approving is always a person's action; nothing is sent anywhere.")
 
 
 def _research():

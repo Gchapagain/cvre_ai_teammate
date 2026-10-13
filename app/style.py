@@ -221,6 +221,11 @@ h1, h2, h3, h4, .stat-value { font-family: 'Fraunces', Georgia, serif !important
 .takeaways { margin: 0; padding-left: 18px; }
 .takeaways li { margin-bottom: var(--s1); line-height: 1.45; font-size: 0.93rem; }
 .st-key-narrative_actions { gap: var(--s1) !important; }
+.ai-label { display: inline-flex; align-items: center; gap: var(--s1); background: var(--gold-tint); color: var(--gold-ink);
+  border: 1px solid var(--gold); border-radius: var(--pill); padding: 3px 12px; font-size: 0.82rem; font-weight: 600; }
+.ai-label svg { width: 14px; height: 14px; }
+.st-key-card_narrative textarea { font-size: 0.97rem; line-height: 1.55; }
+.st-key-card_narrative textarea:disabled { color: var(--ink); -webkit-text-fill-color: var(--ink); background: #faf8fb; }
 .st-key-go_documents button { min-height: 0; padding: 0; border: none; background: none; box-shadow: none; }
 .st-key-go_documents button:hover { background: none; }
 .st-key-go_documents button p { color: var(--green-mid); font-weight: 600; }

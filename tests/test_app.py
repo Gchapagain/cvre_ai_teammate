@@ -352,6 +352,8 @@ class TestDealWorkspace(AppTestCase):
         labels = {key: self.app.button(key=key) for key in ("draft_flag", "draft_edit", "draft_approve")}
         self.assertEqual([b.label for b in labels.values()], ["Flag for producer", "Edit", "Approve"])
         self.assertTrue(all(button.disabled for button in labels.values()))
+        self.assertEqual(self.app.button(key="draft_generate").label, "Generate draft")
+        self.assertFalse(self.app.button(key="draft_generate").disabled)
         download = [d for d in self.app.get("download_button") if d.key == "review_download"][0]
         self.assertEqual(download.label, "Download")
 
@@ -421,7 +423,7 @@ class TestDataTabDownloads(AppTestCase):
         conn = db.get_connection(self.db_path)
         with conn:
             draft_id = conn.execute(
-                "INSERT INTO drafts (deal_id, draft_type, title, body) VALUES (?, 'Pricing narrative', 'Made-up title', 'Made-up body.')",
+                "INSERT INTO drafts (deal_id, text) VALUES (?, 'Made-up draft text.')",
                 (self.deals["brindlewick"],),
             ).lastrowid
         conn.close()
@@ -885,6 +887,107 @@ class TestNewDealDescribe(NewDealAppTestCase):
         self.describe("   ")
         self.assertEqual(self.calls, [])
         self.assertIn("Describe the deal first.", self.messages())
+
+
+GOOD_DRAFT = "The 12 units total 154,600 SF at an average rent of $8.84 per SF."
+
+
+class TestDraftNarrative(NewDealAppTestCase):
+    def use_text(self, reply):
+        def generate_content(**kwargs):
+            self.calls.append(kwargs["contents"])
+            if isinstance(reply, Exception):
+                raise reply
+            return type("Reply", (), {"text": reply})()
+        client = type("Client", (), {"models": type("Models", (), {"generate_content": staticmethod(generate_content)})()})()
+        patcher = mock.patch.object(gemini, "get_client", lambda: client)
+        patcher.start()
+        self.addCleanup(patcher.stop)
+
+    def open_fallowmere(self):
+        self.app.button(key=f"open_deal_{self.deals['fallowmere']}").click().run()
+
+    def generate(self, reply):
+        self.use_text(reply)
+        self.open_fallowmere()
+        self.app.button(key="draft_generate").click().run()
+        self.assertFalse(self.app.exception)
+        drafts = self.rows("SELECT * FROM drafts ORDER BY id DESC")
+        return drafts[0] if drafts else None
+
+    def box(self, draft):
+        return self.app.text_area(key=f"draft_text_{draft['id']}")
+
+    def page(self):
+        parts = [e.value for kind in ("markdown", "caption", "error", "warning") for e in getattr(self.app, kind)]
+        return "\n".join(part for part in parts if "<style>" not in part)
+
+    def test_opening_the_review_tab_never_calls_gemini(self):
+        self.use_text(AssertionError("must not be called"))
+        self.open_fallowmere()
+        self.assertEqual(self.calls, [])
+        self.assertEqual(self.rows("SELECT id FROM drafts"), [])
+
+    def test_generate_uses_one_request_and_shows_a_labelled_unsent_draft(self):
+        draft = self.generate(GOOD_DRAFT)
+        self.assertEqual(len(self.calls), 1)
+        self.assertEqual((draft["status"], draft["edited"]), ("Generated, not sent", 0))
+        self.assertIn("Flagged units (110) need confirmation", draft["text"])
+        page = self.page()
+        self.assertIn("AI-drafted - edit anything before it goes out", page)
+        self.assertIn("Generated, not sent", page)
+        self.assertIn("Checked: every number in this draft appears in the deal data", page)
+        self.assertEqual(self.box(draft).value, draft["text"])
+        self.assertTrue(self.box(draft).disabled)
+        self.assertFalse(self.app.button(key="draft_approve").disabled)
+
+    def test_a_draft_with_an_invented_figure_warns_and_cannot_be_approved(self):
+        draft = self.generate("The property is worth about $19,000,000 at a 6.5% cap rate.")
+        self.assertIn("figures that are not in the deal data: 6.5, 19,000,000.", self.app.error[0].value)
+        self.assertTrue(self.app.button(key="draft_approve").disabled)
+        self.assertEqual(draft["status"], "Generated, not sent")
+
+    def test_editing_out_the_figure_unlocks_approve_and_a_person_approves(self):
+        draft = self.generate("The property is worth about $19,000,000.")
+        self.app.button(key="draft_edit").click().run()
+        self.assertFalse(self.box(draft).disabled)
+        self.assertEqual(self.app.button(key="draft_edit").label, "Save edits")
+        self.assertTrue(self.app.button(key="draft_approve").disabled)  # not while editing
+        self.box(draft).set_value("The 12 units total 154,600 SF. Unit 110 needs confirmation.").run()
+        self.app.button(key="draft_edit").click().run()
+        saved = self.rows("SELECT * FROM drafts")[0]
+        self.assertEqual((saved["text"], saved["edited"]), ("The 12 units total 154,600 SF. Unit 110 needs confirmation.", 1))
+        self.assertIn("AI-drafted, then edited by a person", self.page())
+        self.assertEqual(len(self.app.error), 0)
+        self.app.button(key="draft_approve").click().run()
+        self.assertEqual(self.rows("SELECT status FROM drafts"), [{"status": "Approved"}])
+        self.assertTrue(self.app.button(key="draft_approve").disabled)
+        self.assertEqual(len(self.calls), 1)  # editing and approving never call the AI
+
+    def test_flag_for_producer(self):
+        self.generate(GOOD_DRAFT)
+        self.app.button(key="draft_flag").click().run()
+        self.assertEqual(self.rows("SELECT status FROM drafts"), [{"status": "Flagged for producer"}])
+        self.assertIn("Flagged for producer", self.page())
+
+    def test_download_becomes_the_draft_with_its_status(self):
+        self.generate(GOOD_DRAFT)
+        download = [d for d in self.app.get("download_button") if d.key == "review_download"][0]
+        self.assertEqual(download.label, "Download")
+        self.assertIn("fallowmere_industrial_park_draft_narrative.txt", download.help)
+
+    def test_quota_used_up_shows_a_friendly_message_and_saves_nothing(self):
+        draft = self.generate(daily_quota_error())
+        self.assertIsNone(draft)
+        self.assertIn("daily quota is used up", self.app.warning[0].value)
+        self.assertIn("Nothing was saved", self.app.warning[0].value)
+
+    def test_generating_again_adds_a_new_draft_and_keeps_the_old_one(self):
+        self.generate(GOOD_DRAFT)
+        self.assertEqual(self.app.button(key="draft_generate").label, "Generate a new draft")
+        self.app.button(key="draft_generate").click().run()
+        self.assertEqual(len(self.rows("SELECT id FROM drafts")), 2)
+        self.assertEqual(len(self.calls), 2)
 
 
 AUDIO = b"RIFF" + b"\x00" * 4000  # made-up bytes standing in for a short recording

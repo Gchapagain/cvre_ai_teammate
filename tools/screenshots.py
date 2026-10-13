@@ -80,6 +80,27 @@ def tall_shot(page, name, height=2300):
     page.wait_for_timeout(400)
 
 
+def add_sample_drafts():
+    """Insert a made-up draft into the script's own database (never the real one)."""
+    import sqlite3
+    conn = sqlite3.connect(OUT / "tmp" / "screenshots.db")
+    conn.execute("INSERT INTO drafts (deal_id, text) VALUES (1, ?)", (
+        "Fallowmere Industrial Park has 12 units totalling 154,600 SF, with average rent of $8.84 per SF. "
+        "On these figures the property is worth about $19,000,000 at a 6.5% cap rate.\n\n"
+        "Flagged units (110) need confirmation before these figures are used.",))
+    conn.commit()
+    conn.close()
+
+
+def sign_in_again(page):
+    page.get_by_text("Welcome back").wait_for()
+    page.locator(".st-key-rolecard_agent").click(position={"x": 300, "y": 40})
+    page.locator(".st-key-rolecard_on_agent").wait_for()
+    page.get_by_role("button", name="Continue with Google").click()
+    page.get_by_text("Needs your attention").wait_for()
+    page.wait_for_timeout(800)
+
+
 def run(page, suffix):
     shot = lambda name: page.screenshot(path=str(OUT / f"{name}{suffix}.png"))
     width, height = page.viewport_size["width"], page.viewport_size["height"]
@@ -316,6 +337,38 @@ def run(page, suffix):
     check("snapshot has no occupancy or cap rate row", "Occupancy\n" not in snapshot_text and "Cap rate\n" not in snapshot_text)
     check("no Deploy button", page.get_by_role("button", name="Deploy").count() == 0)
     tall_shot(page, f"12_review{suffix}")
+    check("Generate draft button is offered and nothing has been drafted", page.get_by_role("button", name="Generate draft").count() == 1
+          and page.locator(".ai-label").count() == 0)
+    # Show what a draft looks like without calling Gemini: put two made-up drafts straight into the
+    # throwaway database, exactly as the drafting service would save them.
+    add_sample_drafts()
+    page.reload()
+    sign_in_again(page)
+    page.locator('[class*="st-key-deal_card_"]').first.click()
+    page.locator(".ai-label").wait_for()
+    page.wait_for_timeout(1000)
+    narrative = page.locator(".st-key-card_narrative")
+    check("draft is labelled as AI-drafted and not sent", "AI-drafted - edit anything before it goes out" in narrative.inner_text()
+          and "Generated, not sent" in narrative.inner_text())
+    check("a draft with a figure that is not in the data shows a warning and locks Approve",
+          "figures that are not in the deal data: 6.5, 19,000,000" in narrative.inner_text()
+          and narrative.get_by_role("button", name="Approve").is_disabled())
+    narrative.scroll_into_view_if_needed()
+    tall_shot(page, f"13_review_draft_warning{suffix}")
+    narrative.get_by_role("button", name="Edit").click()
+    narrative.get_by_role("button", name="Save edits").wait_for()
+    narrative.locator("textarea").fill("The rent roll shows 12 units totalling 154,600 SF, with average rent of $8.84 per SF. "
+                                       "Unit 110 is flagged and needs confirmation before these figures are used.")
+    narrative.get_by_role("button", name="Save edits").click()
+    narrative.get_by_text("Checked: every number in this draft").wait_for()
+    check("after a person edits it, the check passes and Approve unlocks",
+          narrative.get_by_role("button", name="Approve").is_enabled() and "then edited by a person" in narrative.inner_text())
+    tall_shot(page, f"13b_review_draft_edited{suffix}")
+    narrative.get_by_role("button", name="Approve").click()
+    narrative.get_by_text("Approved", exact=True).first.wait_for()
+    check("a person can approve it", narrative.get_by_role("button", name="Approve").is_disabled())
+    no_error_box(page, "after editing and approving a draft")
+    tabs = page.get_by_role("tab")
     page.locator(".st-key-go_documents button").click()
     page.get_by_text("Documents: coming in a later step.").wait_for()
     check("link jumps to the Documents tab", tabs.nth(1).get_attribute("aria-selected") == "true")
