@@ -5,6 +5,7 @@ from html import escape
 import streamlit as st
 
 from app import nav, queries, style
+from app.views import new_deal
 
 # Stat cards that filter the deal list: key -> (name shown above the list, which deals match).
 FILTERS = {
@@ -101,7 +102,12 @@ def _filtered_list(deals, name):
 
 
 def render():
-    st.header("All deals")
+    with st.container(key="page_head", horizontal=True, horizontal_alignment="distribute", vertical_alignment="center"):
+        st.header("All deals", width="content")
+        new_deal.button()
+    flash = st.session_state.pop("flash", None)
+    if flash:
+        (st.success if flash["kind"] == "success" else st.warning)(flash["message"])
     _stat_cards()
     deals = queries.list_deals()
     selected = st.session_state.get("deal_filter")

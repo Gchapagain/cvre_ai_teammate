@@ -3,11 +3,14 @@
 Run:  .venv/bin/python tools/screenshots.py            (uses the installed Google Chrome)
       .venv/bin/python tools/screenshots.py webkit     (Safari's engine, if Playwright has it installed)
 
-It starts its own copy of the app on port 8765, so a running app is left alone.
-It never sends a chat message, so Gemini is never called. It fails loudly if the app
-shows an error box or the Streamlit log contains a traceback.
+It starts its own copy of the app on port 8765 with its own freshly seeded database and
+uploads folder (inside screenshots/), so a running app and your real data are left alone.
+It never sends anything to Gemini: no chat message, no rent roll, no recording. It fails
+loudly if the app shows an error box or the Streamlit log contains a traceback.
 """
 
+import os
+import shutil
 import subprocess
 import sys
 import time
@@ -30,10 +33,16 @@ def check(name, ok, detail=""):
 
 
 def start_app(log_path):
+    """Seed a throwaway database, then start the app pointed at it."""
+    work = OUT / "tmp"
+    shutil.rmtree(work, ignore_errors=True)
+    work.mkdir(parents=True)
+    env = dict(os.environ, CBRE_DB_PATH=str(work / "screenshots.db"), CBRE_UPLOAD_DIR=str(work / "uploads"))
+    subprocess.run([sys.executable, "seed.py", "--reset"], cwd=ROOT, env=env, check=True, stdout=subprocess.DEVNULL)
     log = open(log_path, "w")
     process = subprocess.Popen(
         [sys.executable, "-m", "streamlit", "run", "streamlit_app.py", "--server.headless", "true",
-         "--server.port", str(PORT)], cwd=ROOT, stdout=log, stderr=subprocess.STDOUT)
+         "--server.port", str(PORT)], cwd=ROOT, env=env, stdout=log, stderr=subprocess.STDOUT)
     for _ in range(40):
         try:
             if urllib.request.urlopen(f"{URL}/_stcore/health", timeout=1).read() == b"ok":
@@ -143,6 +152,7 @@ def run(page, suffix):
     print("Stat card filters")
     page.locator(".st-key-statcard_review").click(position={"x": 200, "y": 90})  # away from the label
     page.get_by_text("Showing: Needs Review (1)").wait_for()
+    page.wait_for_timeout(400)  # let the colour transition finish before measuring it
     check("clicked card is marked selected", page.locator(".st-key-statcard_on_review").count() == 1)
     check("selected card has a green border", css(page, ".st-key-statcard_on_review", "borderLeftColor") == "rgb(29, 60, 47)")
     check("only matching deals are listed", page.locator('[class*="st-key-deal_card_"]').count() == 1)
@@ -175,6 +185,51 @@ def run(page, suffix):
     check("All deals in the top bar clears the filter", page.locator('[class*="st-key-deal_card_"]').count() == 3)
     no_error_box(page, "after using the filters")
 
+    print("New deal")
+    new_button = box(page, ".st-key-new_deal button")
+    title = page.get_by_role("heading", name="All deals").bounding_box()
+    check("+ New deal is dark green with white text", css(page, ".st-key-new_deal button", "backgroundColor") == "rgb(29, 60, 47)"
+          and css(page, ".st-key-new_deal button p", "color") == "rgb(255, 255, 255)", css(page, ".st-key-new_deal button", "backgroundColor"))
+    check("+ New deal is at the top right, level with the title", new_button["x"] > width * 0.75
+          and abs((new_button["y"] + new_button["height"] / 2) - (title["y"] + title["height"] / 2)) < 12, new_button)
+    check("+ New deal has a plus icon", "add" in page.locator(".st-key-new_deal button").inner_text())
+    page.locator(".st-key-new_deal button").click()
+    dialog = page.get_by_role("dialog")
+    dialog.get_by_text("How do you want to start?").wait_for()
+    page.wait_for_timeout(800)
+    no_error_box(page, "with the New deal dialog open")
+    check("upload form has name, type, location and a file box", dialog.get_by_label("Deal name").count() == 1
+          and dialog.get_by_text("Property type").count() == 1 and dialog.get_by_label("Location").count() == 1
+          and dialog.locator('[data-testid="stFileUploader"]').count() == 1)
+    shot("7_new_deal_upload")
+    dialog.get_by_text("Describe it to the AI", exact=True).click()
+    dialog.get_by_text("What do you know about the deal?").wait_for()
+    page.wait_for_timeout(800)
+    no_error_box(page, "on the describe tab of New deal")
+    check("describe form has a text box and a Draft with AI button", dialog.locator("textarea").count() >= 1
+          and dialog.get_by_role("button", name="Draft with AI").count() == 1)
+    dialog.locator("textarea").first.fill("Oakmere Depot is a 40,000 sf warehouse in Fort Worth with three tenants.")
+    page.wait_for_timeout(300)
+    shot("8_new_deal_describe")
+    # A real upload through the browser, using only a T-12 so that nothing is sent to Gemini.
+    dialog.get_by_text("Upload files", exact=True).click()
+    dialog.get_by_label("Deal name").wait_for()
+    dialog.get_by_label("Deal name").fill("Screenshot Test Depot (made up)")
+    dialog.get_by_label("Location").fill("Testville")
+    dialog.locator('input[type="file"]').set_input_files(str(ROOT / "sample_data" / "t12.xlsx"))
+    dialog.get_by_text("t12.xlsx").first.wait_for()
+    dialog.get_by_role("button", name="Create deal and read files").click()
+    page.get_by_text("Created 'Screenshot Test Depot (made up)'.").wait_for()
+    page.wait_for_timeout(1000)
+    no_error_box(page, "after creating a deal from an upload")
+    check("dialog closes after creating", page.get_by_role("dialog").count() == 0)
+    check("the new deal is on the dashboard straight away",
+          page.get_by_role("button", name="Screenshot Test Depot (made up)").count() == 1)
+    check("result message says the T-12 was saved but not read", page.get_by_text("t12.xlsx: Saved, not read").count() == 1)
+    shot("9_dashboard_after_new_deal")
+    page.locator(".st-key-nav_all_deals button").click()
+    page.wait_for_timeout(800)
+
     print("AI dialog")
     page.locator(".st-key-fab button").click()
     dialog = page.get_by_role("dialog")
@@ -188,10 +243,10 @@ def run(page, suffix):
     check("web search switch is disabled", dialog.locator("input[type=checkbox]").first.is_disabled())
     shot("3_ai_dialog")
     picker.locator("input").click()
-    page.get_by_role("option").nth(3).wait_for()  # the list fills in a moment after it opens
+    page.get_by_role("option").nth(4).wait_for()  # the list fills in a moment after it opens
     shot("3a_ai_dialog_picker_open")
     options = page.get_by_role("option").all_inner_texts()
-    check("picker lists All deals plus each deal", len(options) == 4 and options[0] == "All deals", options)
+    check("picker lists All deals plus each deal", len(options) == 5 and options[0] == "All deals", options)
     page.get_by_role("option", name="Fallowmere", exact=False).click()
     dialog.get_by_text("this deal's saved data", exact=False).wait_for()
     page.wait_for_timeout(800)

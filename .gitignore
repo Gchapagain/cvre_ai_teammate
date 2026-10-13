@@ -4,3 +4,4 @@
 __pycache__/
 screenshots/
 .pytest_cache/
+uploads/

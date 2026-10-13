@@ -229,6 +229,7 @@ class TestDashboard(AppTestCase):
         self.assertEqual(labels, {
             "nav_home": "CBRE AI Teammate",
             "nav_all_deals": "All deals",
+            "new_deal": "New deal",
             "sign_out": "Sign out",
             "open_assistant": "Ask the AI Teammate",
             f"open_deal_{self.deals['fallowmere']}": "Fallowmere Industrial Park (SAMPLE - fictional)",
@@ -634,7 +635,205 @@ class TestFloatingAssistant(AppTestCase):
         self.assertIn("daily quota is used up", reply["text"])
 
 
+class NewDealAppTestCase(unittest.TestCase):
+    """New-deal tests write to the database, so each one gets its own freshly seeded copy."""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.db_path = Path(self.tmp.name) / "app.db"
+        self.uploads = Path(self.tmp.name) / "uploads"
+        self.deals = seed.seed(self.db_path)
+        self.calls = []
+        from services import deals as deal_writes
+        for target, name, value in ((db, "DB_PATH", self.db_path), (deal_writes, "UPLOAD_DIR", self.uploads),
+                                    (gemini, "RETRY_WAIT_SECONDS", 0)):
+            patcher = mock.patch.object(target, name, value)
+            patcher.start()
+            self.addCleanup(patcher.stop)
+        self.app = AppTest.from_file(APP, default_timeout=20).run()
+        self.app.button(key="rolebtn_agent").click().run()
+        self.app.button(key="sign_in_google").click().run()
+
+    def use_gemini(self, reply):
+        def generate_content(**kwargs):
+            self.calls.append(kwargs["contents"])
+            if isinstance(reply, Exception):
+                raise reply
+            return type("Reply", (), {"text": json.dumps(reply)})()
+        client = type("Client", (), {"models": type("Models", (), {"generate_content": staticmethod(generate_content)})()})()
+        patcher = mock.patch.object(gemini, "get_client", lambda: client)
+        patcher.start()
+        self.addCleanup(patcher.stop)
+
+    def rows(self, sql):
+        conn = db.get_connection(self.db_path)
+        result = [dict(row) for row in conn.execute(sql)]
+        conn.close()
+        return result
+
+    def open_dialog(self, mode=None):
+        self.app.button(key="new_deal").click().run()
+        if mode:
+            self.app.button_group(key="nd_mode").set_value(mode).run()
+        self.assertFalse(self.app.exception)
+
+    def deal_names(self):
+        return [button.label for button in self.app.button if button.key.startswith("open_deal_")]
+
+    def messages(self):
+        return [m.value for kind in ("success", "warning", "error") for m in getattr(self.app, kind)]
+
+
+class TestNewDealUpload(NewDealAppTestCase):
+    def fill(self, name="Made-up Depot (test)", files=("rent_roll.xlsx",)):
+        self.app.text_input(key="nd_name").set_value(name)
+        self.app.selectbox(key="nd_type").set_value("Industrial")
+        self.app.text_input(key="nd_location").set_value("Testville")
+        sample = Path(APP).parent / "sample_data"
+        if files:
+            self.app.file_uploader(key="nd_files").set_value(
+                [(name_, (sample / name_).read_bytes(), "application/octet-stream") for name_ in files])
+        self.app.run()
+
+    def test_button_opens_the_dialog_on_upload_and_calls_nothing(self):
+        self.use_gemini(AssertionError("Gemini must not be called by opening the dialog"))
+        self.open_dialog()
+        self.assertEqual(self.app.button_group(key="nd_mode").value, "Upload files")
+        self.assertEqual(self.app.file_uploader(key="nd_files").allowed_type, [".xlsx", ".csv"])
+        self.assertEqual(self.calls, [])
+        self.assertEqual(len(self.rows("SELECT id FROM deals")), 3)
+
+    def test_uploading_a_rent_roll_creates_the_deal_and_reads_it(self):
+        from tests.test_extraction import read_source_units
+        self.use_gemini({"units": read_source_units()})
+        self.open_dialog()
+        self.fill(files=("rent_roll.xlsx", "t12.xlsx"))
+        self.app.button(key="nd_create_upload").click().run()
+        self.assertFalse(self.app.exception)
+        self.assertEqual(len(self.calls), 1)
+        deal = self.rows("SELECT * FROM deals ORDER BY id DESC LIMIT 1")[0]
+        self.assertEqual((deal["name"], deal["property_type"], deal["submarket"], deal["status"]),
+                         ("Made-up Depot (test)", "Industrial", "Testville", "Needs Review"))
+        self.assertEqual(self.rows(f"SELECT filename, source, status FROM documents WHERE deal_id = {deal['id']} ORDER BY id"),
+                         [{"filename": "rent_roll.xlsx", "source": "Upload", "status": "Read"},
+                          {"filename": "t12.xlsx", "source": "Upload", "status": "Received"}])
+        self.assertIn("Made-up Depot (test)", self.deal_names())
+        message = self.messages()[0]
+        self.assertIn("rent_roll.xlsx: Read: 12 units, 1 flag.", message)
+        self.assertIn("t12.xlsx: Saved, not read", message)
+        self.assertEqual(len(self.app.file_uploader), 0)  # the dialog has closed
+
+    def test_quota_used_up_still_creates_the_deal_and_says_so_kindly(self):
+        self.use_gemini(daily_quota_error())
+        self.open_dialog()
+        self.fill()
+        self.app.button(key="nd_create_upload").click().run()
+        self.assertFalse(self.app.exception)
+        deal = self.rows("SELECT * FROM deals ORDER BY id DESC LIMIT 1")[0]
+        self.assertEqual((deal["name"], deal["status"]), ("Made-up Depot (test)", "Extracting"))
+        self.assertEqual(self.rows(f"SELECT status FROM documents WHERE deal_id = {deal['id']}"), [{"status": "Received"}])
+        self.assertIn("Made-up Depot (test)", self.deal_names())
+        self.assertIn("daily quota is used up", self.app.warning[0].value)
+
+    def test_name_and_a_file_are_required(self):
+        self.use_gemini(AssertionError("must not be called"))
+        self.open_dialog()
+        self.fill(name="")
+        self.app.button(key="nd_create_upload").click().run()
+        self.assertIn("Give the deal a name.", self.messages())
+        self.fill(name="Made-up Depot (test)", files=())
+        self.app.file_uploader(key="nd_files").clear().run()
+        self.app.button(key="nd_create_upload").click().run()
+        self.assertIn("Add at least one file", self.messages()[0])
+        self.assertEqual(len(self.rows("SELECT id FROM deals")), 3)
+        self.assertEqual(self.calls, [])
+
+
+DESCRIPTION = "Oakmere Depot is a 40,000 sf warehouse in Fort Worth with three tenants."
+
+
+class TestNewDealDescribe(NewDealAppTestCase):
+    REPLY = {"name": "Oakmere Depot", "property_type": "Industrial", "location": "Fort Worth",
+             "facts": ["40,000 sf warehouse.", "Three tenants.", "Rent is about $9 per SF."]}
+
+    def describe(self, text=DESCRIPTION):
+        self.open_dialog("Describe it to the AI")
+        self.app.text_area(key="nd_description").set_value(text).run()
+        self.app.button(key="nd_draft_button").click().run()
+        self.assertFalse(self.app.exception)
+
+    def test_nothing_is_sent_until_draft_is_pressed(self):
+        self.use_gemini(AssertionError("must not be called"))
+        self.open_dialog("Describe it to the AI")
+        self.app.text_area(key="nd_description").set_value(DESCRIPTION).run()
+        self.assertEqual(self.calls, [])
+
+    def test_draft_is_shown_as_an_editable_form_and_nothing_is_saved_yet(self):
+        self.use_gemini(self.REPLY)
+        self.describe()
+        self.assertEqual(len(self.calls), 1)
+        self.assertEqual(self.app.text_input(key="ndf_name_1").value, "Oakmere Depot")
+        self.assertEqual(self.app.selectbox(key="ndf_type_1").value, "Industrial")
+        self.assertEqual(self.app.text_input(key="ndf_location_1").value, "Fort Worth")
+        self.assertEqual(self.app.text_area(key="ndf_notes_1").value, "40,000 sf warehouse.\nThree tenants.")
+        self.assertIn("The AI left out", self.app.warning[0].value)
+        self.assertIn("$9", self.app.warning[0].value)
+        self.assertEqual(len(self.rows("SELECT id FROM deals")), 3)
+        self.assertEqual(self.rows("SELECT id FROM deal_notes"), [])
+
+    def test_the_person_can_edit_the_draft_before_creating(self):
+        self.use_gemini(self.REPLY)
+        self.describe()
+        self.app.text_input(key="ndf_name_1").set_value("Oakmere Depot (edited)")
+        self.app.text_area(key="ndf_notes_1").set_value("Three tenants, one leaving.")
+        submit = [b for b in self.app.button if b.label == "Create deal"][0]
+        submit.click().run()
+        self.assertFalse(self.app.exception)
+        self.assertEqual(len(self.calls), 1)
+        deal = self.rows("SELECT * FROM deals ORDER BY id DESC LIMIT 1")[0]
+        self.assertEqual((deal["name"], deal["property_type"], deal["submarket"], deal["status"]),
+                         ("Oakmere Depot (edited)", "Industrial", "Fort Worth", "New"))
+        self.assertEqual(self.rows("SELECT deal_id, text, source FROM deal_notes"),
+                         [{"deal_id": deal["id"], "text": "Three tenants, one leaving.", "source": "Typed"}])
+        self.assertIn("Oakmere Depot (edited)", self.deal_names())
+        self.assertIn("Created 'Oakmere Depot (edited)'", self.app.success[0].value)
+
+    def test_unknowns_are_left_blank_and_a_name_is_required(self):
+        self.use_gemini({"name": None, "property_type": None, "location": None, "facts": []})
+        self.describe("Something on the east side, more later.")
+        self.assertEqual(self.app.text_input(key="ndf_name_1").value, "")
+        self.assertIsNone(self.app.selectbox(key="ndf_type_1").value)
+        self.assertEqual(self.app.text_input(key="ndf_location_1").value, "")
+        [b for b in self.app.button if b.label == "Create deal"][0].click().run()
+        self.assertIn("Give the deal a name.", self.messages())
+        self.assertEqual(len(self.rows("SELECT id FROM deals")), 3)
+
+    def test_quota_used_up_shows_a_friendly_message_and_an_empty_form(self):
+        self.use_gemini(daily_quota_error())
+        self.describe()
+        self.assertEqual(len(self.calls), 1)
+        self.assertIn("daily quota is used up", self.app.warning[0].value)
+        self.assertEqual(self.app.text_input(key="ndf_name_1").value, "")
+        self.assertEqual(len(self.rows("SELECT id FROM deals")), 3)
+
+    def test_empty_description_is_not_sent(self):
+        self.use_gemini(AssertionError("must not be called"))
+        self.describe("   ")
+        self.assertEqual(self.calls, [])
+        self.assertIn("Describe the deal first.", self.messages())
+
+
 class TestAppNeverChangesData(AppTestCase):
+    def test_opening_and_closing_the_new_deal_dialog_changes_nothing(self):
+        before = hashlib.sha256(self.db_path.read_bytes()).hexdigest()
+        self.sign_in()
+        self.app.button(key="new_deal").click().run()
+        self.app.button_group(key="nd_mode").set_value("Describe it to the AI").run()
+        self.app.button(key="nav_all_deals").click().run()
+        self.assertFalse(self.app.exception)
+        self.assertEqual(hashlib.sha256(self.db_path.read_bytes()).hexdigest(), before)
+
     def test_a_full_visit_leaves_the_database_file_identical(self):
         before = hashlib.sha256(self.db_path.read_bytes()).hexdigest()
         self.sign_in()

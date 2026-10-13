@@ -14,7 +14,7 @@ Priority 1 is **Research & Value**: the AI Teammate does the document-heavy prep
 Scope additions (email ingestion, proactive research, locked-file handling) must be flagged to the PM. Mobile is out of scope: the app is desktop only. Keep scope tight and say so when something feels like scope creep.
 
 ## How it works end to end
-1. **Capture**: a deal starts from an uploaded document (OM, BOV, rent roll, T-12) or an email captured from a connected inbox (Gmail API / Microsoft Graph, pointed at a safe demo inbox).
+1. **Capture**: a deal starts from an uploaded document (OM, BOV, rent roll, T-12) or an email captured from a connected inbox (Gmail API / Microsoft Graph, pointed at a safe demo inbox). Built so far: the "+ New deal" button on the dashboard, with two ways in. Upload files (xlsx or csv): the deal is created, files are saved as Received, and the first rent roll is read; T-12 files are saved but not read, because T-12 extraction is not built yet. Describe it to the AI: the AI returns a draft, anything it was not told is left blank, and nothing is saved until the person presses Create deal.
 2. **Extract (Service A)**: Gemini reads the documents and returns strict JSON (rent roll units, T-12 line items, key terms). We validate the JSON and save to SQLite.
 3. **Validate (Service B)**: plain Python rules check the numbers, e.g. flag any unit whose rent/SF is above 2x the average of the building's other units. Flag it, never hide it.
 4. **Draft (Service C)**: Gemini writes a pricing narrative from the validated numbers. Indicative value = NOI / cap rate, labeled as a draft working number, not a pricing decision.
@@ -49,6 +49,7 @@ Desktop only. No mobile layout, bottom navigation or tables-as-cards.
 ## Data (SQLite)
 Tables:
 - deals
+- deal_notes (deal_id, text, source Recording or Typed, created_at)
 - rent_roll_units
 - t12_line_items
 - flags (deal_id, unit, rule, field, actual value, threshold, message)
@@ -64,6 +65,8 @@ Tables:
 - Human in the loop. Nothing leaves the system without approval.
 - Sample or synthetic data only. No real client data in the repo.
 - Secrets only in .env, never committed, never printed in logs.
+- The AI never creates or saves a deal on its own. It drafts; a person presses Create deal.
+- The free Gemini tier allows 20 requests a day. Each of these uses one: reading a rent roll, a chat message, drafting a deal from a description, transcribing a recording.
 - Web search queries use generic terms only (property type + submarket). Never send client names or deal figures out.
 - Every AI statement is traceable to a source (document or URL).
 - Label every AI answer: From this deal / From these deals (all-deals questions) / From the web (Tier 1-3) / Not verified.
@@ -95,7 +98,8 @@ Tables:
 ## Running the app
 - Load sample data (deletes and rebuilds the local database, so it needs the flag): `.venv/bin/python seed.py --reset`
 - Start the app: `.venv/bin/streamlit run streamlit_app.py`
-- The app only reads the database. It never runs seed.py and never deletes data.
+- Viewing only reads the database (read-only connection in `app/queries.py`). The only writes come from explicit actions through `services/deals.py`: creating a deal, saving an upload, saving a note. The app never runs seed.py and never deletes data.
+- Uploaded files are stored in `uploads/` (git-ignored). Sample data only: no real client files.
 - Login is a demo login for now (no real OAuth), and the UI says so.
 - "Time saved" shows "Not measured yet" until the accuracy report. No assumed numbers anywhere.
 

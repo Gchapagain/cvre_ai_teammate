@@ -9,7 +9,7 @@ import db
 
 EXPECTED_TABLES = {
     "deals", "rent_roll_units", "t12_line_items", "valuation_outputs", "drafts",
-    "users", "documents", "research_jobs", "research_sources", "research_briefs", "flags",
+    "users", "documents", "research_jobs", "research_sources", "research_briefs", "flags", "deal_notes",
 }
 
 

@@ -9,6 +9,7 @@ The whole file is rejected, and nothing is saved, only when the file cannot be
 read, a required column is missing, or Gemini's reply is not the JSON we asked for.
 """
 
+import csv
 import hashlib
 import json
 import os
@@ -95,8 +96,19 @@ def _cell_text(value):
     return str(value)
 
 
+def _read_csv_rows(path):
+    try:
+        with open(path, newline="", encoding="utf-8-sig") as handle:
+            rows = [[cell.strip() for cell in row] for row in csv.reader(handle)]
+    except (OSError, UnicodeDecodeError, csv.Error) as exc:
+        raise ExtractionError(f"{Path(path).name} could not be read as a CSV file. Nothing was saved.") from exc
+    return [r for r in rows if any(r)]
+
+
 def read_sheet_rows(xlsx_path):
-    """Return the first sheet as a list of rows, each a list of cell strings."""
+    """Return the first sheet (or the CSV file) as a list of rows, each a list of cell strings."""
+    if Path(xlsx_path).suffix.lower() == ".csv":
+        return _read_csv_rows(xlsx_path)
     try:
         wb = load_workbook(xlsx_path, data_only=True, read_only=True)
     except Exception as exc:
@@ -219,12 +231,26 @@ def save_units(conn, deal_id, document_id, units):
     )
 
 
+def _mark_document_read(conn, deal_id, path, source, document_id):
+    """Record that the file was read: update its existing documents row, or add one."""
+    if document_id is None:
+        return conn.execute(
+            """INSERT INTO documents (deal_id, filename, doc_type, file_path, source, status, used_for)
+               VALUES (?, ?, ?, ?, ?, ?, ?)""",
+            (deal_id, path.name, "Rent roll", str(path), source, "Read", "Rent roll"),
+        ).lastrowid
+    conn.execute("UPDATE documents SET doc_type = 'Rent roll', status = 'Read', used_for = 'Rent roll' WHERE id = ?",
+                 (document_id,))
+    return document_id
+
+
 def extract_rent_roll(xlsx_path, deal_id, client=None, db_path=None, model=None, source="Upload",
-                      record_to=None, replay_from=None):
+                      record_to=None, replay_from=None, document_id=None):
     """Extract a rent roll file into rent_roll_units. Returns the number of units saved.
 
     replay_from: use the Gemini response saved in this file instead of calling the API.
     record_to: after a live call, save Gemini's response to this file.
+    document_id: the file's existing documents row, if it was already saved as Received.
     """
     xlsx_path = Path(xlsx_path)
     source_rows = read_sheet_rows(xlsx_path)
@@ -245,12 +271,7 @@ def extract_rent_roll(xlsx_path, deal_id, client=None, db_path=None, model=None,
     conn = db.get_connection(db_path)
     try:
         with conn:
-            cursor = conn.execute(
-                """INSERT INTO documents (deal_id, filename, doc_type, file_path, source, status, used_for)
-                   VALUES (?, ?, ?, ?, ?, ?, ?)""",
-                (deal_id, xlsx_path.name, "Rent roll", str(xlsx_path), source, "Read", "Rent roll"),
-            )
-            save_units(conn, deal_id, cursor.lastrowid, units)
+            save_units(conn, deal_id, _mark_document_read(conn, deal_id, xlsx_path, source, document_id), units)
     finally:
         conn.close()
     return len(units)

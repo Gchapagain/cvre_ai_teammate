@@ -1,9 +1,11 @@
 """SQLite schema and connection helpers for CBRE AI Teammate."""
 
+import os
 import sqlite3
 from pathlib import Path
 
-DB_PATH = Path(__file__).resolve().parent / "cbre_ai_teammate.db"
+# CBRE_DB_PATH lets tools (for example tools/screenshots.py) run the app against a throwaway database.
+DB_PATH = Path(os.getenv("CBRE_DB_PATH") or Path(__file__).resolve().parent / "cbre_ai_teammate.db")
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS users (
@@ -154,6 +156,17 @@ CREATE TABLE IF NOT EXISTS research_briefs (
 CREATE INDEX IF NOT EXISTS idx_documents_deal        ON documents(deal_id);
 CREATE INDEX IF NOT EXISTS idx_rent_roll_units_deal  ON rent_roll_units(deal_id);
 CREATE INDEX IF NOT EXISTS idx_t12_line_items_deal   ON t12_line_items(deal_id);
+-- Notes a person saved on a deal. The text is stored exactly as the person left it.
+-- Recording means it started as an AI transcript the person then checked; the audio itself is never stored.
+CREATE TABLE IF NOT EXISTS deal_notes (
+    id         INTEGER PRIMARY KEY AUTOINCREMENT,
+    deal_id    INTEGER NOT NULL REFERENCES deals(id) ON DELETE CASCADE,
+    text       TEXT NOT NULL,
+    source     TEXT NOT NULL CHECK (source IN ('Recording', 'Typed')),
+    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE INDEX IF NOT EXISTS idx_deal_notes_deal       ON deal_notes(deal_id);
 CREATE INDEX IF NOT EXISTS idx_flags_deal            ON flags(deal_id);
 CREATE INDEX IF NOT EXISTS idx_valuation_deal        ON valuation_outputs(deal_id);
 CREATE INDEX IF NOT EXISTS idx_drafts_deal           ON drafts(deal_id);

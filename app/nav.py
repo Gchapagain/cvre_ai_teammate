@@ -12,3 +12,16 @@ def go_home():
 def open_deal(deal_id):
     st.session_state.deal_id = deal_id
     st.session_state.page = "deal"
+
+
+def open_dialog(name):
+    """Only one dialog can be open at a time, so opening one closes any other."""
+    st.session_state.open_dialog = name
+
+
+def close_dialog():
+    st.session_state.open_dialog = None
+
+
+def dialog_is_open(name):
+    return st.session_state.get("open_dialog") == name

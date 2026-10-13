@@ -50,6 +50,15 @@ h1, h2, h3, h4, .stat-value { font-family: 'Fraunces', Georgia, serif !important
   border-color: var(--green-mid); background: var(--green-tint); color: var(--green); }
 .stButton button:focus-visible, .stDownloadButton button:focus-visible { outline: none; box-shadow: var(--focus); }
 .stButton button:disabled { background: #f1eef3; color: #6f7a74; border-color: var(--line); }
+/* Primary buttons: the one main action on a page or in a dialog. */
+.stButton button[kind="primary"], .stFormSubmitButton button[kind="primary"],
+.stButton button[data-testid="stBaseButton-primary"], .stFormSubmitButton button[data-testid="stBaseButton-primary"] {
+  background: var(--green); border-color: var(--green); color: #ffffff; font-weight: 600; padding: 0 20px; }
+.stButton button[kind="primary"]:hover, .stFormSubmitButton button[kind="primary"]:hover,
+.stButton button[data-testid="stBaseButton-primary"]:hover, .stFormSubmitButton button[data-testid="stBaseButton-primary"]:hover {
+  background: var(--green-dark); border-color: var(--green-dark); color: #ffffff; box-shadow: var(--shadow-hover); }
+.st-key-page_head { flex-wrap: nowrap !important; margin-bottom: var(--s1); }
+.st-key-new_deal button { min-height: 44px; }
 
 /* ---- Top bar: fixed across the full width of every signed-in page ---- */
 .st-key-topbar { position: fixed; top: 0; left: 0; right: 0; z-index: 900; width: 100% !important;
@@ -97,6 +106,7 @@ h1, h2, h3, h4, .stat-value { font-family: 'Fraunces', Georgia, serif !important
 [class*="st-key-statcard_"]:focus-within { box-shadow: var(--focus); }
 [class*="st-key-statcard_on_"] { background: var(--green-tint); border: 2px solid var(--green) !important;
                                  border-top: 4px solid var(--green) !important; }
+[class*="st-key-statcard_on_"]:hover { border-color: var(--green) !important; }  /* stay selected-looking under the mouse */
 [class*="st-key-statcard_"] * { position: static !important; }
 [class*="st-key-statcard_"] [data-testid="stMarkdownContainer"] { margin-bottom: 0; }
 [class*="st-key-statbtn_"] button { min-height: 0; padding: 0; border: none; background: none; box-shadow: none;
@@ -124,7 +134,7 @@ h1, h2, h3, h4, .stat-value { font-family: 'Fraunces', Georgia, serif !important
 .pill { display: inline-block; padding: 3px 12px; border-radius: var(--pill); font-size: 0.8rem; font-weight: 600;
         border: 1px solid transparent; margin-right: 6px; }
 .pill.needs-review, .pill.not-verified { background: var(--amber-tint); color: var(--amber-ink); border-color: #e0a82e; }
-.pill.extracting   { background: #e6ecf0; color: #2c3e50; border-color: #9fb0bf; }
+.pill.extracting, .pill.new { background: #e6ecf0; color: #2c3e50; border-color: #9fb0bf; }
 .pill.approved, .pill.from-deal { background: #dcebe3; color: var(--green); border-color: var(--green-mid); }
 .pill.flag         { background: var(--red-tint); color: var(--red-ink); border-color: var(--red); }
 .pill.other, .pill.no-answer { background: #ececec; color: #333333; border-color: #b5b5b5; }
@@ -202,7 +212,7 @@ h1, h2, h3, h4, .stat-value { font-family: 'Fraunces', Georgia, serif !important
 </style>
 """
 
-PILL_CLASSES = {"Needs Review": "needs-review", "Extracting": "extracting", "Approved": "approved"}
+PILL_CLASSES = {"Needs Review": "needs-review", "Extracting": "extracting", "Approved": "approved", "New": "new"}
 
 
 def apply():

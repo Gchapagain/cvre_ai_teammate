@@ -2,9 +2,10 @@
 
 import streamlit as st
 
-from app import queries
+from app import nav, queries
 from app.views import ask_ai
 
+DIALOG = "assistant"
 ALL_DEALS = "All deals"
 BUTTON_LABEL = "Ask the AI Teammate"
 
@@ -13,14 +14,10 @@ def _open():
     # Start on the deal being viewed, or on all deals from the dashboard.
     on_deal_page = st.session_state.get("page") == "deal"
     st.session_state.assistant_scope = st.session_state.get("deal_id") if on_deal_page else ALL_DEALS
-    st.session_state.assistant_open = True
+    nav.open_dialog(DIALOG)
 
 
-def _close():
-    st.session_state.assistant_open = False
-
-
-@st.dialog("AI Teammate", width="large", icon=":material/auto_awesome:", on_dismiss=_close)
+@st.dialog("AI Teammate", width="large", icon=":material/auto_awesome:", on_dismiss=nav.close_dialog)
 def _dialog():
     names = {deal["id"]: deal["name"] for deal in queries.list_deals()}
     choice = st.selectbox("Ask about", [ALL_DEALS, *names], format_func=lambda d: names.get(d, ALL_DEALS),
@@ -41,5 +38,5 @@ def render():
     """
     with st.container(key="fab"):
         st.button(BUTTON_LABEL, key="open_assistant", icon=":material/auto_awesome:", on_click=_open)
-    if st.session_state.get("assistant_open"):
+    if nav.dialog_is_open(DIALOG):
         _dialog()

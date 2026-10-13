@@ -57,8 +57,10 @@ def _anomaly_banner(flags):
 def _review_tab(deal):
     units = queries.deal_units(deal["id"])
     if not units:
-        style.html(style.banner("waiting", "No numbers yet",
-                                footer="This deal's documents have not been extracted, so there is nothing to review."))
+        documents = queries.deal_documents(deal["id"])
+        footer = ("This deal's documents have not been read yet, so there is nothing to review."
+                  if documents else "This deal has no documents yet, so there is nothing to review.")
+        style.html(style.banner("waiting", "No numbers yet", [f"{d['filename']}: {d['status']}" for d in documents], footer))
         return
     flags = queries.deal_flags(deal["id"])
     _anomaly_banner(flags)

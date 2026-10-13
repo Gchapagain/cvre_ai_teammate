@@ -12,7 +12,7 @@ from app import fresh
 fresh.ensure()  # must run before the imports below: see app/fresh.py
 
 from app import nav, queries, style  # noqa: E402
-from app.views import assistant, dashboard, deal, login  # noqa: E402
+from app.views import assistant, dashboard, deal, login, new_deal  # noqa: E402
 
 st.set_page_config(page_title="CBRE AI Teammate", layout="wide")
 style.apply()
@@ -52,3 +52,4 @@ else:
     else:
         dashboard.render()
     assistant.render()
+    new_deal.render_dialog()
