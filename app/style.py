@@ -57,6 +57,8 @@ h1, h2, h3, h4, .stat-value { font-family: 'Fraunces', Georgia, serif !important
 .stButton button[kind="primary"]:hover, .stFormSubmitButton button[kind="primary"]:hover,
 .stButton button[data-testid="stBaseButton-primary"]:hover, .stFormSubmitButton button[data-testid="stBaseButton-primary"]:hover {
   background: var(--green-dark); border-color: var(--green-dark); color: #ffffff; box-shadow: var(--shadow-hover); }
+.stButton button[kind="primary"]:disabled, .stButton button[data-testid="stBaseButton-primary"]:disabled {
+  background: #dfe3e0; border-color: #cfd6d2; color: #6f7a74; box-shadow: none; }  /* a locked action must not look ready */
 .st-key-page_head { flex-wrap: nowrap !important; margin-bottom: var(--s1); }
 .st-key-new_deal button { min-height: 44px; }
 
@@ -187,6 +189,42 @@ h1, h2, h3, h4, .stat-value { font-family: 'Fraunces', Georgia, serif !important
   box-shadow: inset 0 0 0 2px var(--green-dark), 0 4px 12px rgba(201, 162, 39, 0.6); }
 .stTabs [role="tab"]:last-of-type:focus-visible { box-shadow: var(--focus), 0 2px 8px rgba(201, 162, 39, 0.45); }
 .stTabs [role="tabpanel"] { padding-top: var(--s3); }
+
+/* ---- Deal header card ---- */
+.st-key-deal_header { background: var(--surface); border: 1px solid var(--line) !important;
+  border-radius: var(--radius) !important; padding: var(--s3) var(--card-pad) !important; box-shadow: var(--shadow);
+  margin-bottom: var(--s1); }
+.st-key-deal_header [data-testid="stMarkdownContainer"] { margin-bottom: 0; }
+.deal-top { display: flex; justify-content: space-between; align-items: flex-start; gap: var(--s3); }
+.deal-title { font-family: 'Fraunces', Georgia, serif; font-size: 1.7rem; font-weight: 600; color: var(--green);
+  line-height: 1.25; display: flex; align-items: center; flex-wrap: wrap; gap: 12px; }
+.deal-top .deal-meta { margin: var(--s1) 0 0; }
+.chip { font-family: 'Public Sans', sans-serif; font-size: 0.78rem; font-weight: 500; color: var(--ink-soft);
+  background: #f1eef3; border: 1px solid var(--line); border-radius: var(--pill); padding: 2px 10px; white-space: nowrap; }
+
+/* ---- Review tab cards ---- */
+[class*="st-key-card_"] { background: var(--surface); border: 1px solid var(--line) !important;
+  border-radius: var(--radius) !important; padding: var(--s3) var(--card-pad) !important; box-shadow: var(--shadow);
+  gap: 12px !important; }
+[class*="st-key-card_"] [data-testid="stMarkdownContainer"] { margin-bottom: 0; }
+.card-title { font-family: 'Fraunces', Georgia, serif; font-size: 1.2rem; font-weight: 600; color: var(--green);
+  display: flex; justify-content: space-between; align-items: baseline; gap: var(--s2); }
+.card-note { font-family: 'Public Sans', sans-serif; font-size: 0.82rem; font-weight: 500; color: var(--ink-soft); }
+.kv { display: flex; justify-content: space-between; align-items: baseline; gap: var(--s2); padding: 10px 0;
+  border-bottom: 1px solid #eee9f0; }
+.kv:last-child { border-bottom: none; }
+.kv .k { color: var(--ink-soft); font-size: 0.9rem; }
+.kv-note { color: #7b8680; font-size: 0.75rem; }
+.kv .v { font-weight: 600; color: var(--ink); text-align: right; white-space: nowrap; }
+.kv .v.muted { font-weight: 500; color: var(--amber-ink); background: var(--amber-tint); border-radius: var(--pill);
+  padding: 1px 10px; font-size: 0.82rem; }
+.takeaways { margin: 0; padding-left: 18px; }
+.takeaways li { margin-bottom: var(--s1); line-height: 1.45; font-size: 0.93rem; }
+.st-key-narrative_actions { gap: var(--s1) !important; }
+.st-key-go_documents button { min-height: 0; padding: 0; border: none; background: none; box-shadow: none; }
+.st-key-go_documents button:hover { background: none; }
+.st-key-go_documents button p { color: var(--green-mid); font-weight: 600; }
+.st-key-go_documents button:hover p { text-decoration: underline; }
 
 /* ---- Notes ---- */
 [class*="st-key-note_"] { background: var(--surface); border: 1px solid var(--line) !important;

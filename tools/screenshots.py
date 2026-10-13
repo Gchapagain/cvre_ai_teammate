@@ -70,6 +70,16 @@ def box(page, selector):
     return page.locator(selector).first.bounding_box()
 
 
+def tall_shot(page, name, height=2300):
+    """A screenshot of the whole page. The app scrolls inside itself, so the window is made tall first."""
+    size = page.viewport_size
+    page.set_viewport_size({"width": size["width"], "height": height})
+    page.wait_for_timeout(700)
+    page.screenshot(path=str(OUT / f"{name}.png"))
+    page.set_viewport_size(size)
+    page.wait_for_timeout(400)
+
+
 def run(page, suffix):
     shot = lambda name: page.screenshot(path=str(OUT / f"{name}{suffix}.png"))
     width, height = page.viewport_size["width"], page.viewport_size["height"]
@@ -288,6 +298,29 @@ def run(page, suffix):
           and page.locator(".st-key-back_to_deals button").inner_text().strip() == "All deals")
     check("at least 32px between the top bar and the breadcrumb", crumb["y"] - 67 >= 32, crumb["y"] - 67)
     shot("4_deal_tabs")
+
+    print("Review tab")
+    header = box(page, ".st-key-deal_header")
+    check("header card has the name, source chip, facts line and status", page.locator(".deal-title").count() == 1
+          and "from rent_roll.xlsx" in page.locator(".chip").first.inner_text()
+          and "12 units · 154,600 SF · Extracted" in page.locator(".deal-top .deal-meta").inner_text()
+          and page.locator(".deal-top .pill").count() == 1)
+    check("Documents tab shows a count", "2" in tabs.nth(1).inner_text(), tabs.nth(1).inner_text())
+    fields, snapshot = box(page, ".st-key-card_fields"), box(page, ".st-key-card_snapshot")
+    check("two columns: wide left, narrow right", snapshot["x"] > fields["x"] + fields["width"]
+          and fields["width"] > snapshot["width"] * 1.6, (fields["width"], snapshot["width"]))
+    for key in ("fields", "narrative", "research", "snapshot", "takeaways", "sources"):
+        check(f"card present: {key}", page.locator(f".st-key-card_{key}").count() == 1)
+    check("12 of 12 units read", "12 of 12 units read" in page.locator(".st-key-card_fields").inner_text())
+    snapshot_text = page.locator(".st-key-card_snapshot").inner_text()
+    check("snapshot has no occupancy or cap rate row", "Occupancy\n" not in snapshot_text and "Cap rate\n" not in snapshot_text)
+    check("no Deploy button", page.get_by_role("button", name="Deploy").count() == 0)
+    tall_shot(page, f"12_review{suffix}")
+    page.locator(".st-key-go_documents button").click()
+    page.get_by_text("Documents: coming in a later step.").wait_for()
+    check("link jumps to the Documents tab", tabs.nth(1).get_attribute("aria-selected") == "true")
+    tabs.first.click()
+    page.get_by_text("Deal snapshot").wait_for()
     tabs.last.click()
     page.get_by_text("Web search: coming in a later step.").first.wait_for()
     page.mouse.move(400, 800)

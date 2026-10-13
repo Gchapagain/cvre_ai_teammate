@@ -129,6 +129,26 @@ def _missing_columns(row):
             if not any(re.search(pattern, cell) for cell in cells)]
 
 
+def count_unit_rows(path):
+    """How many unit rows the source file has, counted in plain Python (no AI).
+
+    Used to show "12 of 12 units read". Returns None if the file cannot be read or has no unit column.
+    """
+    try:
+        rows = read_sheet_rows(path)
+    except ExtractionError:
+        return None
+    if not rows:
+        return None
+    header = min(range(len(rows)), key=lambda i: len(_missing_columns(rows[i])))
+    column = next((i for i, cell in enumerate(rows[header])
+                   if re.search(REQUIRED_COLUMNS["unit"], cell.strip().lower())), None)
+    if column is None:
+        return None
+    cells = [row[column].strip() for row in rows[header + 1:] if len(row) > column]
+    return sum(1 for cell in cells if cell and not cell.lower().startswith("total"))
+
+
 def check_required_columns(source_rows, filename):
     """Reject the file if its header row lacks a required column."""
     # The header row is the one that matches the most required columns.

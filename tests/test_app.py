@@ -273,7 +273,7 @@ class TestDealWorkspace(AppTestCase):
         self.open_deal("fallowmere")
         self.assertFalse(self.app.exception)
         self.assertEqual([tab.label for tab in self.app.tabs],
-                         ["Review", "Documents", "Data", ":material/auto_awesome: Ask AI"])
+                         ["Review", "Documents :gray-badge[2]", "Data", ":material/auto_awesome: Ask AI"])
         self.assertIn("Documents: coming in a later step.", [message.value for message in self.app.info])
 
     def test_review_shows_the_anomaly_banner_for_unit_110(self):
@@ -291,13 +291,75 @@ class TestDealWorkspace(AppTestCase):
         self.assertEqual(float(table[table["Unit"] == "110"]["Rent / SF"].iloc[0]), 20.33)
 
     def test_only_the_flagged_row_is_highlighted(self):
-        from app.views import deal
+        from app.views import review
         from app import queries
         deal_id = self.deals["fallowmere"]
-        table = deal.units_table(queries.deal_units(deal_id), queries.deal_flags(deal_id))
-        styles = deal._styled(table)._compute().ctx
+        table = review.units_table(queries.deal_units(deal_id), queries.deal_flags(deal_id))
+        styles = review._styled(table)._compute().ctx
         highlighted_rows = {row for (row, _column) in styles}
         self.assertEqual([table.iloc[row]["Unit"] for row in highlighted_rows], ["110"])
+
+    def test_header_card_shows_saved_facts_and_the_source_chip(self):
+        self.open_deal("fallowmere")
+        text = self.page_text()
+        self.assertIn('<span class="chip">from rent_roll.xlsx</span>', text)
+        self.assertIn("12 units · 154,600 SF · Extracted", text)
+        self.assertIn(">Needs Review</span>", text)
+
+    def test_extracted_fields_say_how_many_units_were_read(self):
+        self.open_deal("fallowmere")
+        self.assertIn("12 of 12 units read", self.page_text())
+
+    def test_deal_snapshot_is_calculated_and_never_guesses(self):
+        self.open_deal("fallowmere")
+        text = self.page_text()
+        for label, value in (("Total SF", "154,600"), ("Units", "12"), ("Average rent / SF", "$8.84"),
+                             ("Flagged units", "1"), ("Net operating income", "$1,244,311.44"),
+                             ("Time in review", "Not measured yet")):
+            self.assertIn(f'<div class="k">{label}</div>', text)
+            self.assertIn(f'">{value}</div>', text)
+        self.assertIn("Weighted avg lease term left", text)
+        self.assertNotIn('<div class="k">Occupancy', text)
+        self.assertNotIn('<div class="k">Cap rate', text)
+
+    def test_deal_without_a_t12_says_needs_t12(self):
+        self.open_deal("brindlewick")
+        self.assertIn('<div class="v muted">Needs T-12</div>', self.page_text())
+
+    def test_key_takeaways_are_shown(self):
+        self.open_deal("fallowmere")
+        text = self.page_text()
+        self.assertIn("Harbor &amp; Pine Distribution is the largest tenant: 22,000 SF, 14.2% of the 154,600 SF total.", text)
+        self.assertIn("Unit 110 is flagged: rent/SF is more than 2x the average of the other units.", text)
+        self.assertIn("Each line is calculated from the rent roll rows, not written by the AI.", text)
+
+    def test_where_this_came_from_names_the_document_rows_and_rule(self):
+        self.open_deal("fallowmere")
+        text = self.page_text()
+        self.assertIn("12 rows extracted from rent_roll.xlsx (first sheet), source: Sample data.", text)
+        self.assertIn("Flag on unit 110: validation rule rent_per_sf_above_2x_average (actual 20.33, limit 17.19).", text)
+        self.assertIn("Accuracy has not been measured yet, so no match rate is shown.", text)
+
+    def test_no_unmeasured_accuracy_claims_and_no_deploy_button(self):
+        self.open_deal("fallowmere")
+        text = self.page_text().lower()
+        for claim in ("high confidence", "% matched", "96%"):
+            self.assertNotIn(claim, text)
+        self.assertNotIn("Deploy", [button.label for button in self.app.button])
+
+    def test_narrative_buttons_exist_and_are_locked_without_a_draft(self):
+        self.open_deal("fallowmere")
+        labels = {key: self.app.button(key=key) for key in ("draft_flag", "draft_edit", "draft_approve")}
+        self.assertEqual([b.label for b in labels.values()], ["Flag for producer", "Edit", "Approve"])
+        self.assertTrue(all(button.disabled for button in labels.values()))
+        download = [d for d in self.app.get("download_button") if d.key == "review_download"][0]
+        self.assertEqual(download.label, "Download")
+
+    def test_link_jumps_to_the_documents_tab(self):
+        self.open_deal("fallowmere")
+        self.app.button(key="go_documents").click().run()
+        self.assertFalse(self.app.exception)
+        self.assertEqual(self.app.session_state["deal_tabs"], "Documents :gray-badge[2]")
 
     def test_approved_deal_shows_no_anomalies(self):
         self.open_deal("brindlewick")
@@ -338,6 +400,7 @@ class TestDataTabDownloads(AppTestCase):
         self.assertFalse(self.app.exception)
         self.assertEqual(set(self.downloads()), {
             "download_rent_roll_csv", "download_rent_roll_xlsx", "download_t12_csv", "download_t12_xlsx",
+            "review_download",
         })
         text = self.page_text()
         self.assertIn("fallowmere_industrial_park_rent_roll.csv", text)
@@ -346,7 +409,7 @@ class TestDataTabDownloads(AppTestCase):
 
     def test_deal_without_a_t12_only_offers_the_rent_roll(self):
         self.open_deal("brindlewick")
-        self.assertEqual(set(self.downloads()), {"download_rent_roll_csv", "download_rent_roll_xlsx"})
+        self.assertEqual(set(self.downloads()), {"download_rent_roll_csv", "download_rent_roll_xlsx", "review_download"})
         self.assertIn("T-12: nothing saved for this deal yet.", self.page_text())
 
     def test_deal_with_no_numbers_offers_no_downloads(self):
