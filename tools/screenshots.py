@@ -65,9 +65,34 @@ def run(page, suffix):
     width, height = page.viewport_size["width"], page.viewport_size["height"]
 
     page.goto(URL)
-    page.get_by_text("Step 1: Choose your role").wait_for()
-    page.get_by_text("Agent", exact=True).click()
-    page.get_by_role("button", name="Sign in with Google (demo)").click()
+    page.get_by_text("Welcome back").wait_for()
+    page.wait_for_timeout(1200)
+    print("Login page")
+    no_error_box(page, "on the login page")
+    left, card = box(page, ".login-left"), box(page, ".st-key-login_card")
+    check("left half is a dark green panel", css(page, ".login-left", "backgroundColor") == "rgb(19, 39, 30)"
+          and left["x"] == 0 and abs(left["width"] - width / 2) < 2 and abs(left["height"] - height) < 2, left)
+    check("card is on the right, at most 440px wide, with a shadow", card["x"] > width / 2 and card["width"] <= 441
+          and css(page, ".st-key-login_card", "boxShadow") != "none", card)
+    check("card is centred in the right half", abs((card["x"] + card["width"] / 2) - width * 0.75) < 24, card["x"])
+    check("card fits on the screen", card["y"] >= 0 and card["y"] + card["height"] <= height, card)
+    google = page.get_by_role("button", name="Continue with Google")
+    check("sign-in buttons are disabled before a role is chosen", google.is_disabled()
+          and page.get_by_role("button", name="Continue with Microsoft").is_disabled())
+    check("sign-in buttons are full width", abs(google.bounding_box()["width"] - (card["width"] - 82)) < 6, google.bounding_box()["width"])
+    check("helper text asks for a role", page.get_by_text("Choose a role to continue").count() == 1)
+    check("three role cards", page.locator('[class*="st-key-rolecard_"]').count() == 3)
+    shot("0_login")
+    agent = page.locator(".st-key-rolecard_agent")
+    agent.click(position={"x": 300, "y": 40})  # the card body, not the name
+    page.locator(".st-key-rolecard_on_agent").wait_for()
+    page.mouse.move(700, 850)
+    page.wait_for_timeout(500)
+    check("chosen card has a green border and a check mark",
+          css(page, ".st-key-rolecard_on_agent", "borderTopColor") == "rgb(29, 60, 47)" and page.locator(".role .tick").count() == 1)
+    check("sign-in buttons unlock", google.is_enabled())
+    shot("0b_login_role_selected")
+    google.click()
     page.get_by_text("Needs your attention").wait_for()
     page.wait_for_timeout(1200)
     no_error_box(page, "on the dashboard")

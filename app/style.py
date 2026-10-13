@@ -8,6 +8,8 @@ from html import escape
 
 import streamlit as st
 
+from app.icons import SPARKLE  # noqa: F401  (kept here so screens can use style.SPARKLE)
+
 CSS = """
 <style>
 @import url('https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500;9..144,600&family=Public+Sans:wght@400;500;600&display=swap');
@@ -174,10 +176,6 @@ h1, h2, h3, h4, .stat-value { font-family: 'Fraunces', Georgia, serif !important
 .st-key-fab:hover::before, .st-key-fab:focus-within::before { opacity: 1; }
 </style>
 """
-
-# A four-point sparkle in the gold accent, used wherever the AI is the subject.
-SPARKLE = ('<svg viewBox="0 0 24 24" aria-hidden="true"><path fill="#c9a227" '
-           'd="M12 1.5l2.6 7.9 7.9 2.6-7.9 2.6-2.6 7.9-2.6-7.9-7.9-2.6 7.9-2.6z"/></svg>')
 
 PILL_CLASSES = {"Needs Review": "needs-review", "Extracting": "extracting", "Approved": "approved"}
 

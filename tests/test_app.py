@@ -34,7 +34,7 @@ class AppTestCase(unittest.TestCase):
         self.app = AppTest.from_file(APP, default_timeout=15).run()
 
     def sign_in(self, role="Analyst", provider="google"):
-        self.app.radio(key="login_role").set_value(role).run()
+        self.app.button(key=f"rolebtn_{role.lower()}").click().run()
         self.app.button(key=f"sign_in_{provider}").click().run()
 
     def open_deal(self, name):
@@ -51,22 +51,45 @@ class AppTestCase(unittest.TestCase):
 class TestLogin(AppTestCase):
     def test_sign_in_buttons_are_locked_until_a_role_is_chosen(self):
         self.assertFalse(self.app.exception)
-        self.assertIsNone(self.app.radio(key="login_role").value)
+        self.assertNotIn("login_role", self.app.session_state)
         self.assertTrue(self.app.button(key="sign_in_google").disabled)
+        self.assertIn("Choose a role to continue", self.page_text())
         self.assertTrue(self.app.button(key="sign_in_microsoft").disabled)
         self.assertNotIn("user", self.app.session_state)
 
     def test_role_options(self):
-        self.assertEqual(self.app.radio(key="login_role").options, ["Agent", "Analyst", "Administrator"])
+        roles = [button.label for button in self.app.button if button.key.startswith("rolebtn_")]
+        self.assertEqual(roles, ["Agent", "Analyst", "Administrator"])
+        text = self.page_text()
+        for line in ("Brokers the deal", "Checks the numbers", "Manages users"):
+            self.assertIn(line, text)
 
     def test_choosing_a_role_unlocks_both_buttons(self):
-        self.app.radio(key="login_role").set_value("Agent").run()
+        self.app.button(key="rolebtn_agent").click().run()
+        self.assertFalse(self.app.exception)
         self.assertFalse(self.app.button(key="sign_in_google").disabled)
         self.assertFalse(self.app.button(key="sign_in_microsoft").disabled)
+        self.assertNotIn("Choose a role to continue", self.page_text())
+
+    def test_only_the_chosen_role_card_shows_a_check_mark(self):
+        self.assertNotIn('class="tick"', self.page_text())
+        self.app.button(key="rolebtn_analyst").click().run()
+        self.assertEqual(self.page_text().count('class="tick"'), 1)
+        self.app.button(key="rolebtn_administrator").click().run()
+        self.assertEqual(self.app.session_state["login_role"], "Administrator")
+        self.assertEqual(self.page_text().count('class="tick"'), 1)
+
+    def test_left_panel_has_the_brand_tagline_and_three_points(self):
+        text = self.page_text()
+        for expected in ("CBRE AI Teammate", "The AI drafts, flags and cites. A person always approves.",
+                         "Flags problems, never hides them", "Cites where every number came from",
+                         "A person approves every result", "Welcome back"):
+            self.assertIn(expected, text)
 
     def test_page_says_it_is_a_demo_login(self):
-        self.assertIn("Demo login", self.page_text())
-        self.assertIn("(demo)", self.app.button(key="sign_in_google").label)
+        self.assertIn("Demo login. No real sign-in happens yet.", self.page_text())
+        self.assertEqual(self.app.button(key="sign_in_google").label, "Continue with Google")
+        self.assertEqual(self.app.button(key="sign_in_microsoft").label, "Continue with Microsoft")
 
     def test_each_role_signs_in_as_its_demo_user(self):
         for role, provider in (("Agent", "google"), ("Analyst", "microsoft"), ("Administrator", "google")):
