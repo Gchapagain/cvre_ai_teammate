@@ -26,6 +26,29 @@ Source reliability tiers: Tier 1 official/government, Tier 2 brokerage and resea
 
 Services live in `/services`: extraction, validation, drafting, qa, research, plus deals (the only writes the screens make), new_deal (uploads and AI drafts) and transcribe (audio to text). `gemini.py` is the shared Gemini access (client, retries, quota handling, timing log) used by every service. `pipeline.process_deal` runs extraction then validation and returns a short summary (units saved, flags raised, which rules).
 
+## Connections (data sources)
+Every source of market data is an adapter in `services/connections/`, behind one interface (`base.Adapter`): `id`, `name`, `kind`, `topics`, `provides`, `key_name`, `key_help`, `status()` and `search(deal)`. `search` returns findings, which are saved in `research_findings` with a `connection_id` and a `simulated` flag. A finding is: topic, summary, and its sources (name, URL if any, date, tier, figure, metric).
+
+- **Live sources:**
+  - Web search with Gemini + Google Search grounding. The source pages' text is not returned, so its figures are marked as not checked.
+  - Web search with Tavily. Figures are checked against each source's text.
+  - FRED, BLS and Census, using official APIs with free keys.
+  - "Import a market report": a CSV, Excel or PDF the person exported from their own platform. Its findings cite the file. Locked PDFs get "Needs password".
+- **Demo sources** (LinkedIn, CoStar, LoopNet / Crexi, Zillow, Redfin): their data is licensed or partner-only. They return obviously fake samples with a SIMULATED chip. Simulated findings can never be accepted, never count as a disagreement, and are never sent to the AI.
+- **Status:** Connected, Not set up (key missing; the card says how to get one), Demo, Needs licensed access.
+- **On/off:** the `connections` table stores on/off and last used. Only Administrators can switch sources; others see status only.
+- **Run research:** runs each switched-on source on its own. One failing shows "Source unavailable" and never stops the others. Results under 24 hours old are reused unless the person ticks Refresh.
+- **Config files:** official series per market are in `config/market_data.json`; trusted domains per tier are in `config/source_tiers.json`.
+
+**No scraping, ever.** Only official APIs, free public data, web search with citations, and files the person imports. No unofficial scraping APIs. Zillow's open API is retired, LinkedIn needs a partnership, Redfin prohibits automated collection, and CoStar / Crexi PRO / Reonomy are licensed: these stay demo-only until CBRE's own licence connects them.
+
+**Adding a source:**
+1. Write a subclass of `Adapter` in `services/connections/` with a unique `id`, `name`, `kind`, `topics` and `provides`.
+2. Set `key_name` and a one-line `key_help` if it needs a key (read from .env, never shown).
+3. Implement `search(deal)` returning `finding(...)` dicts. Use `base.get_json` for HTTP so errors never include the URL. Raise `SourceError` with a friendly message.
+4. Add it to `all_adapters()` in `services/connections/__init__.py`.
+5. Add a simulated reply in `tests/connection_fakes.py` and tests in `tests/test_connections.py`. Never call the real service in tests.
+
 ## Users and login
 - Roles: Agent (broker/producer), Analyst, Administrator.
 - Google or Microsoft OAuth proves identity only.
@@ -73,6 +96,8 @@ Tables:
 - Voice: a person can record or upload audio (mp3, m4a, wav) in either chat and in the New deal box. It is sent to Gemini only when Transcribe is pressed. The audio is never saved; only the transcript the person has checked is used or stored (as a deal note, source "Recording"). The UI says: "Audio is sent to Gemini for transcription and is not saved."
 - The free Gemini tier allows 20 requests a day. Each of these uses one: reading a rent roll, a chat message, drafting a deal from a description, transcribing a recording.
 - Web search queries use generic terms only (property type + submarket). Never send client names or deal figures out.
+- No scraping of any website, ever, and no unofficial scraping APIs. Simulated (demo) data is always labelled and never counts.
+- External services and Gemini are only called when a person clicks a button.
 - Every AI statement is traceable to a source (document or URL).
 - Label every AI answer: From this deal / From these deals (all-deals questions) / From the web (Tier 1-3) / Not verified.
 - Research is advisory and labeled "sourced", not "verified".
@@ -109,6 +134,7 @@ Tables:
 - "Time saved" shows "Not measured yet" until the accuracy report. No assumed numbers anywhere.
 
 ## Testing
+- Run one area: `.venv/bin/python -m pytest tests/test_connections.py`, `tests/test_recommendations.py`, `tests/test_research.py`, `tests/test_drafting.py`, `tests/test_metrics.py`. Every external service is simulated in tests (`tests/connection_fakes.py`, `tests/research_fakes.py`); tests use made-up keys and never the real `.env`.
 - After any UI change, look at the real app, not only the tests: `.venv/bin/python tools/screenshots.py` (add `webkit` for Safari's engine). It starts its own copy of the app, clicks through it, checks the layout, fails on any error box or traceback, and saves screenshots to `screenshots/` (git-ignored). It never sends a chat message, so Gemini is not called. It needs `requirements-dev.txt`.
 - Restart the app after code changes. `app/fresh.py` reloads all app code together if a file changes while the app is running, but a restart is the safe habit.
 - Offline (default, no API calls): `.venv/bin/python -m pytest`
