@@ -251,6 +251,35 @@ h1, h2, h3, h4, .stat-value { font-family: 'Fraunces', Georgia, serif !important
 .pill.tier3 { background: #ececec; color: #333333; border-color: #b5b5b5; }
 .source .pill { margin: 0; text-align: center; padding: 2px 6px; font-size: 0.72rem; }
 
+.finding-head { display: flex; align-items: center; gap: var(--s1); flex-wrap: wrap; }
+.chip.simulated { background: #ede7f6; color: #4527a0; border-color: #9575cd; font-weight: 700; letter-spacing: 0.05em; }
+.pill.simulated { background: #ede7f6; color: #4527a0; border-color: #9575cd; }
+[class*="st-key-finding_simulated_"] { background: #faf8fd; border-style: dashed !important; }
+.src-name { font-weight: 600; color: var(--ink); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.unchecked { font-size: 0.75rem; color: var(--amber-ink); margin: -2px 0 4px 72px; }
+.run-results { margin: 0; padding-left: 18px; font-size: 0.86rem; color: var(--ink-soft); }
+.finding-topic { margin-top: var(--s1); }
+
+/* ---- Connections page ---- */
+[class*="st-key-conn_card_"] { background: var(--surface); border: 1px solid var(--line) !important;
+  border-radius: var(--radius) !important; padding: var(--s3) var(--card-pad) !important; box-shadow: var(--shadow);
+  gap: var(--s1) !important; margin-bottom: var(--s2); }
+[class*="st-key-conn_card_demo_"] { background: #fcfbfe; }
+[class*="st-key-conn_card_"] [data-testid="stMarkdownContainer"] { margin-bottom: 0; }
+[class*="st-key-conn_card_"] [data-testid="stMarkdownContainer"] p strong { font-family: 'Fraunces', Georgia, serif;
+  font-size: 1.08rem; color: var(--green); }
+.conn-kind { font-size: 0.75rem; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; color: var(--ink-soft); }
+.conn-provides { margin: 4px 0 var(--s1); }
+.conn-topics { display: flex; flex-wrap: wrap; gap: 6px; }
+.conn-used { font-size: 0.82rem; color: var(--ink-soft); margin-top: var(--s1); }
+.conn-tiers { margin-top: var(--s1); font-size: 0.86rem; color: var(--ink-soft); display: flex; gap: var(--s2); flex-wrap: wrap; }
+.st-key-card_how_sources { margin-bottom: var(--s2); }
+.st-key-nav_connections button { min-height: var(--control-h); border: none; background: none; box-shadow: none; padding: 0 12px;
+  border-radius: var(--radius-sm); }
+.st-key-nav_connections button p { color: #dfe7e2; font-weight: 500; }
+.st-key-nav_connections button:hover { background: rgba(255, 255, 255, 0.12); }
+.st-key-nav_connections button:hover p { color: #ffffff; }
+
 /* ---- Notes ---- */
 [class*="st-key-note_"] { background: var(--surface); border: 1px solid var(--line) !important;
   border-radius: var(--radius) !important; padding: var(--s2) var(--card-pad) !important; }

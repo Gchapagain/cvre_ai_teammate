@@ -12,7 +12,7 @@ from app import fresh
 fresh.ensure()  # must run before the imports below: see app/fresh.py
 
 from app import nav, queries, style  # noqa: E402
-from app.views import assistant, dashboard, deal, login, new_deal  # noqa: E402
+from app.views import assistant, connections_page, dashboard, deal, login, new_deal  # noqa: E402
 
 st.set_page_config(page_title="CBRE AI Teammate", layout="wide")
 style.apply()
@@ -29,6 +29,7 @@ def _top_bar(user):
             # Both go to the main dashboard and clear any filter.
             st.button("CBRE AI Teammate", key="nav_home", type="tertiary", on_click=nav.go_home)
             st.button("All deals", key="nav_all_deals", type="tertiary", on_click=nav.go_home)
+            st.button("Connections", key="nav_connections", type="tertiary", on_click=nav.open_connections)
         with st.container(key="topbar_user", horizontal=True, vertical_alignment="center", width="content"):
             st.markdown(f'<div class="who"><span class="user-name">{escape(user["full_name"])}</span>'
                         f'<span class="role-badge">{escape(user["role"])}</span></div>',
@@ -49,6 +50,8 @@ else:
     _top_bar(user)
     if st.session_state.get("page") == "deal":
         deal.render()
+    elif st.session_state.get("page") == "connections":
+        connections_page.render(user)
     else:
         dashboard.render()
     assistant.render()

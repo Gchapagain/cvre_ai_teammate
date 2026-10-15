@@ -1,0 +1,24 @@
+{
+  "_about": "Official data series for the markets the app knows. A deal matches a market when its location contains one of the 'match' words. Add a market by copying an entry. Codes were found by web search on 2026-10-14 and have not yet been checked with a live API call.",
+  "markets": [
+    {
+      "name": "Fort Worth-Arlington-Grapevine, TX",
+      "match": ["Fort Worth", "Alliance"],
+      "fred_search": "Fort Worth Arlington Grapevine unemployment rate",
+      "fred_metric": "unemployment rate",
+      "bls_series": [
+        {"id": "SMS48231040000000001", "metric": "total nonfarm employment", "label": "Total nonfarm employment, Fort Worth-Arlington-Grapevine, TX (MD)", "unit": "thousand jobs"}
+      ],
+      "census": {
+        "year": 2023,
+        "for": "place:27000",
+        "in": "state:48",
+        "place_name": "Fort Worth city, Texas",
+        "variables": [
+          {"code": "B01003_001E", "metric": "population", "label": "Total population", "unit": "people"},
+          {"code": "B19013_001E", "metric": "median household income", "label": "Median household income", "unit": "dollars"}
+        ]
+      }
+    }
+  ]
+}

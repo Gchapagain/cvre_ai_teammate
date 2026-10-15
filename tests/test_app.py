@@ -229,6 +229,7 @@ class TestDashboard(AppTestCase):
         self.assertEqual(labels, {
             "nav_home": "CBRE AI Teammate",
             "nav_all_deals": "All deals",
+            "nav_connections": "Connections",
             "new_deal": "New deal",
             "sign_out": "Sign out",
             "open_assistant": "Ask the AI Teammate",
@@ -991,25 +992,33 @@ class TestDraftNarrative(NewDealAppTestCase):
 
 
 class TestMarketResearch(NewDealAppTestCase):
+    """Run research on the deal page, with every source simulated (tests/connection_fakes.py)."""
+
     def setUp(self):
         super().setUp()
-        self.queries = []
+        self.queries, self.fetches = [], []
+        from tests.test_connections import with_keys
+        with_keys(self)
 
-    def use(self, results=None, reply=None):
-        from services import research
-        from tests import research_fakes
-        client = research_fakes.fake_gemini(reply, self.calls)
-        for target, name, value in ((research, "tavily_search", research_fakes.fake_search(results, self.queries)),
-                                    (gemini, "get_client", lambda: client)):
-            patcher = mock.patch.object(target, name, value)
-            patcher.start()
-            self.addCleanup(patcher.stop)
+    def use(self, results=None, reply=None, fetch=None, grounded=None):
+        from services import connections
+        from tests import connection_fakes, research_fakes
+        adapters = connection_fakes.adapters(
+            fetch=fetch or connection_fakes.fake_fetch(self.fetches),
+            search=research_fakes.fake_search(results, self.queries),
+            research_client=research_fakes.fake_gemini(reply, self.calls),
+            grounded_client=connection_fakes.fake_grounded_client(self.calls, grounded))
+        patcher = mock.patch.object(connections, "all_adapters", lambda: adapters)
+        patcher.start()
+        self.addCleanup(patcher.stop)
 
     def open_fallowmere(self):
         self.app.button(key=f"open_deal_{self.deals['fallowmere']}").click().run()
 
-    def run_research(self):
+    def run_research(self, force=False):
         self.open_fallowmere()
+        if force:
+            self.app.checkbox(key="research_force").check().run()
         self.app.button(key="research_run").click().run()
         self.assertFalse(self.app.exception)
 
@@ -1017,94 +1026,207 @@ class TestMarketResearch(NewDealAppTestCase):
         parts = [e.value for kind in ("markdown", "caption", "warning") for e in getattr(self.app, kind)]
         return "\n".join(part for part in parts if "<style>" not in part)
 
-    def finding_id(self, topic):
-        return self.rows(f"SELECT id FROM research_findings WHERE topic = '{topic}'")[0]["id"]
+    def finding_id(self, connection_id, topic):
+        return self.rows(f"SELECT id FROM research_findings WHERE topic = '{topic}' AND connection_id = '{connection_id}'")[0]["id"]
 
-    def test_opening_the_review_tab_searches_nothing(self):
+    def test_opening_the_review_tab_calls_nothing(self):
         self.use(results=AssertionError("must not search"), reply=AssertionError("must not be called"))
         self.open_fallowmere()
-        self.assertEqual((self.queries, self.calls), ([], []))
+        self.assertEqual((self.queries, self.calls, self.fetches), ([], [], []))
         page = self.page()
         self.assertIn("Not run yet", page)
         self.assertIn("About the Industrial market in Alliance, Fort Worth, TX, not about this property", page)
-        self.assertIn("Advisory only: sourced, not verified.", page)
 
-    def test_run_research_uses_four_searches_and_one_ai_request_and_shows_cards(self):
+    def test_run_research_calls_each_switched_on_source_once_and_reports_each(self):
         self.use()
         self.run_research()
-        self.assertEqual((len(self.queries), len(self.calls)), (4, 1))
+        self.assertEqual(len(self.queries), 4)                       # Tavily
+        self.assertEqual(len(self.calls), 2)                         # 1 grounded search + 1 Tavily summary
+        self.assertEqual(len(self.fetches), 4)                       # FRED 2, BLS 1, Census 1
         page = self.page()
-        for topic in ("Vacancy", "Asking rent trend", "New supply", "Employment and demand"):
+        for line in ("Web search (Gemini + Google Search): 2 finding(s)", "Web search (Tavily): 4 finding(s)",
+                     "FRED (St. Louis Fed): 1 finding(s)", "BLS (Bureau of Labor Statistics): 1 finding(s)",
+                     "U.S. Census Bureau: 2 finding(s)"):
+            self.assertIn(line, page)
+        for topic in ("Vacancy", "Asking rent trend", "New supply", "Employment and demand", "Population and income"):
             self.assertIn(f'<div class="finding-topic"><span>{topic}</span>', page)
-        self.assertIn('<span class="pill tier1">Tier 1</span>', page)
-        self.assertIn('<span class="pill tier2">Tier 2</span>', page)
-        self.assertIn('<span class="pill tier3">Tier 3</span>', page)
-        self.assertIn('href="https://www.bls.gov/eag/eag.tx_fortworth_md.htm"', page)
-        self.assertIn('<span class="when">2026-09-20</span><span class="figure">4.1%</span>', page)
-        self.assertIn("no figure stated", page)
-        self.assertIn("1 source skipped (not on the trusted list).", page)
-        self.assertIn("Last run", page)
-        self.assertEqual(self.app.button(key="research_run").label, "Run research again")
+        self.assertIn('<span class="chip">FRED (St. Louis Fed)</span>', page)
+        self.assertIn("the page's own text was not available to check it", page)
+        self.assertNotIn("SIMULATED", page)
 
-    def test_sources_that_disagree_are_tagged_and_both_figures_shown(self):
+    def test_sources_that_disagree_across_connections_are_tagged(self):
         self.use()
         self.run_research()
         page = self.page()
-        self.assertEqual(page.count("Sources disagree"), 1)
-        self.assertIn('<span class="figure">6.2%</span>', page)
-        self.assertIn('<span class="figure">7.5%</span>', page)
-        self.assertIn("The sources give different figures for vacancy rate. Both are shown above; they have not been combined.", page)
+        self.assertIn('<span>Vacancy</span><span class="pill flag">Sources disagree</span>', page)
+        for figure in ("6.2%", "7.5%", "7.0%"):
+            self.assertIn(f'<span class="figure">{figure}</span>', page)
 
-    def test_nothing_reaches_the_narrative_until_a_person_accepts(self):
+    def test_one_source_failing_shows_source_unavailable_and_the_rest_still_work(self):
+        from services import connections
+        self.use(fetch=connection_fakes_failing())
+        self.run_research()
+        page = self.page()
+        self.assertIn("FRED (St. Louis Fed): Source unavailable: The service could not be reached.", page)
+        self.assertIn("Web search (Tavily): 4 finding(s)", page)
+
+    def test_a_second_run_reuses_recent_results_unless_refreshed(self):
+        self.use()
+        self.run_research()
+        self.app.button(key="research_run").click().run()
+        self.assertIn("FRED (St. Louis Fed): used results from the last 24 hours", self.page())
+        self.assertEqual(len(self.fetches), 4)
+        self.app.checkbox(key="research_force").check().run()
+        self.app.button(key="research_run").click().run()
+        self.assertEqual(len(self.fetches), 8)
+
+    def test_accept_and_dismiss_and_only_accepted_findings_reach_the_narrative(self):
         from services import drafting
         self.use()
         self.run_research()
         deal_id = self.deals["fallowmere"]
         self.assertIn("None accepted", drafting.deal_facts(deal_id, self.db_path)[0])
-        self.app.button(key=f"accept_finding_{self.finding_id('Employment and demand')}").click().run()
-        self.assertFalse(self.app.exception)
+        self.app.button(key=f"accept_finding_{self.finding_id('fred', 'Employment and demand')}").click().run()
         facts = drafting.deal_facts(deal_id, self.db_path)[0]
-        self.assertIn("bls.gov (Tier 1, 2026-09-20): 4.1%", facts)
-        self.assertNotIn("cbre.com", facts)
-        self.assertIn(">Accepted</span>", self.page())
-        self.assertEqual((len(self.queries), len(self.calls)), (4, 1))  # accepting costs nothing
+        self.assertIn("FRED, St. Louis Fed (Tier 1, 2026-08-01): 4.4%", facts)
+        dismiss = self.finding_id("web_search_tavily", "Vacancy")
+        self.app.button(key=f"dismiss_finding_{dismiss}").click().run()
+        self.assertEqual(self.rows(f"SELECT status FROM research_findings WHERE id = {dismiss}"), [{"status": "dismissed"}])
 
-    def test_dismiss(self):
+    def test_simulated_findings_show_a_chip_and_cannot_be_accepted(self):
+        from services import connections
+        connections.set_enabled("demo_costar", True, "Administrator", self.db_path)
         self.use()
         self.run_research()
-        finding_id = self.finding_id("Vacancy")
-        self.app.button(key=f"dismiss_finding_{finding_id}").click().run()
-        self.assertEqual(self.rows(f"SELECT status FROM research_findings WHERE id = {finding_id}"), [{"status": "dismissed"}])
-        self.assertTrue(self.app.button(key=f"dismiss_finding_{finding_id}").disabled)
+        page = self.page()
+        self.assertIn('<span class="chip simulated">SIMULATED</span>', page)
+        demo_id = self.finding_id("demo_costar", "Vacancy")
+        self.assertTrue(self.app.button(key=f"accept_finding_{demo_id}").disabled)
+        self.assertIn("SIMULATED SAMPLE, NOT REAL DATA", page)
 
-    def test_nothing_found_says_so_and_offers_nothing_to_accept(self):
+    def test_nothing_found_says_so(self):
+        from services import connections
+        connections.set_enabled("web_search_gemini", False, "Administrator", self.db_path)
+        for source in ("fred", "bls", "census"):
+            connections.set_enabled(source, False, "Administrator", self.db_path)
         self.use(results={}, reply=AssertionError("must not be called"))
         self.run_research()
         self.assertEqual(self.page().count("No reliable public sources found."), 4)
-        self.assertEqual([b.key for b in self.app.button if "_finding_" in b.key], [])
-        self.assertEqual(self.calls, [])
 
-    def test_missing_search_key_shows_how_to_add_one(self):
-        from services import research
-        with mock.patch.object(research, "load_dotenv"), mock.patch.dict("os.environ", {"TAVILY_API_KEY": ""}):
-            self.open_fallowmere()
-            self.app.button(key="research_run").click().run()
-        self.assertFalse(self.app.exception)
-        self.assertIn("Add TAVILY_API_KEY=... to the .env file", self.app.warning[0].value)
-        self.assertEqual(self.rows("SELECT id FROM research_findings"), [])
-
-    def test_quota_used_up_keeps_the_earlier_findings(self):
+    def test_import_a_market_report(self):
+        from tests import research_fakes
         self.use()
-        self.run_research()
-        self.use(reply=daily_quota_error())
-        self.app.button(key="research_run").click().run()
+        reply = {"findings": [{"topic": "Vacancy", "summary": "Vacancy was 6.4% in Q3 2026.", "figure": "6.4%",
+                               "metric": "vacancy rate", "period": "Q3 2026"}]}
+        patcher = mock.patch.object(gemini, "get_client", lambda: research_fakes.fake_gemini(reply, self.calls))
+        patcher.start()
+        self.addCleanup(patcher.stop)
+        self.open_fallowmere()
+        deal_id = self.deals["fallowmere"]
+        self.app.file_uploader(key=f"import_file_{deal_id}").set_value(
+            ("dfw.csv", b"Metric,Value\nVacancy rate,6.4%\nAs of,Q3 2026\n", "text/csv")).run()
+        self.app.text_input(key=f"import_publisher_{deal_id}").set_value("Made-up Brokerage")
+        self.app.selectbox(key=f"import_tier_{deal_id}").set_value(2).run()
+        self.app.button(key=f"import_go_{deal_id}").click().run()
         self.assertFalse(self.app.exception)
-        self.assertIn("daily quota is used up", self.app.warning[0].value)
-        self.assertEqual(len(self.rows("SELECT id FROM research_findings")), 4)
+        self.assertEqual(len(self.calls), 1)
+        self.assertIn("Imported dfw.csv: 1 finding(s).", self.page())
+        self.assertIn("dfw.csv (imported, Made-up Brokerage)", self.page())
 
     def test_web_search_in_chat_stays_disabled(self):
         self.open_fallowmere()
         self.assertTrue(self.app.toggle(key=f"web_search_{self.deals['fallowmere']}").disabled)
+
+
+def connection_fakes_failing():
+    from services import connections
+    from tests import connection_fakes
+    fetch = connection_fakes.fake_fetch()
+
+    def failing(url, params=None, body=None, **kwargs):
+        if "stlouisfed" in url:
+            raise connections.SourceError("The service could not be reached.")
+        return fetch(url, params, body)
+    return failing
+
+
+class TestConnectionsPage(NewDealAppTestCase):
+    def setUp(self):
+        super().setUp()
+        from tests.test_connections import with_keys
+        with_keys(self, {"GEMINI_API_KEY": "test-gemini", "FRED_API_KEY": "test-fred"})
+
+    def open_page(self, role="Agent"):
+        if role != "Agent":
+            self.app.button(key="sign_out").click().run()
+            self.app.button(key=f"rolebtn_{role.lower()}").click().run()
+            self.app.button(key="sign_in_google").click().run()
+        self.app.button(key="nav_connections").click().run()
+        self.assertFalse(self.app.exception)
+
+    def page(self):
+        return "\n".join(e.value for kind in ("markdown", "caption", "info") for e in getattr(self.app, kind)
+                         if "<style>" not in e.value)
+
+    def test_every_source_has_a_card_with_status_and_what_it_provides(self):
+        self.open_page()
+        self.assertEqual([h.value for h in self.app.header], ["Connections"])
+        page = self.page()
+        for name in ("Web search (Gemini + Google Search)", "Web search (Tavily)", "FRED (St. Louis Fed)",
+                     "BLS (Bureau of Labor Statistics)", "U.S. Census Bureau", "Import a market report",
+                     "LinkedIn", "CoStar", "LoopNet / Crexi", "Zillow", "Redfin"):
+            self.assertIn(name, page)
+        self.assertIn('<span class="pill approved">Connected</span>', page)
+        self.assertIn('<span class="pill needs-review">Not set up</span>', page)
+        self.assertIn('<span class="pill other">Needs licensed access</span>', page)
+        self.assertIn("Free key: data.bls.gov/registrationEngine, then add BLS_API_KEY=... to .env.", page)
+        self.assertIn("Needs licensed access - in production, CBRE's own license would connect here.", page)
+        self.assertIn("Last used: never", page)
+
+    def test_keys_are_never_shown(self):
+        self.open_page("Administrator")
+        everything = self.page() + " ".join(str(w.value) for w in self.app.text_input)
+        for key in ("test-gemini", "test-fred"):
+            self.assertNotIn(key, everything)
+
+    def test_how_sources_are_used_note(self):
+        self.open_page()
+        page = self.page()
+        self.assertIn("How sources are used", page)
+        self.assertIn("No website is ever scraped", page)
+        self.assertIn("They can never be accepted, cited by the AI, or counted as research.", page)
+
+    def test_agents_and_analysts_can_only_look(self):
+        for role in ("Agent", "Analyst"):
+            with self.subTest(role):
+                self.open_page(role)
+                switches = [t for t in self.app.toggle if t.key.startswith("switch_")]
+                self.assertTrue(switches and all(t.disabled for t in switches))
+                self.assertIn("Only an Administrator can switch sources on or off.", self.page())
+
+    def test_an_administrator_switches_a_source_and_it_is_saved(self):
+        self.open_page("Administrator")
+        self.assertFalse(self.app.toggle(key="switch_fred").disabled)
+        self.app.toggle(key="switch_fred").set_value(False).run()
+        self.app.toggle(key="switch_demo_costar").set_value(True).run()
+        self.assertFalse(self.app.exception)
+        rows = {r["id"]: r["enabled"] for r in self.rows("SELECT id, enabled FROM connections")}
+        self.assertEqual((rows["fred"], rows["demo_costar"]), (0, 1))
+        self.assertIn('<span class="pill simulated">Demo</span>', self.page())
+
+    def test_connect_on_a_licensed_source_explains_instead_of_pretending(self):
+        self.open_page()
+        self.app.button(key="connect_demo_zillow").click().run()
+        message = [i.value for i in self.app.info if "Zillow cannot be connected" in i.value]
+        self.assertEqual(len(message), 1)
+        self.assertIn("never scraped", message[0])
+        self.assertEqual(self.rows("SELECT id FROM connections WHERE id = 'demo_zillow'"), [])
+
+    def test_viewing_the_page_changes_nothing(self):
+        before = hashlib.sha256(self.db_path.read_bytes()).hexdigest()
+        self.open_page()
+        self.app.button(key="connect_demo_zillow").click().run()
+        self.assertEqual(hashlib.sha256(self.db_path.read_bytes()).hexdigest(), before)
 
 
 AUDIO = b"RIFF" + b"\x00" * 4000  # made-up bytes standing in for a short recording

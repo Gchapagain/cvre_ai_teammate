@@ -76,9 +76,15 @@ def _daily_quota_message(exc):
 
 
 def generate(client, contents, config, model=None):
-    """Ask Gemini once and return the reply text, retrying temporary errors up to MAX_TRIES times.
+    """Ask Gemini once and return the reply text. See generate_response."""
+    return generate_response(client, contents, config, model).text
 
-    A used-up daily quota stops straight away instead of retrying.
+
+def generate_response(client, contents, config, model=None):
+    """Ask Gemini once and return the whole response, retrying temporary errors up to MAX_TRIES times.
+
+    The whole response is needed when its metadata matters (for example the sources behind a
+    web-search answer). A used-up daily quota stops straight away instead of retrying.
     """
     started = time.perf_counter()
     for attempt in range(1, MAX_TRIES + 1):
@@ -101,7 +107,7 @@ def generate(client, contents, config, model=None):
             log.info("Gemini total: %.1fs over %d attempt(s)", time.perf_counter() - started, attempt)
             if not response.text:
                 raise GeminiError("Gemini returned an empty response.")
-            return response.text
+            return response
     log.info("Gemini total: %.1fs over %d attempt(s), all failed", time.perf_counter() - started, MAX_TRIES)
     raise GeminiBusyError(
         f"Gemini was unavailable after {MAX_TRIES} tries "

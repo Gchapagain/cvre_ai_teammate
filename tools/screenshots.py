@@ -93,12 +93,27 @@ def add_sample_drafts():
 
 
 def add_simulated_research(nothing_found=False):
-    """Run the real research service on the script's own database with simulated search and Gemini."""
+    """Run the real connections code on the script's own database, with every source simulated
+    (tests/connection_fakes.py) and made-up keys. Nothing is sent anywhere."""
     sys.path.insert(0, str(ROOT))
-    from services import research
-    from tests import research_fakes
-    research.run_research(1, search=research_fakes.fake_search({} if nothing_found else None),
-                          client=research_fakes.fake_gemini(), db_path=OUT / "tmp" / "screenshots.db")
+    from unittest import mock
+    from services import connections
+    from services.connections import base
+    from tests import connection_fakes, research_fakes
+    db_path = OUT / "tmp" / "screenshots.db"
+    with mock.patch.object(base, "load_dotenv"), mock.patch.dict(os.environ, connection_fakes.TEST_KEYS):
+        if nothing_found:
+            adapters = [connections.TavilyAdapter(search_fn=research_fakes.fake_search({}), client=research_fakes.fake_gemini())]
+        else:
+            connections.set_enabled("demo_costar", True, "Administrator", db_path)
+            adapters = connection_fakes.adapters()
+        deal = {"id": 1, "property_type": "Industrial", "submarket": "Alliance, Fort Worth, TX"}
+        import sqlite3
+        conn = sqlite3.connect(db_path)
+        conn.execute("DELETE FROM research_findings")
+        conn.commit()
+        conn.close()
+        connections.run_research(deal, db_path, adapters=adapters, force=True)
 
 
 def sign_in_again(page):
@@ -393,27 +408,29 @@ def run(page, suffix):
     page.wait_for_timeout(1000)
     research_card = page.locator(".st-key-card_research")
     text = research_card.inner_text()
-    check("four finding cards", research_card.locator(".finding-topic").count() == 4)
+    check("five topics", research_card.locator(".finding-topic").count() == 5)
     check("tier labels, source names, dates and figures are shown", all(part in text for part in
-          ("Tier 1", "Tier 2", "Tier 3", "bls.gov", "cbre.com", "2026-09-20", "4.1%", "no figure stated")))
-    check("sources that disagree are tagged red and both figures are shown", "Sources disagree" in text
-          and "6.2%" in text and "7.5%" in text
+          ("Tier 1", "Tier 2", "Tier 3", "bls.gov", "cbre.com", "2026-09-20", "4.1%", "no figure stated", "FRED, St. Louis Fed")))
+    check("sources that disagree are tagged red and every figure is shown", "Sources disagree" in text
+          and "6.2%" in text and "7.5%" in text and "7.0%" in text
           and css(page, ".finding-topic .pill.flag", "backgroundColor") == "rgb(251, 225, 223)")
+    check("simulated findings carry a SIMULATED chip and cannot be accepted",
+          research_card.locator(".chip.simulated").count() == 2
+          and all(card.get_by_role("button", name="Accept").is_disabled()
+                  for card in research_card.locator('[class*="st-key-finding_simulated_"]').all()))
     check("skipped sources are counted", "1 source skipped" in text)
-    check("each finding has Accept and Dismiss", research_card.get_by_role("button", name="Accept").count() == 4
-          and research_card.get_by_role("button", name="Dismiss").count() == 4)
+    page.locator(".finding-topic").first.scroll_into_view_if_needed()
+    page.wait_for_timeout(400)
+    shot("14b_research_sources_disagree")
     research_card.get_by_role("button", name="Accept").last.click()
     research_card.locator('[class*="st-key-finding_accepted_"]').wait_for()
-    research_card.get_by_role("button", name="Dismiss").nth(1).click()
+    research_card.locator('[class*="st-key-finding_new_"]').nth(1).get_by_role("button", name="Dismiss").click()
     research_card.locator('[class*="st-key-finding_dismissed_"]').wait_for()
     page.wait_for_timeout(600)
     check("a person can accept one and dismiss another", "Accepted" in research_card.inner_text()
           and "Dismissed" in research_card.inner_text())
     no_error_box(page, "with research findings showing")
-    tall_shot(page, f"14_review_research{suffix}", height=3100)
-    research_card.locator('[class*="st-key-finding_"]').first.scroll_into_view_if_needed()
-    page.wait_for_timeout(400)
-    shot("14b_research_sources_disagree")
+    tall_shot(page, f"14_review_research{suffix}", height=4200)
     add_simulated_research(nothing_found=True)
     page.reload()
     sign_in_again(page)
@@ -489,6 +506,22 @@ def run(page, suffix):
     page.locator(".note-text").first.scroll_into_view_if_needed()
     shot("11_deal_notes")
     page.mouse.wheel(0, -5000)
+
+    print("Connections page")
+    page.locator(".st-key-nav_connections button").click()
+    page.get_by_role("heading", name="Connections").wait_for()
+    page.wait_for_timeout(1200)
+    no_error_box(page, "on the Connections page")
+    cards = page.locator('[class*="st-key-conn_card_"]')
+    check("a card for each of the 11 sources", cards.count() == 11)
+    check("the How sources are used note is there", "No website is ever scraped" in page.locator(".st-key-card_how_sources").inner_text())
+    check("an Agent sees the switches but cannot use them",
+          all(t.is_disabled() for t in page.locator('[class*="st-key-switch_"] input').all()))
+    texts = page.locator('[class*="st-key-conn_card_"]').all_inner_texts()
+    check("no key appears anywhere on the page", not any("AIza" in t or "tvly-" in t for t in texts))
+    page.locator(".st-key-connect_demo_zillow button").click()
+    page.get_by_text("Zillow cannot be connected").wait_for()
+    tall_shot(page, f"15_connections{suffix}", height=2600)
 
     print("Going home")
     page.locator(".st-key-nav_home button").click()

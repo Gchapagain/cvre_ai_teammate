@@ -123,7 +123,19 @@ CREATE TABLE IF NOT EXISTS research_findings (
     sources    TEXT NOT NULL DEFAULT '[]',
     skipped    INTEGER NOT NULL DEFAULT 0,
     status     TEXT NOT NULL DEFAULT 'new' CHECK (status IN ('new', 'accepted', 'dismissed')),
-    fetched_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+    fetched_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    -- Which connection found it (see services/connections). Simulated findings come from demo
+    -- connections: they are shown with a SIMULATED chip and can never be accepted or counted.
+    connection_id TEXT NOT NULL DEFAULT 'web_search_tavily',
+    simulated  INTEGER NOT NULL DEFAULT 0
+);
+
+-- One row per connection (data source) once someone has switched it or used it.
+-- A connection with no row uses its default from services/connections.
+CREATE TABLE IF NOT EXISTS connections (
+    id           TEXT PRIMARY KEY,
+    enabled      INTEGER NOT NULL,
+    last_used_at TEXT
 );
 
 -- query holds generic terms only (property type + submarket).
@@ -210,11 +222,30 @@ def _retire_old_drafts_table(conn):
         conn.execute("DROP TABLE drafts")
 
 
+# Columns added to existing tables after they were first created: table -> [(column, definition)].
+# Existing rows keep their data and get the default.
+ADDED_COLUMNS = {
+    "research_findings": [
+        ("connection_id", "TEXT NOT NULL DEFAULT 'web_search_tavily'"),
+        ("simulated", "INTEGER NOT NULL DEFAULT 0"),
+    ],
+}
+
+
+def _add_missing_columns(conn):
+    for table, columns in ADDED_COLUMNS.items():
+        existing = {row["name"] for row in conn.execute(f"PRAGMA table_info({table})")}
+        for column, definition in columns:
+            if existing and column not in existing:
+                conn.execute(f"ALTER TABLE {table} ADD COLUMN {column} {definition}")
+
+
 def init_db(db_path=None):
-    """Create all tables if they do not exist yet."""
+    """Create all tables if they do not exist yet, and add any columns a newer version needs."""
     conn = get_connection(db_path)
     try:
         _retire_old_drafts_table(conn)
+        _add_missing_columns(conn)
         conn.executescript(SCHEMA)
         conn.commit()
     finally:

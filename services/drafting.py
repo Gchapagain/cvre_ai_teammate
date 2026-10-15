@@ -37,7 +37,8 @@ class DraftNotVerified(Exception):
 
 def _accepted_findings(conn, deal_id):
     rows = conn.execute(
-        "SELECT topic, summary, sources FROM research_findings WHERE deal_id = ? AND status = 'accepted' ORDER BY id",
+        "SELECT topic, summary, sources FROM research_findings WHERE deal_id = ? AND status = 'accepted' "
+        "AND simulated = 0 ORDER BY id",
         (deal_id,),
     ).fetchall()
     lines = []

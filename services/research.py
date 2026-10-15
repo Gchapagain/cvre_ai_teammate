@@ -192,9 +192,14 @@ def _first_number(text):
 
 
 def disagreements(sources):
-    """Metrics for which two sources give different figures. The figures are never merged."""
+    """Metrics for which two sources give different figures. The figures are never merged.
+
+    Simulated (demo) sources never count.
+    """
     by_metric = defaultdict(set)
     for source in sources:
+        if source.get("simulated"):
+            continue
         value = _first_number(source.get("figure"))
         if source.get("metric") and value is not None:
             by_metric[source["metric"]].add(value)
@@ -222,6 +227,12 @@ def _deal_market(conn, deal_id):
     return deal["property_type"], deal["submarket"]
 
 
+def tavily_findings(property_type, submarket, search=None, client=None, model=None):
+    """Search four topics with Tavily and return checked findings. Saves nothing."""
+    found = gather(property_type, submarket, search or tavily_search)
+    return check_reply(_summarise(found, property_type, submarket, client, model), found)
+
+
 def run_research(deal_id, search=None, client=None, db_path=None, model=None):
     """Research the deal's market and replace its saved findings. Returns the new findings.
 
@@ -232,10 +243,9 @@ def run_research(deal_id, search=None, client=None, db_path=None, model=None):
     conn = db.get_connection(db_path)
     try:
         property_type, submarket = _deal_market(conn, deal_id)
-        found = gather(property_type, submarket, search or tavily_search)
-        findings = check_reply(_summarise(found, property_type, submarket, client, model), found)
+        findings = tavily_findings(property_type, submarket, search, client, model)
         with conn:
-            conn.execute("DELETE FROM research_findings WHERE deal_id = ?", (deal_id,))
+            conn.execute("DELETE FROM research_findings WHERE deal_id = ? AND connection_id = 'web_search_tavily'", (deal_id,))
             conn.executemany(
                 "INSERT INTO research_findings (deal_id, topic, summary, sources, skipped) VALUES (?, ?, ?, ?, ?)",
                 [(deal_id, f["topic"], f["summary"], json.dumps(f["sources"]), f["skipped"]) for f in findings],
@@ -246,10 +256,16 @@ def run_research(deal_id, search=None, client=None, db_path=None, model=None):
 
 
 def set_status(finding_id, status, db_path=None):
-    """A person accepts or dismisses a finding. A finding with no sources cannot be accepted."""
+    """A person accepts or dismisses a finding.
+
+    A finding with no sources, or a simulated (demo) one, can never be accepted.
+    """
+    db.init_db(db_path)
     conn = db.get_connection(db_path)
     try:
-        row = conn.execute("SELECT sources FROM research_findings WHERE id = ?", (finding_id,)).fetchone()
+        row = conn.execute("SELECT sources, simulated FROM research_findings WHERE id = ?", (finding_id,)).fetchone()
+        if status == "accepted" and row["simulated"]:
+            raise ValueError("Simulated findings are sample data and can never be accepted.")
         if status == "accepted" and not json.loads(row["sources"]):
             raise ValueError("A finding with no sources cannot be accepted.")
         with conn:

@@ -9,6 +9,10 @@ def go_home():
     st.session_state.deal_filter = None
 
 
+def open_connections():
+    st.session_state.page = "connections"
+
+
 def open_deal(deal_id):
     st.session_state.deal_id = deal_id
     st.session_state.page = "deal"

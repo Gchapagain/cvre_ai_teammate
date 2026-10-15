@@ -14,7 +14,8 @@ import streamlit as st
 
 from app import exports, icons, queries, style
 from app.views import data_tab, notes
-from services import drafting, extraction, gemini, metrics, research
+from services import connections, drafting, extraction, gemini, metrics, research
+from services.connections.base import TIER_LABELS
 
 log = logging.getLogger(__name__)
 
@@ -183,73 +184,123 @@ def _narrative(deal, units, flags):
         st.caption("Generating uses 1 AI request. Approving is always a person's action; nothing is sent anywhere.")
 
 
-def _run_research(deal_id):
-    """Run the research. Problems become a message on the card and the old findings are kept."""
-    try:
-        research.run_research(deal_id)
-        message = None
-    except (research.SearchError, ValueError) as exc:
-        message = str(exc)
-    except gemini.GeminiQuotaError as exc:
-        message = f"The AI's daily quota is used up, so the sources could not be summarised. {exc} Earlier findings are unchanged."
-    except gemini.GeminiBusyError:
-        message = "The AI is busy or rate-limited at the moment. Try again in a minute. Earlier findings are unchanged."
-    except gemini.GeminiError as exc:
-        message = f"The research could not be summarised just now. {exc} Earlier findings are unchanged."
-    except Exception:
-        log.exception("Research failed")
-        message = "The research could not be run just now. Something unexpected went wrong. Earlier findings are unchanged."
-    st.session_state.research_message = message
+TOPIC_ORDER = list(research.TOPICS) + ["Population and income"]
+OUTCOME_TEXT = {"ok": "{count} finding(s)", "cached": "used results from the last 24 hours",
+                "unavailable": "Source unavailable: {message}", "not set up": "Not set up: {message}"}
+
+
+def _run(deal, force):
+    """Run every switched-on source, showing each one's progress. One failing never stops the others."""
+    with st.status("Running research...", expanded=True) as status:
+        try:
+            results = connections.run_research(deal, force=force, progress=lambda name, message: status.write(f"{name}: {message}"))
+        except ValueError as exc:
+            st.session_state.research_message = str(exc)
+            status.update(label="Research could not run", state="error")
+            return
+        status.update(label="Research finished", state="complete")
+    st.session_state.research_message = None
+    st.session_state[f"research_results_{deal['id']}"] = results
+    st.rerun()
 
 
 def _source_row(source):
     figure = escape(source["figure"]) if source.get("figure") else '<span class="none">no figure stated</span>'
-    return (f'<div class="source"><span class="pill tier{source["tier"]}">Tier {source["tier"]}</span>'
-            f'<a href="{escape(source["url"], quote=True)}" target="_blank" rel="noopener">{escape(source["name"])}</a>'
-            f'<span class="when">{escape(source.get("date") or "date not stated")}</span>'
-            f'<span class="figure">{figure}</span></div>')
+    name = (f'<a href="{escape(source["url"], quote=True)}" target="_blank" rel="noopener">{escape(source["name"])}</a>'
+            if source.get("url") else f'<span class="src-name">{escape(source["name"])}</span>')
+    tier = f'<span class="pill tier{source["tier"]}">Tier {source["tier"]}</span>' if source.get("tier") else "<span></span>"
+    unchecked = ('<div class="unchecked">Figure as stated in the search answer; the page\'s own text was not available to check it.</div>'
+                 if source.get("checked") is False and source.get("figure") else "")
+    return (f'<div class="source">{tier}{name}<span class="when">{escape(source.get("date") or "date not stated")}</span>'
+            f'<span class="figure">{figure}</span></div>{unchecked}')
 
 
-def _finding(finding):
-    disagree = research.disagreements(finding["sources"])
+def _finding(finding, names):
     status = {"new": "", "accepted": style.pill("Accepted", "approved"), "dismissed": style.pill("Dismissed", "other")}[finding["status"]]
-    with st.container(border=True, key=f"finding_{finding['status']}_{finding['id']}"):
-        tag = '<span class="pill flag">Sources disagree</span>' if disagree else ""
-        style.html(f'<div class="finding-topic"><span>{escape(finding["topic"])}</span>{tag}{status}</div>'
+    simulated = finding["simulated"]
+    with st.container(border=True, key=f"finding_{'simulated' if simulated else finding['status']}_{finding['id']}"):
+        chips = f'<span class="chip">{escape(names.get(finding["connection_id"], finding["connection_id"]))}</span>'
+        chips += '<span class="chip simulated">SIMULATED</span>' if simulated else ""
+        style.html(f'<div class="finding-head">{chips}{status}</div>'
                    f'<div class="finding-summary">{escape(finding["summary"])}</div>'
                    + "".join(_source_row(source) for source in finding["sources"]))
-        if disagree:
-            st.caption("The sources give different figures for " + ", ".join(disagree)
-                       + ". Both are shown above; they have not been combined.")
         if finding["skipped"]:
             count = finding["skipped"]
             st.caption(f"{count} source{'' if count == 1 else 's'} skipped (not on the trusted list).")
-        if finding["sources"]:
-            actions = st.container(horizontal=True)
-            actions.button("Accept", key=f"accept_finding_{finding['id']}", icon=":material/check:",
-                           disabled=finding["status"] == "accepted", on_click=research.set_status,
-                           args=(finding["id"], "accepted"))
-            actions.button("Dismiss", key=f"dismiss_finding_{finding['id']}", icon=":material/close:",
-                           disabled=finding["status"] == "dismissed", on_click=research.set_status,
-                           args=(finding["id"], "dismissed"))
+        if not finding["sources"]:
+            return
+        actions = st.container(horizontal=True)
+        actions.button("Accept", key=f"accept_finding_{finding['id']}", icon=":material/check:",
+                       disabled=simulated or finding["status"] == "accepted", on_click=research.set_status,
+                       args=(finding["id"], "accepted"),
+                       help="Simulated sample data can never be accepted." if simulated else None)
+        actions.button("Dismiss", key=f"dismiss_finding_{finding['id']}", icon=":material/close:",
+                       disabled=finding["status"] == "dismissed", on_click=research.set_status,
+                       args=(finding["id"], "dismissed"))
+
+
+def _topic(topic, findings, names):
+    live = [dict(source, simulated=bool(f["simulated"])) for f in findings if f["status"] != "dismissed" for source in f["sources"]]
+    disagree = research.disagreements(live)
+    tag = '<span class="pill flag">Sources disagree</span>' if disagree else ""
+    style.html(f'<div class="finding-topic"><span>{escape(topic)}</span>{tag}</div>')
+    if disagree:
+        st.caption("The sources give different figures for " + ", ".join(disagree)
+                   + ". Each figure is shown with its source; they have not been combined.")
+    for finding in findings:
+        _finding(finding, names)
+
+
+def _results_line(results):
+    lines = [f"{r['name']}: " + OUTCOME_TEXT[r["outcome"]].format(**r) for r in results]
+    style.html('<ul class="run-results">' + "".join(f"<li>{escape(line)}</li>" for line in lines) + "</ul>")
+
+
+def _import_box(deal):
+    with st.expander(":material/upload_file: Import a market report"):
+        st.caption("A CSV, Excel or PDF you exported from your own platform. Findings will cite this file. "
+                   "Reading it uses 1 AI request. Locked PDFs get 'Needs password' and are never opened.")
+        upload = st.file_uploader("Report file", type=["csv", "xlsx", "pdf"], key=f"import_file_{deal['id']}")
+        left, right = st.columns(2)
+        publisher = left.text_input("Who published it?", key=f"import_publisher_{deal['id']}", placeholder="For example: a brokerage")
+        tier = right.selectbox("Publisher tier", [1, 2, 3], index=None, key=f"import_tier_{deal['id']}",
+                               format_func=lambda t: f"Tier {t}: {TIER_LABELS[t]}", placeholder="Choose a tier")
+        if st.button("Import report", key=f"import_go_{deal['id']}", icon=":material/upload:", disabled=upload is None):
+            try:
+                found = connections.import_report(deal["id"], upload.name, upload.getvalue(), publisher, tier)
+                st.session_state.research_message = f"Imported {upload.name}: {len(found)} finding(s)."
+            except (connections.SourceError, gemini.GeminiError) as exc:
+                st.session_state.research_message = f"{upload.name} could not be imported. {exc}"
+            st.rerun()
 
 
 def _research(deal):
     findings = queries.deal_findings(deal["id"])
-    last_run = f"Last run {metrics.time_ago(findings[0]['fetched_at'])}" if findings else "Not run yet"
+    last_run = f"Last run {metrics.time_ago(max(f['fetched_at'] for f in findings))}" if findings else "Not run yet"
+    names = {a.id: a.name for a in connections.all_adapters()}
     with _card("research", "Market research", last_run):
         place = f"{deal['property_type'] or 'property'} market in {deal['submarket'] or 'this location'}"
         st.caption(f"About the {place}, not about this property (the sample property is fictional). "
                    "Advisory only: sourced, not verified. Nothing reaches the narrative until you click Accept.")
         if st.session_state.get("research_message"):
             st.warning(st.session_state.research_message)
+        results = st.session_state.get(f"research_results_{deal['id']}")
+        if results:
+            _results_line(results)
+        by_topic = {}
         for finding in findings:
-            _finding(finding)
-        st.button("Run research again" if findings else "Run research", key="research_run", icon=":material/travel_explore:",
-                  on_click=_run_research, args=(deal["id"],),
-                  help="Uses 4 web searches and at most 1 AI request. Replaces the findings shown here.")
-        st.caption("Each run uses 4 web searches and at most 1 AI request. Searches use only the property type and "
-                   "location, never the deal's name, tenants or figures.")
+            by_topic.setdefault(finding["topic"], []).append(finding)
+        for topic in sorted(by_topic, key=lambda t: TOPIC_ORDER.index(t) if t in TOPIC_ORDER else len(TOPIC_ORDER)):
+            _topic(topic, by_topic[topic], names)
+        actions = st.container(horizontal=True, vertical_alignment="center")
+        run = actions.button("Run research again" if findings else "Run research", key="research_run",
+                             icon=":material/travel_explore:", help="Calls each switched-on source once (see the Connections page).")
+        force = actions.checkbox("Refresh results less than 24 hours old", key="research_force")
+        if run:
+            _run(deal, force)
+        st.caption("Runs only the sources switched on in Connections. Searches use only the property type and location, "
+                   "never the deal's name, tenants or figures.")
+        _import_box(deal)
 
 
 def _snapshot(units, flags, t12):
