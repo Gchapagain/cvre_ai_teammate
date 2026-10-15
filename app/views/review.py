@@ -317,6 +317,17 @@ def _snapshot(units, flags, t12):
                    "a rent roll alone cannot produce them.")
 
 
+def _accepted_recommendations(deal):
+    accepted = [r for r in queries.deal_recommendations(deal["id"]) if r["status"] == "accepted"]
+    if not accepted:
+        return
+    with _card("accepted_recs", "Accepted recommendations"):
+        style.html('<ul class="takeaways">' + "".join(
+            f'<li>{escape(r["title"])} <span class="kv-note">({"from the deal\'s data" if r["kind"] == "rule" else "from market research"})</span></li>'
+            for r in accepted) + "</ul>")
+        st.caption("Accepted on the Recommendations tab. These can feed the draft narrative.")
+
+
 def _takeaways(units, flags):
     lines = metrics.takeaways(units, flags, date.today())
     with _card("takeaways", "Key takeaways"):
@@ -366,5 +377,6 @@ def render(deal):
         notes.render(deal)
     with side:
         _snapshot(units, flags, t12)
+        _accepted_recommendations(deal)
         _takeaways(units, flags)
         _sources(units, flags, documents)

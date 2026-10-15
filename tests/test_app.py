@@ -274,7 +274,7 @@ class TestDealWorkspace(AppTestCase):
         self.open_deal("fallowmere")
         self.assertFalse(self.app.exception)
         self.assertEqual([tab.label for tab in self.app.tabs],
-                         ["Review", "Documents :gray-badge[2]", "Data", ":material/auto_awesome: Ask AI"])
+                         ["Review", "Documents :gray-badge[2]", "Data", "Recommendations", ":material/auto_awesome: Ask AI"])
         self.assertIn("Documents: coming in a later step.", [message.value for message in self.app.info])
 
     def test_review_shows_the_anomaly_banner_for_unit_110(self):
@@ -1148,6 +1148,109 @@ def connection_fakes_failing():
             raise connections.SourceError("The service could not be reached.")
         return fetch(url, params, body)
     return failing
+
+
+class TestRecommendationsTab(NewDealAppTestCase):
+    def setUp(self):
+        super().setUp()
+        from services import connections
+        from tests import connection_fakes
+        from tests.test_connections import with_keys
+        with_keys(self)
+        connections.set_enabled("demo_costar", True, "Administrator", self.db_path)
+        connections.run_research({"id": self.deals["fallowmere"], "property_type": "Industrial",
+                                  "submarket": "Alliance, Fort Worth, TX"}, self.db_path, adapters=connection_fakes.adapters())
+        self.findings = {(r["connection_id"], r["topic"]): r["id"] for r in self.rows(
+            "SELECT id, connection_id, topic FROM research_findings WHERE simulated = 0")}
+
+    def use_ai(self, items):
+        self.use_gemini({"recommendations": items})
+
+    def open_fallowmere(self):
+        self.app.button(key=f"open_deal_{self.deals['fallowmere']}").click().run()
+
+    def page(self):
+        return "\n".join(e.value for kind in ("markdown", "caption", "info") for e in getattr(self.app, kind)
+                         if "<style>" not in e.value)
+
+    def test_opening_calls_nothing_and_shows_the_banner_and_rule_cards(self):
+        self.use_gemini(AssertionError("must not be called"))
+        self.open_fallowmere()
+        self.assertEqual(self.calls, [])
+        page = self.page()
+        self.assertIn("AI suggestions. A person decides.", page)
+        self.assertIn("Confirm unit 110 with the property manager before pricing", page)
+        self.assertIn('<span class="pill flag">High priority</span>', page)
+        self.assertIn("4 leases (44,700 SF, 28.9% of total SF) end in the next 12 months", page)
+        self.assertIn("Rule: Validation rule rent_per_sf_above_2x_average", page)
+        self.assertIn('<span class="evidence">rent_roll.xlsx', page)
+        self.assertIn("From the deal&#x27;s data", page)
+
+    def test_simulated_findings_are_listed_as_not_used(self):
+        self.open_fallowmere()
+        page = self.page()
+        self.assertIn("Not used: simulated findings", page)
+        self.assertIn('<span class="chip simulated">SIMULATED</span> CoStar', page)
+
+    def test_generate_adds_checked_ai_cards_and_says_how_many_were_removed(self):
+        fred = self.findings[("fred", "Employment and demand")]
+        tavily = self.findings[("web_search_tavily", "Vacancy")]
+        self.use_ai([
+            {"title": "Check labour supply", "why": "Unemployment was 4.4%.", "next_step": "Ask leasing teams about hiring.", "finding_ids": [fred]},
+            {"title": "Price against both vacancy reports", "why": "Reports give 6.2% and 7.5%.", "next_step": "Show both figures.", "finding_ids": [tavily]},
+            {"title": "Made-up", "why": "Rents will rise 9%.", "next_step": "Raise rents.", "finding_ids": [fred]},
+            {"title": "Cites nothing real", "why": "Something.", "next_step": "Something.", "finding_ids": [99999]},
+        ])
+        self.open_fallowmere()
+        self.app.button(key="rec_generate").click().run()
+        self.assertFalse(self.app.exception)
+        self.assertEqual(len(self.calls), 1)
+        page = self.page()
+        self.assertIn("2 suggestions added. 2 suggestions removed: could not be verified.", page)
+        self.assertIn("Check labour supply", page)
+        self.assertNotIn("Rents will rise 9%", page)
+        self.assertIn("From market research", page)
+        self.assertIn('<span class="evidence tier1"><b>4.4%</b> · FRED, St. Louis Fed · Tier 1 · 2026-08-01 · FRED (St. Louis Fed)</span>', page)
+        self.assertIn('<span class="pill flag">Sources disagree</span>', page)
+        self.assertIn("Priority from the strongest source cited", page)
+
+    def test_accept_dismiss_and_add_to_notes(self):
+        self.open_fallowmere()
+        self.app.button(key="rec_accept_flag_110_rent_per_sf_above_2x_average").click().run()
+        self.app.button(key="rec_dismiss_expiring_12_24").click().run()
+        self.app.button(key="rec_note_expiring_0_12").click().run()
+        self.assertFalse(self.app.exception)
+        rows = {r["rule_key"]: r["status"] for r in self.rows("SELECT rule_key, status FROM recommendations")}
+        self.assertEqual(rows, {"flag:110:rent_per_sf_above_2x_average": "accepted", "expiring:12-24": "dismissed"})
+        note = self.rows("SELECT text, source FROM deal_notes")[0]
+        self.assertTrue(note["text"].startswith("Recommendation: Check renewals for 4 leases ending in the next 12 months"))
+        self.assertEqual(note["source"], "Typed")
+        self.assertIn("Added to the deal's notes", self.page())
+        self.assertEqual(self.calls, [])
+
+    def test_accepted_ones_show_on_the_review_tab(self):
+        self.open_fallowmere()
+        self.app.button(key="rec_accept_flag_110_rent_per_sf_above_2x_average").click().run()
+        self.assertIn("Accepted recommendations", self.page())
+        self.assertIn("<li>Confirm unit 110 with the property manager before pricing", self.page())
+
+    def test_without_real_findings_generate_explains_and_calls_nothing(self):
+        conn = db.get_connection(self.db_path)
+        with conn:
+            conn.execute("DELETE FROM research_findings WHERE simulated = 0")
+        conn.close()
+        self.use_gemini(AssertionError("must not be called"))
+        self.open_fallowmere()
+        self.app.button(key="rec_generate").click().run()
+        self.assertIn("Run market research first", self.page())
+        self.assertEqual(self.calls, [])
+
+    def test_quota_used_up_is_friendly(self):
+        self.use_gemini(daily_quota_error())
+        self.open_fallowmere()
+        self.app.button(key="rec_generate").click().run()
+        self.assertFalse(self.app.exception)
+        self.assertIn("daily quota is used up", self.page())
 
 
 class TestConnectionsPage(NewDealAppTestCase):

@@ -280,6 +280,30 @@ h1, h2, h3, h4, .stat-value { font-family: 'Fraunces', Georgia, serif !important
 .st-key-nav_connections button:hover { background: rgba(255, 255, 255, 0.12); }
 .st-key-nav_connections button:hover p { color: #ffffff; }
 
+/* ---- Recommendations ---- */
+.banner.ai { background: var(--gold-tint); border-color: var(--gold); color: var(--gold-ink); }
+[class*="st-key-rec_rule_"], [class*="st-key-rec_ai_"] { background: var(--surface); border: 1px solid var(--line) !important;
+  border-radius: var(--radius) !important; padding: var(--s3) var(--card-pad) !important; box-shadow: var(--shadow);
+  gap: var(--s1) !important; margin-bottom: var(--s1); }
+[class*="st-key-rec_ai_"] { border-left: 4px solid var(--gold) !important; }
+[class*="st-key-rec_rule_"] { border-left: 4px solid var(--green-mid) !important; }
+[class*="st-key-rec_"][class*="_dismissed_"] { opacity: 0.6; }
+[class*="st-key-rec_"] [data-testid="stMarkdownContainer"] { margin-bottom: 0; }
+[class*="st-key-rec_"] button { min-height: 32px; }
+.rec-head { display: flex; align-items: center; gap: var(--s1); flex-wrap: wrap; }
+.rec-title { font-family: 'Fraunces', Georgia, serif; font-size: 1.1rem; font-weight: 600; color: var(--green); margin-right: 4px; }
+.rec-kind { font-size: 0.75rem; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; color: var(--ink-soft); margin-top: 4px; }
+.rec-why, .rec-next { font-size: 0.93rem; margin-top: var(--s1); }
+.rec-evidence { display: flex; flex-wrap: wrap; gap: 6px; margin-top: var(--s1); }
+.evidence { font-size: 0.78rem; border: 1px solid var(--line); border-radius: var(--pill); padding: 2px 10px; background: #f6f4f7; color: var(--ink); }
+.evidence.tier1 { background: #e8f2ec; border-color: #9cc4ae; }
+.evidence.tier2 { background: var(--gold-tint); border-color: #e2cd7f; }
+.evidence.tier3 { background: #f0f0f0; border-color: #c9c9c9; }
+.st-key-rec_left_out { background: #fcfbfe; border: 1px dashed #b9a6dc !important; border-radius: var(--radius) !important;
+  padding: var(--s2) var(--card-pad) !important; margin-top: var(--s2); }
+.left-out { margin: var(--s1) 0 0; padding-left: 18px; font-size: 0.88rem; }
+.left-out li { margin-bottom: 6px; }
+
 /* ---- Notes ---- */
 [class*="st-key-note_"] { background: var(--surface); border: 1px solid var(--line) !important;
   border-radius: var(--radius) !important; padding: var(--s2) var(--card-pad) !important; }

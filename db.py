@@ -130,6 +130,24 @@ CREATE TABLE IF NOT EXISTS research_findings (
     simulated  INTEGER NOT NULL DEFAULT 0
 );
 
+-- Recommendations for a deal. kind 'rule' is calculated in code from the deal's data (rule_key
+-- identifies which rule and unit, so a person's Accept / Dismiss sticks). kind 'ai' is written by
+-- the AI from real research findings and checked in code. evidence is a JSON list of sources.
+CREATE TABLE IF NOT EXISTS recommendations (
+    id         INTEGER PRIMARY KEY AUTOINCREMENT,
+    deal_id    INTEGER NOT NULL REFERENCES deals(id) ON DELETE CASCADE,
+    kind       TEXT NOT NULL CHECK (kind IN ('rule', 'ai')),
+    rule_key   TEXT,
+    title      TEXT NOT NULL,
+    priority   TEXT NOT NULL CHECK (priority IN ('High', 'Medium', 'Low')),
+    why        TEXT NOT NULL,
+    next_step  TEXT NOT NULL,
+    evidence   TEXT NOT NULL DEFAULT '[]',
+    status     TEXT NOT NULL DEFAULT 'new' CHECK (status IN ('new', 'accepted', 'dismissed')),
+    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE (deal_id, rule_key)
+);
+
 -- One row per connection (data source) once someone has switched it or used it.
 -- A connection with no row uses its default from services/connections.
 CREATE TABLE IF NOT EXISTS connections (

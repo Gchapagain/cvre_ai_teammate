@@ -252,6 +252,12 @@ class TestNumberMatching(unittest.TestCase):
     def test_missing_numbers_are_reported(self):
         self.assertEqual(qa.unmatched_numbers("Rent is 20.35 for 3,200 SF", "20.33 | 3200"), [20.35])
 
+    def test_a_percentage_must_match_a_percentage_not_a_date(self):
+        context = "Unit 109 | lease start 2022-09-01 | vacancy 6.2%"
+        self.assertEqual(qa.unmatched_numbers("Rents will rise 9%.", context), [9.0])
+        self.assertEqual(qa.unmatched_numbers("Vacancy is 6.2%.", context), [])
+        self.assertEqual(qa.unmatched_numbers("Unit 109 started in 2022.", context), [])
+
     def test_text_without_numbers_always_matches(self):
         self.assertEqual(qa.unmatched_numbers("Northfield Pallet Co. is the tenant.", "anything"), [])
 

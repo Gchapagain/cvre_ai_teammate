@@ -116,6 +116,28 @@ def add_simulated_research(nothing_found=False):
         connections.run_research(deal, db_path, adapters=adapters, force=True)
 
 
+def add_simulated_recommendations():
+    """Run the real recommendations code with a simulated Gemini reply on the script's own database."""
+    import json
+    import sqlite3
+    from types import SimpleNamespace
+    from services import connections, recommendations
+    db_path = OUT / "tmp" / "screenshots.db"
+    conn = sqlite3.connect(db_path)
+    ids = {(c, t): i for i, c, t in conn.execute("SELECT id, connection_id, topic FROM research_findings WHERE simulated = 0")}
+    conn.close()
+    reply = {"recommendations": [
+        {"title": "Check the labour supply for tenants who are hiring", "why": "Local unemployment was 4.4% (FRED, 2026-08-01).",
+         "next_step": "Ask leasing teams whether tenants expect hiring trouble.", "finding_ids": [ids[("fred", "Employment and demand")]]},
+        {"title": "Show both vacancy figures when pricing", "why": "Two reports put Q2 2026 vacancy at 6.2% and 7.5%.",
+         "next_step": "Quote both reports side by side rather than one number.", "finding_ids": [ids[("web_search_tavily", "Vacancy")]]},
+        {"title": "Raise rents", "why": "Rents will rise 9% next year.", "next_step": "Raise rents.", "finding_ids": [ids[("fred", "Employment and demand")]]}]}
+    client = SimpleNamespace(models=SimpleNamespace(generate_content=lambda **k: SimpleNamespace(text=json.dumps(reply))))
+    names = {a.id: a.name for a in connections.all_adapters()}
+    kept, removed = recommendations.generate_ai(1, names, client=client, db_path=db_path)
+    return kept, removed
+
+
 def sign_in_again(page):
     page.get_by_text("Welcome back").wait_for()
     page.locator(".st-key-rolecard_agent").click(position={"x": 300, "y": 40})
@@ -327,7 +349,7 @@ def run(page, suffix):
     no_error_box(page, "on the deal page")
     tabs = page.get_by_role("tab")
     heights = [round(tab.bounding_box()["height"]) for tab in tabs.all()]
-    check("four tabs, each at least 44px tall", len(heights) == 4 and min(heights) >= 44, heights)
+    check("five tabs, each at least 44px tall", len(heights) == 5 and min(heights) >= 44, heights)
     check("tab text is 16px", css(page, '.stTabs [role="tab"] p', "fontSize") == "16px")
     ai = '.stTabs [role="tab"]:last-of-type'
     check("Ask AI is gold", css(page, ai, "backgroundColor") == "rgb(201, 162, 39)", css(page, ai, "backgroundColor"))
@@ -424,13 +446,54 @@ def run(page, suffix):
     shot("14b_research_sources_disagree")
     research_card.get_by_role("button", name="Accept").last.click()
     research_card.locator('[class*="st-key-finding_accepted_"]').wait_for()
-    research_card.locator('[class*="st-key-finding_new_"]').nth(1).get_by_role("button", name="Dismiss").click()
+    # Dismiss a finding the recommendations below do not rely on (the last one, a Census figure).
+    research_card.locator('[class*="st-key-finding_new_"]').last.get_by_role("button", name="Dismiss").click()
     research_card.locator('[class*="st-key-finding_dismissed_"]').wait_for()
     page.wait_for_timeout(600)
     check("a person can accept one and dismiss another", "Accepted" in research_card.inner_text()
           and "Dismissed" in research_card.inner_text())
     no_error_box(page, "with research findings showing")
     tall_shot(page, f"14_review_research{suffix}", height=4200)
+    print("Recommendations tab")
+    add_simulated_recommendations()
+    page.reload()
+    sign_in_again(page)
+    page.locator('[class*="st-key-deal_card_"]').first.click()
+    page.get_by_role("tab").nth(3).wait_for()
+    page.get_by_role("tab").nth(3).click()
+    page.get_by_text("AI suggestions. A person decides.").wait_for()
+    page.wait_for_timeout(1200)
+    no_error_box(page, "on the Recommendations tab")
+    tabs = page.get_by_role("tab")
+    labels = [t.inner_text() for t in tabs.all()]
+    check("tabs are Review, Documents, Data, Recommendations, Ask AI",
+          len(labels) == 5 and all(word in label for word, label in zip(("Review", "Documents", "Data", "Recommendations", "Ask AI"), labels))
+          and css(page, '.stTabs [role="tab"]:last-of-type', "backgroundColor") == "rgb(201, 162, 39)")
+    panel = page.get_by_role("tabpanel")
+    rule_cards, ai_cards = panel.locator('[class*="st-key-rec_rule_"]'), panel.locator('[class*="st-key-rec_ai_"]')
+    check("both kinds of card are shown and labelled", rule_cards.count() >= 3 and ai_cards.count() == 2
+          and "from the deal's data" in rule_cards.first.inner_text().lower()
+          and "from market research" in ai_cards.first.inner_text().lower())
+    check("rule cards show the rule and exact numbers", "Rule: Validation rule rent_per_sf_above_2x_average" in panel.inner_text()
+          and "44,700 SF, 28.9% of total SF" in panel.inner_text())
+    check("evidence chips show source, tier, date and connection",
+          "FRED, St. Louis Fed · Tier 1 · 2026-08-01 · FRED (St. Louis Fed)" in panel.inner_text())
+    check("a Sources disagree tag on the evidence", ai_cards.locator(".pill.flag", has_text="Sources disagree").count() == 1)
+    # "N suggestions removed" appears right after a click on Generate; that path is covered by tests/test_app.py,
+    # because clicking it here would call the real Gemini.
+    check("the unverifiable suggestion was not saved", "Rents will rise 9%" not in panel.inner_text())
+    check("SIMULATED chips mark the findings that were not used", panel.locator(".chip.simulated").count() == 2
+          and "Not used: simulated findings" in panel.inner_text())
+    check("each card has Accept, Dismiss and Add to deal notes", all(
+          card.get_by_role("button", name=name).count() == 1 for card in rule_cards.all() + ai_cards.all()
+          for name in ("Accept", "Dismiss", "Add to deal notes")))
+    shot("16_recommendations_top")
+    tall_shot(page, f"16_recommendations{suffix}", height=3300)
+    rule_cards.first.get_by_role("button", name="Accept").click()
+    panel.locator('[class*="st-key-rec_rule_accepted_"]').wait_for()
+    tabs.first.click()
+    page.get_by_text("Accepted recommendations").wait_for()
+    check("an accepted recommendation shows on the Review tab", page.locator(".st-key-card_accepted_recs").count() == 1)
     add_simulated_research(nothing_found=True)
     page.reload()
     sign_in_again(page)

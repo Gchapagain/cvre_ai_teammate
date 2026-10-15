@@ -111,5 +111,16 @@ def deal_findings(deal_id):
     return rows
 
 
+def deal_recommendations(deal_id):
+    """Saved recommendations (rule decisions and AI suggestions) with evidence decoded."""
+    try:
+        rows = _all("SELECT * FROM recommendations WHERE deal_id = ? ORDER BY id", (deal_id,))
+    except sqlite3.OperationalError:
+        return []
+    for row in rows:
+        row["evidence"] = json.loads(row["evidence"])
+    return rows
+
+
 def deal_documents(deal_id):
     return _all("SELECT * FROM documents WHERE deal_id = ? ORDER BY id", (deal_id,))

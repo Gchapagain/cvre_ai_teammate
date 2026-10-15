@@ -38,6 +38,7 @@ Services live in `/services`: extraction, validation, drafting, qa, research, pl
 3. **Deal workspace**, opened by clicking a deal, with four tabs:
    - **Review**: a deal header card, then two columns. Left: anomaly banner, extracted fields ("12 of 12 units read"), draft pricing narrative with Flag for producer / Edit / Approve / Download, market research, Notes. Right: deal snapshot, key takeaways, where this came from. Snapshot and takeaways are calculated in `services/metrics.py` from saved rows, never by the AI. No occupancy, cap rate or accuracy figures are shown, because none can be calculated or has been measured; anything unavailable says "Not available", "Needs T-12" or "Not measured yet".
    - **Documents**: all files for the deal with status (Received / Read / Reference only / Needs password), source, an add-document box, and an expected-documents checklist. Locked PDFs get "Needs password": the user enters the password (used once, not stored) or requests an unlocked copy. Scanned PDFs go to OCR.
+   - **Recommendations**: banner "AI suggestions. A person decides." Two kinds of card. "From the deal's data": rules in `services/recommendations.py`, calculated in code, no AI (flagged unit, leases ending in 12 / 24 months, tenant concentration at 25%+ of SF, missing values, no T-12); each shows the rule and the exact numbers. "From market research": one Gemini request on "Generate recommendations", from the deal's facts and real (never simulated) findings; each must cite a finding ID that exists and every number must be in the deal data or a cited finding, otherwise it is dropped and counted. Priority comes from the rules (for AI cards: the strongest cited source's tier). Accept / Dismiss / Add to deal notes; accepted ones show on the Review tab and feed the draft narrative.
    - **Data**: this deal's rent roll, T-12 summary, indicative value, draft versions, per-deal export. Built so far: rent roll and T-12 as CSV and Excel, draft narrative as text. PDF later.
    - **Ask AI**: deal-only chat. Gemini is called only when a message is sent; quota and rate-limit problems show as a friendly chat message. The web search toggle is shown disabled until Step 7. Every answer is labeled "From this deal", "From the web (Tier 1-3)" or "Not verified".
 4. **Inbox & Chat**: captured emails with extraction chips and linked deal, plus a general chat.
@@ -55,7 +56,9 @@ Tables:
 - flags (deal_id, unit, rule, field, actual value, threshold, message)
 - valuation_outputs
 - drafts (deal_id, text, status Generated not sent / Flagged for producer / Approved, edited flag, created_at)
-- research_findings (deal_id, topic, summary, sources as JSON, skipped count, status new / accepted / dismissed, fetched_at)
+- research_findings (deal_id, topic, summary, sources as JSON, skipped count, status new / accepted / dismissed, fetched_at, connection_id, simulated)
+- recommendations (deal_id, kind rule / ai, rule_key, title, priority, why, next_step, evidence JSON, status, created_at)
+- connections (id, enabled, last_used_at)
 - users (email to role)
 - documents (deal_id, filename, source, received_at, status, used_for). Status is one of Received (arrived, not read yet), Read, Reference only, Needs password.
 - research_jobs

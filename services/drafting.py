@@ -5,6 +5,7 @@ check compares every number in it with the deal's data, and only a person can ap
 """
 
 import json
+import sqlite3
 from datetime import date
 
 from google.genai import types
@@ -50,6 +51,15 @@ def _accepted_findings(conn, deal_id):
     return lines
 
 
+def _accepted_recommendations(conn, deal_id):
+    try:
+        rows = conn.execute("SELECT title, next_step FROM recommendations WHERE deal_id = ? AND status = 'accepted' ORDER BY id",
+                            (deal_id,)).fetchall()
+    except sqlite3.OperationalError:
+        return []
+    return [f"{row['title']}. Next step: {row['next_step']}" for row in rows]
+
+
 def deal_facts(deal_id, db_path=None, today=None):
     """Everything the narrative may draw on, as text: saved rows, calculated figures and accepted research."""
     today = today or date.today()
@@ -61,10 +71,13 @@ def deal_facts(deal_id, db_path=None, today=None):
     conn = db.get_connection(db_path)
     try:
         findings = _accepted_findings(conn, deal_id)
+        recommendations = _accepted_recommendations(conn, deal_id)
     finally:
         conn.close()
     lines.append("\nAccepted market research (sourced, not verified):")
     lines += findings or ["None accepted"]
+    lines.append("\nAccepted recommendations:")
+    lines += recommendations or ["None accepted"]
     return "\n".join(lines), data
 
 

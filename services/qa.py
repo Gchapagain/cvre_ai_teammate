@@ -172,9 +172,17 @@ def _numbers(text):
     return found
 
 
+def _percents(text):
+    """Every number written as a percentage."""
+    return {round(float(token.replace(",", "")), 2) for token in re.findall(r"(\d[\d,]*(?:\.\d+)?)\s*%", text)}
+
+
 def unmatched_numbers(answer_text, context):
-    """Numbers in the answer that do not appear anywhere in the deal data."""
-    return sorted(_numbers(answer_text) - _numbers(context))
+    """Numbers in the answer that do not appear anywhere in the deal data.
+
+    A percentage must appear as a percentage: otherwise "9%" would match the 09 in a date.
+    """
+    return sorted((_numbers(answer_text) - _numbers(context)) | (_percents(answer_text) - _percents(context)))
 
 
 def _history_text(history):
