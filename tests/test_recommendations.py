@@ -85,7 +85,7 @@ class AiTestCase(unittest.TestCase):
         self.db_path = Path(self.tmp.name) / "recs.db"
         self.deal_id = seed.seed(self.db_path)["fallowmere"]
         with_keys(self)
-        connections.set_enabled("demo_costar", True, "Administrator", self.db_path)
+        connections.set_enabled("demo_costar", True, self.db_path)
         connections.run_research({"id": self.deal_id, "property_type": "Industrial", "submarket": "Alliance, Fort Worth, TX"},
                                  self.db_path, adapters=connection_fakes.adapters())
         self.ids = {(r["connection_id"], r["topic"]): r["id"] for r in recommendations.research_inputs(self.deal_id, self.db_path)}

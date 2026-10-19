@@ -76,6 +76,13 @@ class TestSchema(SchemaTestCase):
             with self.subTest(table):
                 self.assertFalse({"is_flagged", "flag_reason"} & self.columns(table))
 
+    def test_broker_is_the_only_role(self):
+        self.conn.execute("INSERT INTO users (email, full_name, role) VALUES ('a@example.com', 'A', 'Broker')")
+        for role in ("Agent", "Analyst", "Administrator", "broker"):
+            with self.subTest(role):
+                with self.assertRaises(sqlite3.IntegrityError):
+                    self.conn.execute("INSERT INTO users (email, full_name, role) VALUES (?, 'B', ?)", (f"{role}@example.com", role))
+
     def test_research_sources_stores_published_and_retrieved_dates(self):
         job_id = self.conn.execute(
             "INSERT INTO research_jobs (query) VALUES ('industrial sample submarket')"
@@ -87,6 +94,40 @@ class TestSchema(SchemaTestCase):
         row = self.conn.execute("SELECT published_date, retrieved_at FROM research_sources").fetchone()
         self.assertEqual(row["published_date"], "2026-08-15")
         self.assertTrue(row["retrieved_at"])
+
+
+
+class TestOldThreeRoleUsersTable(unittest.TestCase):
+    OLD = """CREATE TABLE users (id INTEGER PRIMARY KEY AUTOINCREMENT, email TEXT NOT NULL UNIQUE, full_name TEXT NOT NULL,
+             role TEXT NOT NULL CHECK (role IN ('Agent', 'Analyst', 'Administrator')), password_hash TEXT,
+             created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP)"""
+
+    def test_agents_become_brokers_and_unused_other_roles_go(self):
+        with tempfile.TemporaryDirectory() as folder:
+            path = Path(folder) / "old.db"
+            conn = sqlite3.connect(path)
+            conn.execute(self.OLD)
+            conn.executemany("INSERT INTO users (email, full_name, role) VALUES (?, ?, ?)", [
+                ("demo.agent@example.com", "Avery Sample", "Agent"), ("demo.analyst@example.com", "Noor Sample", "Analyst"),
+                ("demo.admin@example.com", "Sam Sample", "Administrator")])
+            conn.execute("CREATE TABLE deals (id INTEGER PRIMARY KEY, name TEXT NOT NULL, owner_user_id INTEGER REFERENCES users(id))")
+            conn.execute("INSERT INTO deals (name, owner_user_id) VALUES ('Made-up deal owned by the admin', 3)")
+            conn.commit()
+            conn.close()
+            db.init_db(path)
+            db.init_db(path)  # running it twice is harmless
+            conn = db.get_connection(path)
+            users = [dict(r) for r in conn.execute("SELECT id, full_name, role FROM users ORDER BY id")]
+            deal = dict(conn.execute("SELECT owner_user_id FROM deals").fetchone())
+            sql = conn.execute("SELECT sql FROM sqlite_master WHERE name = 'users'").fetchone()["sql"]
+            problems = conn.execute("PRAGMA foreign_key_check").fetchall()
+            conn.close()
+        # Avery stays (as Broker), Noor is removed, Sam is kept as a Broker because a deal points at them.
+        self.assertEqual(users, [{"id": 1, "full_name": "Avery Sample", "role": "Broker"},
+                                 {"id": 3, "full_name": "Sam Sample", "role": "Broker"}])
+        self.assertEqual(deal, {"owner_user_id": 3})
+        self.assertNotIn("Analyst", sql)
+        self.assertEqual(problems, [])
 
 
 if __name__ == "__main__":

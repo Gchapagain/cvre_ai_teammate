@@ -171,13 +171,10 @@ class TestStatus(ConnectionsTestCase):
         self.assertTrue(state["fred"]["enabled"])
         self.assertIsNone(state["fred"]["last_used_at"])
 
-    def test_only_an_administrator_can_switch_sources(self):
-        for role in ("Agent", "Analyst"):
-            with self.assertRaises(PermissionError):
-                connections.set_enabled("fred", False, role, self.db_path)
+    def test_the_broker_switches_sources_on_and_off(self):
         self.assertTrue(connections.states(self.db_path)["fred"]["enabled"])
-        connections.set_enabled("fred", False, "Administrator", self.db_path)
-        connections.set_enabled("demo_costar", True, "Administrator", self.db_path)
+        connections.set_enabled("fred", False, self.db_path)
+        connections.set_enabled("demo_costar", True, self.db_path)
         state = connections.states(self.db_path)
         self.assertEqual((state["fred"]["enabled"], state["demo_costar"]["enabled"]), (False, True))
 
@@ -232,11 +229,11 @@ class TestRunResearch(ConnectionsTestCase):
         self.assertEqual(calls, [])
 
     def test_switched_off_sources_and_demo_sources_do_not_run_unless_on(self):
-        connections.set_enabled("bls", False, "Administrator", self.db_path)
+        connections.set_enabled("bls", False, self.db_path)
         ids = [r["id"] for r in self.run_all()]
         self.assertNotIn("bls", ids)
         self.assertNotIn("demo_costar", ids)
-        connections.set_enabled("demo_costar", True, "Administrator", self.db_path)
+        connections.set_enabled("demo_costar", True, self.db_path)
         self.assertIn("demo_costar", [r["id"] for r in self.run_all(force=True)])
 
     def test_results_less_than_a_day_old_are_reused_unless_refreshed(self):
@@ -261,7 +258,7 @@ class TestRunResearch(ConnectionsTestCase):
 class TestSimulatedFindings(ConnectionsTestCase):
     def setUp(self):
         super().setUp()
-        connections.set_enabled("demo_costar", True, "Administrator", self.db_path)
+        connections.set_enabled("demo_costar", True, self.db_path)
         connections.run_research(self.deal, self.db_path, adapters=[connections.CoStarDemo(), connection_fakes.adapters()[1]])
         self.demo = self.findings("demo_costar")
 

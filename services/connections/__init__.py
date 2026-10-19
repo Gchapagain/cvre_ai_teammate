@@ -21,7 +21,6 @@ from services.connections.web import GroundedSearchAdapter, TavilyAdapter
 
 log = logging.getLogger(__name__)
 CACHE_HOURS = 24
-ADMIN = "Administrator"
 
 
 def all_adapters():
@@ -50,10 +49,8 @@ def states(db_path=None, adapters=None):
                    "last_used_at": rows.get(a.id, {}).get("last_used_at")} for a in adapters or all_adapters()}
 
 
-def set_enabled(connection_id, enabled, role, db_path=None):
-    """Switch a source on or off. Only an Administrator may."""
-    if role != ADMIN:
-        raise PermissionError("Only an Administrator can switch sources on or off.")
+def set_enabled(connection_id, enabled, db_path=None):
+    """Switch a source on or off (a broker's choice on the Connections page)."""
     db.init_db(db_path)
     conn = db.get_connection(db_path)
     try:

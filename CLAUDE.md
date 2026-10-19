@@ -3,7 +3,7 @@
 ## What we're building
 Prototype "AI Teammate" (project name: Agentic Broker Experience) for CBRE, a global commercial real estate firm. TCU Business Information Systems capstone (INSC 40813).
 
-Priority 1 is **Research & Value**: the AI Teammate does the document-heavy prep work that brokers (Agents) and Analysts do by hand before pricing a property. The AI drafts, flags and cites. Humans always approve. It never sends anything to a client by itself.
+Priority 1 is **Research & Value**: the AI Teammate does the document-heavy prep work that brokers do by hand before pricing a property. The AI drafts, flags and cites. Humans always approve. It never sends anything to a client by itself.
 
 ### KPIs (from the charter)
 - 95% accuracy on tested financial figures.
@@ -36,7 +36,7 @@ Every source of market data is an adapter in `services/connections/`, behind one
   - "Import a market report": a CSV, Excel or PDF the person exported from their own platform. Its findings cite the file. Locked PDFs get "Needs password".
 - **Demo sources** (LinkedIn, CoStar, LoopNet / Crexi, Zillow, Redfin): their data is licensed or partner-only. They return obviously fake samples with a SIMULATED chip. Simulated findings can never be accepted, never count as a disagreement, and are never sent to the AI.
 - **Status:** Connected, Not set up (key missing; the card says how to get one), Demo, Needs licensed access.
-- **On/off:** the `connections` table stores on/off and last used. Only Administrators can switch sources; others see status only.
+- **On/off:** the `connections` table stores on/off and last used. The broker switches sources on and off.
 - **Run research:** runs each switched-on source on its own. One failing shows "Source unavailable" and never stops the others. Results under 24 hours old are reused unless the person ticks Refresh.
 - **Config files:** official series per market are in `config/market_data.json`; trusted domains per tier are in `config/source_tiers.json`.
 
@@ -50,13 +50,11 @@ Every source of market data is an adapter in `services/connections/`, behind one
 5. Add a simulated reply in `tests/connection_fakes.py` and tests in `tests/test_connections.py`. Never call the real service in tests.
 
 ## Users and login
-- Roles: Agent (broker/producer), Analyst, Administrator.
-- Google or Microsoft OAuth proves identity only.
-- Prototype: the user must pick a role on the login screen BEFORE the sign-in buttons unlock.
-- Production alternative (not built now): an email-to-role table.
+- One user type: **Broker**. There are no other roles.
+- Google or Microsoft OAuth proves identity only. For the prototype, both sign-in buttons log in as the made-up demo broker (Avery Sample) and the UI says it is a demo login.
 
 ## Screens (Streamlit, desktop only, wide layout)
-1. **Login**: two columns. Left: dark green brand panel. Right: a card with Step 1 pick a role (three role cards), Step 2 sign in (Google / Microsoft buttons, locked until a role is chosen). Demo login only for now.
+1. **Login**: two columns. Left: dark green brand panel. Right: a card with "Welcome back", "Broker sign-in" and two active buttons (Continue with Google / Microsoft). Demo login only for now.
 2. **Deals dashboard**: stat cards (active deals, needs review, time saved, anomalies) and deal cards with status pills. The stat cards are filters: clicking one shows only the matching deals, with "Showing: ..." above the list and a small Clear button. Time saved opens a note explaining it is not measured yet. Deals needing attention (Needs Review or an anomaly) come first with a coloured left border. Clicking a card opens the deal.
 3. **Deal workspace**, opened by clicking a deal, with four tabs:
    - **Review**: a deal header card, then two columns. Left: anomaly banner, extracted fields ("12 of 12 units read"), draft pricing narrative with Flag for producer / Edit / Approve / Download, market research, Notes. Right: deal snapshot, key takeaways, where this came from. Snapshot and takeaways are calculated in `services/metrics.py` from saved rows, never by the AI. No occupancy, cap rate or accuracy figures are shown, because none can be calculated or has been measured; anything unavailable says "Not available", "Needs T-12" or "Not measured yet".
@@ -82,7 +80,7 @@ Tables:
 - research_findings (deal_id, topic, summary, sources as JSON, skipped count, status new / accepted / dismissed, fetched_at, connection_id, simulated)
 - recommendations (deal_id, kind rule / ai, rule_key, title, priority, why, next_step, evidence JSON, status, created_at)
 - connections (id, enabled, last_used_at)
-- users (email to role)
+- users (email, name, role: Broker is the only role)
 - documents (deal_id, filename, source, received_at, status, used_for). Status is one of Received (arrived, not read yet), Read, Reference only, Needs password.
 - research_jobs
 - research_sources (url, published date, retrieved date, reliability tier)

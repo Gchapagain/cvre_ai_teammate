@@ -33,8 +33,7 @@ class AppTestCase(unittest.TestCase):
         self.addCleanup(patcher.stop)
         self.app = AppTest.from_file(APP, default_timeout=15).run()
 
-    def sign_in(self, role="Analyst", provider="google"):
-        self.app.button(key=f"rolebtn_{role.lower()}").click().run()
+    def sign_in(self, provider="google"):
         self.app.button(key=f"sign_in_{provider}").click().run()
 
     def open_deal(self, name):
@@ -49,62 +48,55 @@ class AppTestCase(unittest.TestCase):
 
 
 class TestLogin(AppTestCase):
-    def test_sign_in_buttons_are_locked_until_a_role_is_chosen(self):
+    def test_no_role_step_and_both_buttons_work_straight_away(self):
         self.assertFalse(self.app.exception)
-        self.assertNotIn("login_role", self.app.session_state)
-        self.assertTrue(self.app.button(key="sign_in_google").disabled)
-        self.assertIn("Choose a role to continue", self.page_text())
-        self.assertTrue(self.app.button(key="sign_in_microsoft").disabled)
-        self.assertNotIn("user", self.app.session_state)
-
-    def test_role_options(self):
-        roles = [button.label for button in self.app.button if button.key.startswith("rolebtn_")]
-        self.assertEqual(roles, ["Agent", "Analyst", "Administrator"])
-        text = self.page_text()
-        for line in ("Brokers the deal", "Checks the numbers", "Manages users"):
-            self.assertIn(line, text)
-
-    def test_choosing_a_role_unlocks_both_buttons(self):
-        self.app.button(key="rolebtn_agent").click().run()
-        self.assertFalse(self.app.exception)
+        self.assertEqual([b.key for b in self.app.button], ["sign_in_google", "sign_in_microsoft"])
         self.assertFalse(self.app.button(key="sign_in_google").disabled)
         self.assertFalse(self.app.button(key="sign_in_microsoft").disabled)
-        self.assertNotIn("Choose a role to continue", self.page_text())
+        text = self.page_text()
+        for gone in ("Step 1", "Step 2", "Choose a role", "Analyst", "Administrator", "Agent"):
+            self.assertNotIn(gone, text)
 
-    def test_only_the_chosen_role_card_shows_a_check_mark(self):
-        self.assertNotIn('class="tick"', self.page_text())
-        self.app.button(key="rolebtn_analyst").click().run()
-        self.assertEqual(self.page_text().count('class="tick"'), 1)
-        self.app.button(key="rolebtn_administrator").click().run()
-        self.assertEqual(self.app.session_state["login_role"], "Administrator")
-        self.assertEqual(self.page_text().count('class="tick"'), 1)
+    def test_an_old_database_without_a_broker_says_to_re_seed(self):
+        conn = db.get_connection(self.db_path)
+        with conn:
+            conn.execute("DELETE FROM users")
+        conn.close()
+        self.app = AppTest.from_file(APP, default_timeout=15).run()
+        self.assertIn("seed.py --reset", self.app.warning[0].value)
+        self.assertTrue(self.app.button(key="sign_in_google").disabled)
+        seed.seed(self.db_path)  # put the shared test database back
+
+    def test_card_text(self):
+        text = self.page_text()
+        for expected in ("Welcome back", "Sign in to review your deals.", "Broker sign-in",
+                         "Demo login. No real sign-in happens yet."):
+            self.assertIn(expected, text)
+        self.assertEqual(self.app.button(key="sign_in_google").label, "Continue with Google")
+        self.assertEqual(self.app.button(key="sign_in_microsoft").label, "Continue with Microsoft")
 
     def test_left_panel_has_the_brand_tagline_and_three_points(self):
         text = self.page_text()
         for expected in ("CBRE AI Teammate", "The AI drafts, flags and cites. A person always approves.",
                          "Flags problems, never hides them", "Cites where every number came from",
-                         "A person approves every result", "Welcome back"):
+                         "A person approves every result"):
             self.assertIn(expected, text)
 
-    def test_page_says_it_is_a_demo_login(self):
-        self.assertIn("Demo login. No real sign-in happens yet.", self.page_text())
-        self.assertEqual(self.app.button(key="sign_in_google").label, "Continue with Google")
-        self.assertEqual(self.app.button(key="sign_in_microsoft").label, "Continue with Microsoft")
-
-    def test_each_role_signs_in_as_its_demo_user(self):
-        for role, provider in (("Agent", "google"), ("Analyst", "microsoft"), ("Administrator", "google")):
-            with self.subTest(role):
+    def test_either_button_signs_in_as_the_demo_broker(self):
+        for provider in ("google", "microsoft"):
+            with self.subTest(provider):
                 self.app = AppTest.from_file(APP, default_timeout=15).run()
-                self.sign_in(role, provider)
+                self.sign_in(provider)
                 self.assertFalse(self.app.exception)
-                self.assertEqual(self.app.session_state["user"]["role"], role)
-                self.assertIn(f'<span class="role-badge">{role}</span>', self.page_text())
+                self.assertEqual(self.app.session_state["user"],
+                                 {"email": "demo.broker@example.com", "full_name": "Avery Sample", "role": "Broker"})
+                self.assertIn('<span class="role-badge">Broker</span>', self.page_text())
 
-    def test_sign_out_returns_to_the_locked_login(self):
+    def test_sign_out_returns_to_the_login(self):
         self.sign_in()
         self.app.button(key="sign_out").click().run()
         self.assertNotIn("user", self.app.session_state)
-        self.assertTrue(self.app.button(key="sign_in_google").disabled)
+        self.assertIn("Broker sign-in", self.page_text())
 
 
 class TestDashboard(AppTestCase):
@@ -254,9 +246,9 @@ class TestDashboard(AppTestCase):
 
     def test_header_shows_the_name_once_with_a_role_badge(self):
         text = self.page_text()
-        self.assertEqual(text.count("Noor Sample"), 1)
-        self.assertEqual(text.count("Analyst"), 1)
-        self.assertIn('<span class="user-name">Noor Sample</span><span class="role-badge">Analyst</span>', text)
+        self.assertEqual(text.count("Avery Sample"), 1)
+        self.assertEqual(text.count("Broker"), 1)
+        self.assertIn('<span class="user-name">Avery Sample</span><span class="role-badge">Broker</span>', text)
         self.assertEqual(self.app.button(key="nav_home").label, "CBRE AI Teammate")
 
     def test_clicking_a_deal_name_opens_that_deal(self):
@@ -718,7 +710,6 @@ class NewDealAppTestCase(unittest.TestCase):
             patcher.start()
             self.addCleanup(patcher.stop)
         self.app = AppTest.from_file(APP, default_timeout=20).run()
-        self.app.button(key="rolebtn_agent").click().run()
         self.app.button(key="sign_in_google").click().run()
 
     def use_gemini(self, reply):
@@ -1095,7 +1086,7 @@ class TestMarketResearch(NewDealAppTestCase):
 
     def test_simulated_findings_show_a_chip_and_cannot_be_accepted(self):
         from services import connections
-        connections.set_enabled("demo_costar", True, "Administrator", self.db_path)
+        connections.set_enabled("demo_costar", True, self.db_path)
         self.use()
         self.run_research()
         page = self.page()
@@ -1106,9 +1097,9 @@ class TestMarketResearch(NewDealAppTestCase):
 
     def test_nothing_found_says_so(self):
         from services import connections
-        connections.set_enabled("web_search_gemini", False, "Administrator", self.db_path)
+        connections.set_enabled("web_search_gemini", False, self.db_path)
         for source in ("fred", "bls", "census"):
-            connections.set_enabled(source, False, "Administrator", self.db_path)
+            connections.set_enabled(source, False, self.db_path)
         self.use(results={}, reply=AssertionError("must not be called"))
         self.run_research()
         self.assertEqual(self.page().count("No reliable public sources found."), 4)
@@ -1157,7 +1148,7 @@ class TestRecommendationsTab(NewDealAppTestCase):
         from tests import connection_fakes
         from tests.test_connections import with_keys
         with_keys(self)
-        connections.set_enabled("demo_costar", True, "Administrator", self.db_path)
+        connections.set_enabled("demo_costar", True, self.db_path)
         connections.run_research({"id": self.deals["fallowmere"], "property_type": "Industrial",
                                   "submarket": "Alliance, Fort Worth, TX"}, self.db_path, adapters=connection_fakes.adapters())
         self.findings = {(r["connection_id"], r["topic"]): r["id"] for r in self.rows(
@@ -1259,11 +1250,7 @@ class TestConnectionsPage(NewDealAppTestCase):
         from tests.test_connections import with_keys
         with_keys(self, {"GEMINI_API_KEY": "test-gemini", "FRED_API_KEY": "test-fred"})
 
-    def open_page(self, role="Agent"):
-        if role != "Agent":
-            self.app.button(key="sign_out").click().run()
-            self.app.button(key=f"rolebtn_{role.lower()}").click().run()
-            self.app.button(key="sign_in_google").click().run()
+    def open_page(self):
         self.app.button(key="nav_connections").click().run()
         self.assertFalse(self.app.exception)
 
@@ -1287,7 +1274,7 @@ class TestConnectionsPage(NewDealAppTestCase):
         self.assertIn("Last used: never", page)
 
     def test_keys_are_never_shown(self):
-        self.open_page("Administrator")
+        self.open_page()
         everything = self.page() + " ".join(str(w.value) for w in self.app.text_input)
         for key in ("test-gemini", "test-fred"):
             self.assertNotIn(key, everything)
@@ -1299,16 +1286,15 @@ class TestConnectionsPage(NewDealAppTestCase):
         self.assertIn("No website is ever scraped", page)
         self.assertIn("They can never be accepted, cited by the AI, or counted as research.", page)
 
-    def test_agents_and_analysts_can_only_look(self):
-        for role in ("Agent", "Analyst"):
-            with self.subTest(role):
-                self.open_page(role)
-                switches = [t for t in self.app.toggle if t.key.startswith("switch_")]
-                self.assertTrue(switches and all(t.disabled for t in switches))
-                self.assertIn("Only an Administrator can switch sources on or off.", self.page())
+    def test_the_broker_can_use_every_switch(self):
+        self.open_page()
+        switches = [t for t in self.app.toggle if t.key.startswith("switch_")]
+        self.assertEqual(len(switches), 10)
+        self.assertFalse(any(t.disabled for t in switches))
+        self.assertNotIn("Administrator", self.page())
 
-    def test_an_administrator_switches_a_source_and_it_is_saved(self):
-        self.open_page("Administrator")
+    def test_the_broker_switches_a_source_and_it_is_saved(self):
+        self.open_page()
         self.assertFalse(self.app.toggle(key="switch_fred").disabled)
         self.app.toggle(key="switch_fred").set_value(False).run()
         self.app.toggle(key="switch_demo_costar").set_value(True).run()
@@ -1439,7 +1425,6 @@ class TestVoice(NewDealAppTestCase):
                 self.calls.clear()
                 self.use_transcript(reply)
                 self.app = AppTest.from_file(APP, default_timeout=20).run()
-                self.app.button(key="rolebtn_agent").click().run()
                 self.app.button(key="sign_in_google").click().run()
                 key = self.open_fallowmere()
                 self.upload_and_transcribe(key, filename, data)

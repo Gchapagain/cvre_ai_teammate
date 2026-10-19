@@ -51,7 +51,7 @@ else:
     if st.session_state.get("page") == "deal":
         deal.render()
     elif st.session_state.get("page") == "connections":
-        connections_page.render(user)
+        connections_page.render()
     else:
         dashboard.render()
     assistant.render()

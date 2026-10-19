@@ -1,7 +1,4 @@
-"""Connections page: every data source, its status, what it provides, and an on/off switch.
-
-Administrators can switch sources on or off. Agents and Analysts can only look.
-"""
+"""Connections page: every data source, its status, what it provides, and an on/off switch."""
 
 from html import escape
 
@@ -23,11 +20,11 @@ HOW_SOURCES_ARE_USED = [
 ]
 
 
-def _switch(adapter_id, key, role):
-    connections.set_enabled(adapter_id, st.session_state[key], role)
+def _switch(adapter_id, key):
+    connections.set_enabled(adapter_id, st.session_state[key])
 
 
-def _card(adapter, state, role):
+def _card(adapter, state):
     status = adapter.status(state["enabled"])
     with st.container(border=True, key=f"conn_card_{adapter.id}"):
         head = st.container(horizontal=True, horizontal_alignment="distribute", vertical_alignment="center")
@@ -52,11 +49,11 @@ def _card(adapter, state, role):
             st.caption("Use it from a deal: Review tab > Market research > Import a market report.")
             return
         key = f"switch_{adapter.id}"
-        st.toggle("On" if state["enabled"] else "Off", value=state["enabled"], key=key, disabled=role != connections.ADMIN,
-                  on_change=_switch, args=(adapter.id, key, role))
+        st.toggle("On" if state["enabled"] else "Off", value=state["enabled"], key=key,
+                  on_change=_switch, args=(adapter.id, key))
 
 
-def render(user):
+def render():
     st.header("Connections")
     st.caption("The data sources the AI Teammate can use for market research.")
     with st.container(border=True, key="card_how_sources"):
@@ -65,8 +62,7 @@ def render(user):
                    '<div class="conn-tiers">' + " ".join(
                        f'<span class="pill tier{tier}">Tier {tier}</span> {escape(label)}' for tier, label in TIER_LABELS.items())
                    + "</div>")
-    if user["role"] != connections.ADMIN:
-        st.info("Only an Administrator can switch sources on or off. You can see their status here.")
+    st.caption("Switch a source off to stop Run research from using it.")
     adapters, state = connections.all_adapters(), connections.states()
     groups = [("Live sources", [a for a in adapters if not a.simulated]),
               ("Licensed sources (demo only)", [a for a in adapters if a.simulated])]
@@ -75,4 +71,4 @@ def render(user):
         columns = st.columns(2, gap="medium")
         for index, adapter in enumerate(group):
             with columns[index % 2]:
-                _card(adapter, state[adapter.id], user["role"])
+                _card(adapter, state[adapter.id])

@@ -12,7 +12,7 @@ CREATE TABLE IF NOT EXISTS users (
     id            INTEGER PRIMARY KEY AUTOINCREMENT,
     email         TEXT NOT NULL UNIQUE,
     full_name     TEXT NOT NULL,
-    role          TEXT NOT NULL CHECK (role IN ('Agent', 'Analyst', 'Administrator')),
+    role          TEXT NOT NULL CHECK (role IN ('Broker')),  -- brokers are the only user type
     password_hash TEXT,
     created_at    TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
@@ -258,10 +258,50 @@ def _add_missing_columns(conn):
                 conn.execute(f"ALTER TABLE {table} ADD COLUMN {column} {definition}")
 
 
+USERS_TABLE = """
+CREATE TABLE users_broker_only (
+    id            INTEGER PRIMARY KEY AUTOINCREMENT,
+    email         TEXT NOT NULL UNIQUE,
+    full_name     TEXT NOT NULL,
+    role          TEXT NOT NULL CHECK (role IN ('Broker')),  -- brokers are the only user type
+    password_hash TEXT,
+    created_at    TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+)"""
+# Columns in other tables that point at a user. A user they point at is never removed.
+USER_REFERENCES = [("deals", "owner_user_id"), ("documents", "uploaded_by"), ("valuation_outputs", "created_by"),
+                   ("research_jobs", "requested_by")]
+
+
+def _make_users_broker_only(conn):
+    """An earlier version had three roles. Rebuild the users table so Broker is the only one.
+
+    Agent users become Brokers. The other users are dropped unless something refers to them, in
+    which case they are kept as Brokers so nothing points at a missing user.
+    """
+    row = conn.execute("SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'users'").fetchone()
+    if not row or "'Analyst'" not in row["sql"]:
+        return
+    tables = {r["name"] for r in conn.execute("SELECT name FROM sqlite_master WHERE type = 'table'")}
+    referenced = " UNION ".join(f"SELECT {column} FROM {table}" for table, column in USER_REFERENCES if table in tables)
+    keep = f"role = 'Agent' OR id IN ({referenced})" if referenced else "role = 'Agent'"
+    conn.commit()
+    conn.execute("PRAGMA foreign_keys = OFF")  # so the swap below does not touch the rows that point at users
+    try:
+        with conn:
+            conn.execute(USERS_TABLE)
+            conn.execute("INSERT INTO users_broker_only (id, email, full_name, role, password_hash, created_at) "
+                         f"SELECT id, email, full_name, 'Broker', password_hash, created_at FROM users WHERE {keep}")
+            conn.execute("DROP TABLE users")
+            conn.execute("ALTER TABLE users_broker_only RENAME TO users")
+    finally:
+        conn.execute("PRAGMA foreign_keys = ON")
+
+
 def init_db(db_path=None):
     """Create all tables if they do not exist yet, and add any columns a newer version needs."""
     conn = get_connection(db_path)
     try:
+        _make_users_broker_only(conn)
         _retire_old_drafts_table(conn)
         _add_missing_columns(conn)
         conn.executescript(SCHEMA)

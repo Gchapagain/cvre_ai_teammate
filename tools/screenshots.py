@@ -105,7 +105,7 @@ def add_simulated_research(nothing_found=False):
         if nothing_found:
             adapters = [connections.TavilyAdapter(search_fn=research_fakes.fake_search({}), client=research_fakes.fake_gemini())]
         else:
-            connections.set_enabled("demo_costar", True, "Administrator", db_path)
+            connections.set_enabled("demo_costar", True, db_path)
             adapters = connection_fakes.adapters()
         deal = {"id": 1, "property_type": "Industrial", "submarket": "Alliance, Fort Worth, TX"}
         import sqlite3
@@ -140,8 +140,6 @@ def add_simulated_recommendations():
 
 def sign_in_again(page):
     page.get_by_text("Welcome back").wait_for()
-    page.locator(".st-key-rolecard_agent").click(position={"x": 300, "y": 40})
-    page.locator(".st-key-rolecard_on_agent").wait_for()
     page.get_by_role("button", name="Continue with Google").click()
     page.get_by_text("Needs your attention").wait_for()
     page.wait_for_timeout(800)
@@ -164,21 +162,16 @@ def run(page, suffix):
     check("card is centred in the right half", abs((card["x"] + card["width"] / 2) - width * 0.75) < 24, card["x"])
     check("card fits on the screen", card["y"] >= 0 and card["y"] + card["height"] <= height, card)
     google = page.get_by_role("button", name="Continue with Google")
-    check("sign-in buttons are disabled before a role is chosen", google.is_disabled()
-          and page.get_by_role("button", name="Continue with Microsoft").is_disabled())
+    check("both sign-in buttons work straight away", google.is_enabled()
+          and page.get_by_role("button", name="Continue with Microsoft").is_enabled())
     check("sign-in buttons are full width", abs(google.bounding_box()["width"] - (card["width"] - 82)) < 6, google.bounding_box()["width"])
-    check("helper text asks for a role", page.get_by_text("Choose a role to continue").count() == 1)
-    check("three role cards", page.locator('[class*="st-key-rolecard_"]').count() == 3)
+    card_text = page.locator(".st-key-login_card").inner_text()
+    check("card says Welcome back, Broker sign-in and the demo note", all(part in card_text for part in
+          ("Welcome back", "Sign in to review your deals.", "Demo login. No real sign-in happens yet."))
+          and "broker sign-in" in card_text.lower())
+    check("no role step", page.locator('[class*="st-key-rolecard_"]').count() == 0
+          and not any(word in card_text for word in ("Step 1", "Step 2", "Choose a role", "Analyst", "Administrator")))
     shot("0_login")
-    agent = page.locator(".st-key-rolecard_agent")
-    agent.click(position={"x": 300, "y": 40})  # the card body, not the name
-    page.locator(".st-key-rolecard_on_agent").wait_for()
-    page.mouse.move(700, 850)
-    page.wait_for_timeout(500)
-    check("chosen card has a green border and a check mark",
-          css(page, ".st-key-rolecard_on_agent", "borderTopColor") == "rgb(29, 60, 47)" and page.locator(".role .tick").count() == 1)
-    check("sign-in buttons unlock", google.is_enabled())
-    shot("0b_login_role_selected")
     google.click()
     page.get_by_text("Needs your attention").wait_for()
     page.wait_for_timeout(1200)
@@ -190,6 +183,9 @@ def run(page, suffix):
           css(page, ".st-key-topbar", "backgroundColor"))
     check("spans the full width at the very top", bar["x"] == 0 and bar["y"] == 0 and abs(bar["width"] - width) < 2, bar)
     sign_out, badge, name = box(page, ".st-key-sign_out button"), box(page, ".role-badge"), box(page, ".user-name")
+    check("the role badge says BROKER", page.locator(".role-badge").inner_text().strip() == "BROKER"
+          and page.locator(".user-name").inner_text().strip() == "Avery Sample")
+    page.screenshot(path=str(OUT / f"1b_top_bar{suffix}.png"), clip={"x": 0, "y": 0, "width": width, "height": 90})
     check("sign out is inside the bar", sign_out["y"] > 0 and sign_out["y"] + sign_out["height"] < bar["height"], sign_out)
     check("space between name and badge", badge["x"] - (name["x"] + name["width"]) >= 8)
     check("space between badge and sign out", sign_out["x"] - (badge["x"] + badge["width"]) >= 16)
@@ -578,8 +574,8 @@ def run(page, suffix):
     cards = page.locator('[class*="st-key-conn_card_"]')
     check("a card for each of the 11 sources", cards.count() == 11)
     check("the How sources are used note is there", "No website is ever scraped" in page.locator(".st-key-card_how_sources").inner_text())
-    check("an Agent sees the switches but cannot use them",
-          all(t.is_disabled() for t in page.locator('[class*="st-key-switch_"] input').all()))
+    check("the Broker can use every switch",
+          not any(t.is_disabled() for t in page.locator('[class*="st-key-switch_"] input').all()))
     texts = page.locator('[class*="st-key-conn_card_"]').all_inner_texts()
     check("no key appears anywhere on the page", not any("AIza" in t or "tvly-" in t for t in texts))
     page.locator(".st-key-connect_demo_zillow button").click()

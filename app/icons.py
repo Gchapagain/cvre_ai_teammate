@@ -15,10 +15,6 @@ SPARKLE = ('<svg viewBox="0 0 24 24" aria-hidden="true"><path fill="#c9a227" '
 FLAG = _line('<path d="M5 21V4"/><path d="M5 4h12l-2.5 4L17 12H5"/>')
 CITE = _line('<path d="M7 3h8l4 4v14H7z"/><path d="M15 3v4h4"/><path d="M10 12h6M10 16h6"/>')
 APPROVE = _line('<circle cx="9" cy="8" r="4"/><path d="M2 21c0-4 3-6 7-6 1.6 0 3 .3 4.200 1"/><path d="M15 18l2.500 2.500L22 16"/>')
-BRIEFCASE = _line('<rect x="3" y="7" width="18" height="13" rx="2"/><path d="M9 7V5a2 2 0 0 1 2-2h2a2 2 0 0 1 2 2v2"/><path d="M3 13h18"/>', 22)
-CHART = _line('<path d="M4 20V10M10 20V4M16 20v-7M22 20H2"/>', 22)
-SHIELD = _line('<path d="M12 3l8 3v6c0 5-3.500 8-8 9-4.500-1-8-4-8-9V6z"/><path d="M9 12l2 2 4-4"/>', 22)
-CHECK = _line('<path d="M5 12.500l4.500 4.500L19 7"/>', 16)
 
 _GOOGLE = ('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24">'
            '<path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"/>'
