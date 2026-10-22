@@ -13,7 +13,7 @@ import pandas as pd
 import streamlit as st
 
 from app import exports, icons, queries, style
-from app.views import correction_panel, data_tab, editing, notes, timeline
+from app.views import approval, correction_panel, data_tab, editing, notes, timeline
 from app.views import flags as flag_cards
 from services import connections, corrections, drafting, extraction, gemini, metrics, research
 from services.connections.base import TIER_LABELS
@@ -415,6 +415,7 @@ def render(deal):
     flags, t12 = queries.deal_flags(deal["id"]), queries.deal_t12(deal["id"])
     open_flags = [f for f in flags if f["status"] == "open"]
     locked = deal["status"] == "Approved"
+    approval.banner(deal)
     result = st.session_state.pop("edit_result", None)
     if result:
         (st.success if result["kind"] == "success" else st.warning)(result["text"])
@@ -426,6 +427,7 @@ def render(deal):
         _research(deal)
         notes.render(deal)
     with side:
+        approval.panel(deal, flags)
         _snapshot(units, open_flags, t12)
         timeline.render(deal, locked)
         _accepted_recommendations(deal)

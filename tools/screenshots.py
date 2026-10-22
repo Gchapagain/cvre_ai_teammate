@@ -11,6 +11,7 @@ loudly if the app shows an error box or the Streamlit log contains a traceback.
 
 import json
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -467,6 +468,8 @@ def run(page, suffix):
     page.wait_for_timeout(500)
     tbox = table.bounding_box()
     # Click the Tenant cell of the first row (columns: Unit, Flag, Tenant ...); the grid is a canvas.
+    page.mouse.wheel(0, -250)  # keep the first row clear of the fixed top bar
+    page.wait_for_timeout(500)
     tbox = table.bounding_box()  # measured again after scrolling
     page.mouse.move(tbox["x"] + 230, tbox["y"] + 54)
     page.wait_for_timeout(300)
@@ -490,6 +493,55 @@ def run(page, suffix):
     page.locator(".st-key-card_timeline").scroll_into_view_if_needed()
     page.wait_for_timeout(400)
     shot("20_timeline")
+
+    print("Approval")
+    approve_button = page.locator(".st-key-approve_start button").last
+    panel_text = page.locator(".st-key-card_approval").inner_text()
+    check("Review and approve is locked while a flag is open", approve_button.is_disabled()
+          and re.search(r"Flags resolved: (\d+) of (\d+)", panel_text).group(1) != re.search(r"Flags resolved: (\d+) of (\d+)", panel_text).group(2),
+          panel_text.split("\n")[1:2])
+    card = page.locator('[class*="st-key-flagcard_open_"]').first
+    card.get_by_role("button", name="This is correct - confirm it").click()
+    card.get_by_text("Why is it correct?").wait_for()
+    card.get_by_text("Special lease - verified", exact=True).click()
+    card.locator("textarea").fill("Signed lease includes a lab fit-out premium.")
+    card.locator("textarea").press("Tab")
+    page.wait_for_timeout(800)
+    card.locator('[class*="st-key-confirm_"][class*="_go"] button').click()
+    page.locator('[class*="st-key-flagcard_confirmed_"]').wait_for()
+    page.wait_for_timeout(800)
+    check("a confirmed flag stays visible, marked reviewed in green", "Reviewed: confirmed by Avery Sample" in
+          page.locator('[class*="st-key-flagcard_confirmed_"]').inner_text())
+    approve_button = page.locator(".st-key-approve_start button").last
+    counts = re.search(r"Flags resolved: (\d+) of (\d+)", page.locator(".st-key-card_approval").inner_text()).groups()
+    check("Review and approve unlocks once every flag is resolved", approve_button.is_enabled() and counts[0] == counts[1], counts)
+    page.locator(".st-key-card_approval").scroll_into_view_if_needed()
+    shot("22_approval_panel_ready")
+    approve_button.click()
+    dialog = page.get_by_role("dialog")
+    dialog.get_by_text("Every change made").wait_for()
+    page.wait_for_timeout(800)
+    check("the approve dialog lists confirmed flags and every change", "1 flag(s) confirmed" in dialog.inner_text()
+          and "Northfield Pallet Co." in dialog.inner_text() and "Northfield Pallet Company" in dialog.inner_text())
+    shot("23_approval_dialog")
+    dialog.get_by_role("button", name=re.compile("Approve deal")).click()
+    page.get_by_text("Deal approved. Values and flags are now locked.").wait_for()
+    page.wait_for_timeout(1000)
+    no_error_box(page, "after approving")
+    check("approved banner, locked edits and Reopen are shown", page.get_by_text("Approved by Avery Sample on").count() >= 1
+          and page.locator('.st-key-card_timeline [class*="st-key-undo_"] button').first.is_disabled()
+          and page.locator(".st-key-reopen_start button").count() == 1)
+    check("the Download button stays available", page.locator(".st-key-review_download button").last.is_enabled())
+    page.mouse.wheel(0, -4000)
+    page.wait_for_timeout(400)
+    shot("24_approved_state")
+    page.locator(".st-key-reopen_start button").last.click()
+    page.locator(".st-key-card_approval textarea").fill("Re-opening to finish the screenshot walk-through.")
+    page.locator(".st-key-card_approval textarea").press("Tab")
+    page.wait_for_timeout(600)
+    page.locator(".st-key-reopen_confirm button").last.click()
+    page.get_by_text("Reopened for changes. The reason is in the Activity timeline.").wait_for()
+    check("reopening needs a reason and is logged", "Reopened for changes" in page.locator(".st-key-card_timeline").inner_text())
     check("Generate draft button is offered and nothing has been drafted", page.get_by_role("button", name="Generate draft").count() == 1
           and page.locator(".ai-label").count() == 0)
     # Show what a draft looks like without calling Gemini: put two made-up drafts straight into the
@@ -578,11 +630,13 @@ def run(page, suffix):
           and css(page, '.stTabs [role="tab"]:last-of-type', "backgroundColor") == "rgb(201, 162, 39)")
     panel = page.get_by_role("tabpanel")
     rule_cards, ai_cards = panel.locator('[class*="st-key-rec_rule_"]'), panel.locator('[class*="st-key-rec_ai_"]')
-    check("both kinds of card are shown and labelled", rule_cards.count() >= 3 and ai_cards.count() == 2
+    # Unit 110's flag was confirmed earlier in this walk-through, so its "confirm unit 110" card no longer shows.
+    check("both kinds of card are shown and labelled", rule_cards.count() >= 2 and ai_cards.count() == 2
           and "from the deal's data" in rule_cards.first.inner_text().lower()
           and "from market research" in ai_cards.first.inner_text().lower())
-    check("rule cards show the rule and exact numbers", "Rule: Validation rule rent_per_sf_above_2x_average" in panel.inner_text()
-          and "44,700 SF, 28.9% of total SF" in panel.inner_text())
+    check("rule cards show the rule and exact numbers", "Rule: Leases ending in the next 12 months" in panel.inner_text()
+          and "44,700 SF, 28.9% of total SF" in panel.inner_text()
+          and "Confirm unit 110" not in panel.inner_text())
     check("evidence chips show source, tier, date and connection",
           "FRED, St. Louis Fed · Tier 1 · 2026-08-01 · FRED (St. Louis Fed)" in panel.inner_text())
     check("a Sources disagree tag on the evidence", ai_cards.locator(".pill.flag", has_text="Sources disagree").count() == 1)
@@ -621,6 +675,8 @@ def run(page, suffix):
     check("link jumps to the Documents tab", tabs.nth(1).get_attribute("aria-selected") == "true")
     tabs.first.click()
     page.get_by_text("Deal snapshot").wait_for()
+    page.mouse.wheel(0, -8000)  # the fixed top bar must not cover the tabs
+    page.wait_for_timeout(300)
     tabs.last.click()
     page.get_by_text("Web search: coming in a later step.").first.wait_for()
     page.mouse.move(400, 800)

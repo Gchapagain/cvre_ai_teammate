@@ -339,6 +339,18 @@ table.preview tr.derived td { background: var(--gold-tint); }
 [class*="st-key-proposal_"] [data-testid="stMarkdownContainer"], [class*="st-key-question_"] [data-testid="stMarkdownContainer"] { margin-bottom: 0; }
 .proposal-title { font-weight: 600; color: var(--green); margin-bottom: 4px; }
 
+.checklist { list-style: none; margin: 0; padding: 0; }
+.checklist li { padding: 6px 0 6px 28px; position: relative; border-bottom: 1px solid #eee9f0; font-size: 0.93rem; }
+.checklist li:last-child { border-bottom: none; }
+.checklist li::before { position: absolute; left: 0; top: 5px; width: 20px; height: 20px; border-radius: 50%; text-align: center;
+  font-size: 0.78rem; line-height: 20px; font-weight: 700; }
+.checklist li.done::before { content: "✓"; background: #dcebe3; color: var(--green); }
+.checklist li.todo::before { content: "!"; background: var(--amber-tint); color: var(--amber-ink); }
+.st-key-card_approval { background: var(--surface); border: 1px solid var(--line) !important; border-top: 4px solid var(--gold) !important;
+  border-radius: var(--radius) !important; padding: var(--s3) var(--card-pad) !important; box-shadow: var(--shadow); gap: 12px !important; }
+.st-key-card_approval [data-testid="stMarkdownContainer"] { margin-bottom: 0; }
+.approve-counts { display: flex; gap: var(--s1); flex-wrap: wrap; margin-bottom: var(--s1); }
+
 /* ---- Notes ---- */
 [class*="st-key-note_"] { background: var(--surface); border: 1px solid var(--line) !important;
   border-radius: var(--radius) !important; padding: var(--s2) var(--card-pad) !important; }

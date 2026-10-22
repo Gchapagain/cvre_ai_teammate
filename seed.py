@@ -141,6 +141,9 @@ def seed(db_path=None):
                                    "Retail", "Old Harrow Lane (fictional)", "Approved")
             doc = add_document(conn, brindlewick, "brindlewick_rent_roll.xlsx", "Rent roll", "Read", "Rent roll")
             add_units(conn, brindlewick, doc, brindlewick_units())
+            # The sample Approved deal records who approved it, like any approval would.
+            conn.execute("UPDATE deals SET approved_by = ?, approved_at = CURRENT_TIMESTAMP WHERE id = ?",
+                         (DEMO_USERS[0][1], brindlewick))
     finally:
         conn.close()
 

@@ -138,8 +138,8 @@ class TestUndo(CorrectionsTestCase):
         self.assertEqual((unit["monthly_rent"], unit["annual_rent"], unit["rent_per_sf"]), (5421.33, 65055.96, 20.33))
         self.assertTrue(all(e["reverted_at"] for e in self.rows("SELECT * FROM edits")))
         self.assertEqual([e["kind"] for e in self.rows("SELECT kind FROM deal_events ORDER BY id")], ["edit", "undo"])
-        statuses = [f["status"] for f in self.flags()]
-        self.assertEqual(statuses, ["corrected", "open"])  # the old row stays in history; the problem is open again
+        flags = self.flags()
+        self.assertEqual([(f["status"], f["resolved_by"]) for f in flags], [("open", None)])  # the same row, open again
         self.assertEqual(corrections.originals(self.deal_id, self.db_path), {})
 
     def test_undo_twice_and_out_of_order_are_refused(self):
@@ -210,10 +210,12 @@ class TestValidationKeepsDecisions(CorrectionsTestCase):
         opened = [f for f in self.flags() if f["unit_number"] == "101"]
         self.assertEqual([(f["rule"], f["status"]) for f in opened], [("lease_end_before_start", "open")])
 
-    def test_a_corrected_problem_that_comes_back_gets_a_new_flag_and_history_stays(self):
+    def test_a_corrected_problem_that_comes_back_is_reopened_and_the_timeline_keeps_the_story(self):
+        flag_id = self.flags()[0]["id"]
         self.save(self.unit, {"monthly_rent": "2400"})
         self.save(self.unit_row("110"), {"monthly_rent": "5421.33"})
-        self.assertEqual([f["status"] for f in self.flags()], ["corrected", "open"])
+        self.assertEqual([(f["id"], f["status"], f["resolution_reason"]) for f in self.flags()], [(flag_id, "open", None)])
+        self.assertEqual([e["kind"] for e in self.rows("SELECT kind FROM deal_events ORDER BY id")], ["edit", "edit"])
 
     def test_rerunning_validation_never_deletes_a_flag(self):
         for _ in range(3):
@@ -241,3 +243,56 @@ class TestApprovedDealsAreLocked(CorrectionsTestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestApproval(CorrectionsTestCase):
+    def deal(self):
+        return self.rows("SELECT status, approved_by, approved_at FROM deals WHERE id = ?", (self.deal_id,))[0]
+
+    def resolve(self):
+        corrections.confirm_flag(self.flags()[0]["id"], "Special lease - verified", "Checked the lease.", USER, self.db_path)
+
+    def test_approval_is_refused_while_a_flag_is_open(self):
+        with self.assertRaises(ValueError) as caught:
+            corrections.approve(self.deal_id, USER, self.db_path)
+        self.assertIn("still open", str(caught.exception))
+        self.assertEqual(self.deal()["status"], "Needs Review")
+
+    def test_approve_records_who_and_when_and_logs_it(self):
+        self.save(self.unit_row("101"), {"tenant_name": "Northfield Pallet Company"})
+        self.resolve()
+        summary = corrections.approval_summary(self.deal_id, self.db_path)
+        self.assertEqual((len(summary["confirmed"]), len(summary["corrected"]), len(summary["edits"])), (1, 0, 1))
+        self.assertEqual((summary["edits"][0]["old"], summary["edits"][0]["new"]), ("Northfield Pallet Co.", "Northfield Pallet Company"))
+        corrections.approve(self.deal_id, USER, self.db_path)
+        deal = self.deal()
+        self.assertEqual((deal["status"], deal["approved_by"]), ("Approved", USER))
+        self.assertTrue(deal["approved_at"])
+        event = self.rows("SELECT * FROM deal_events WHERE kind = 'approved'")[0]
+        self.assertEqual(event["detail"], "1 flag(s) confirmed, 0 corrected, 1 value(s) changed.")
+
+    def test_reverted_edits_are_not_in_the_summary(self):
+        result = self.save(self.unit_row("101"), {"tenant_name": "Northfield Pallet Company"})
+        corrections.undo(result["batch_id"], USER, self.db_path)
+        self.assertEqual(corrections.approval_summary(self.deal_id, self.db_path)["edits"], [])
+
+    def test_reopen_needs_a_reason_unlocks_and_keeps_the_history(self):
+        self.resolve()
+        corrections.approve(self.deal_id, USER, self.db_path)
+        with self.assertRaises(ValueError):
+            corrections.reopen(self.deal_id, "  ", USER, self.db_path)
+        corrections.reopen(self.deal_id, "Owner sent a corrected rent roll.", USER, self.db_path)
+        deal = self.deal()
+        self.assertEqual((deal["status"], deal["approved_by"], deal["approved_at"]), ("Needs Review", None, None))
+        events = self.rows("SELECT kind, reason FROM deal_events ORDER BY id")
+        self.assertEqual([e["kind"] for e in events], ["confirmed", "approved", "reopened"])
+        self.assertEqual(events[-1]["reason"], "Owner sent a corrected rent roll.")
+        self.save(self.unit_row("101"), {"tenant_name": "Northfield Pallet Company"})  # editing works again
+
+    def test_reopening_a_deal_that_is_not_approved_is_refused(self):
+        with self.assertRaises(ValueError):
+            corrections.reopen(self.deal_id, "reason", USER, self.db_path)
+
+    def test_the_sample_approved_deal_records_its_approver(self):
+        deal = self.rows("SELECT status, approved_by FROM deals WHERE id = ?", (self.deals["brindlewick"],))[0]
+        self.assertEqual(deal, {"status": "Approved", "approved_by": "Avery Sample"})

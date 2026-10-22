@@ -1711,6 +1711,69 @@ class TestTellTheAi(NewDealAppTestCase):
         self.assertEqual(self.rows("SELECT id FROM edits"), [])
 
 
+class TestApprovalPanel(NewDealAppTestCase):
+    def open_fallowmere(self):
+        self.app.button(key=f"open_deal_{self.deals['fallowmere']}").click().run()
+
+    def page(self):
+        return "\n".join(e.value for kind in ("markdown", "caption", "success", "warning")
+                         for e in getattr(self.app, kind) if "<style>" not in e.value)
+
+    def confirm_flag(self):
+        from services import corrections
+        flag_id = self.rows("SELECT id FROM flags WHERE unit_number = '110'")[0]["id"]
+        corrections.confirm_flag(flag_id, "Special lease - verified", "Checked the lease.", "Avery Sample", self.db_path)
+
+    def test_the_checklist_and_a_locked_button_while_a_flag_is_open(self):
+        self.open_fallowmere()
+        page = self.page()
+        self.assertIn('<li class="todo">Flags resolved: 0 of 1</li>', page)
+        self.assertIn('<li class="done">Edits made: 0</li>', page)
+        self.assertIn('<li class="todo">Draft narrative: no draft yet</li>', page)
+        self.assertTrue(self.app.button(key="approve_start").disabled)
+
+    def test_review_approve_lock_and_reopen(self):
+        self.use_gemini(AssertionError("approving never calls the AI"))
+        self.confirm_flag()
+        self.open_fallowmere()
+        self.assertIn('<li class="done">Flags resolved: 1 of 1</li>', self.page())
+        self.app.button(key="approve_start").click().run()
+        page = self.page()
+        self.assertIn("1 flag(s) confirmed", page)
+        self.assertIn("Unit 110: rent/SF is more than 2x the average of the other units · Avery Sample · Special lease - verified: Checked the lease.", page)
+        self.assertEqual(self.rows(f"SELECT status FROM deals WHERE id = {self.deals['fallowmere']}"), [{"status": "Needs Review"}])
+        self.app.button(key="approve_confirm").click().run()
+        self.assertFalse(self.app.exception)
+        deal = self.rows(f"SELECT status, approved_by FROM deals WHERE id = {self.deals['fallowmere']}")[0]
+        self.assertEqual(deal, {"status": "Approved", "approved_by": "Avery Sample"})
+        page = self.page()
+        self.assertIn("Approved by Avery Sample on", page)
+        self.assertIn('<div class="event-title">Deal approved</div>', page)
+        self.assertIn("review_download", [d.key for d in self.app.get("download_button")])
+        self.assertFalse([d for d in self.app.get("download_button") if d.key == "review_download"][0].disabled)
+        unit_edit_keys = [b for b in self.app.button if b.key.startswith(("fix_btn_", "confirm_btn_", "undo_"))]
+        self.assertTrue(all(b.disabled for b in unit_edit_keys))
+        self.app.button(key="reopen_start").click().run()
+        self.assertTrue(self.app.button(key="reopen_confirm").disabled)
+        self.app.text_area(key="reopen_reason").set_value("Owner sent a corrected rent roll.").run()
+        self.app.button(key="reopen_confirm").click().run()
+        self.assertEqual(self.rows(f"SELECT status FROM deals WHERE id = {self.deals['fallowmere']}"), [{"status": "Needs Review"}])
+        self.assertIn('<div class="event-title">Reopened for changes</div>', self.page())
+        self.assertIn("Why: Owner sent a corrected rent roll.", self.page())
+        self.assertEqual(self.calls, [])
+
+    def test_flag_for_producer_still_works_separately(self):
+        conn = db.get_connection(self.db_path)
+        with conn:
+            conn.execute(f"INSERT INTO drafts (deal_id, text) VALUES ({self.deals['fallowmere']}, 'The 12 units total 154,600 SF.')")
+        conn.close()
+        self.open_fallowmere()
+        self.app.button(key="draft_flag").click().run()
+        self.assertEqual(self.rows("SELECT status FROM drafts"), [{"status": "Flagged for producer"}])
+        self.assertEqual(self.rows(f"SELECT status FROM deals WHERE id = {self.deals['fallowmere']}"), [{"status": "Needs Review"}])
+        self.assertIn('<li class="done">Draft narrative: Flagged for producer</li>', self.page())
+
+
 class TestAppNeverChangesData(AppTestCase):
     def test_opening_the_fix_and_confirm_panels_changes_nothing(self):
         before = hashlib.sha256(self.db_path.read_bytes()).hexdigest()

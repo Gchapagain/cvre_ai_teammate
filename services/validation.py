@@ -196,17 +196,20 @@ def save_flags(conn, deal_id, flags, user=None):
     - A problem that still fires keeps its row. If it was confirmed and the value is unchanged it stays
       confirmed; if the value changed it is reopened for a fresh look.
     - A problem that no longer fires is marked corrected (kept in history, shown as resolved).
-    - A problem with no open or confirmed row is added as a new open flag.
+    - A corrected problem that fires again (for example after an undo) is reopened on its own row, so
+      the list never claims something is corrected when it is not. The timeline keeps what happened.
+    - A problem with no row at all is added as a new open flag.
     """
     placeholders = ", ".join("?" for _ in RENT_ROLL_RULES)
     saved = [dict(row) for row in conn.execute(
         f"SELECT * FROM flags WHERE deal_id = ? AND rule IN ({placeholders}) ORDER BY id", (deal_id, *RENT_ROLL_RULES))]
-    active = {}
+    active, corrected = {}, {}
     for row in saved:
-        if row["status"] != "corrected":
-            active.setdefault(flag_key(row), row)
+        (corrected if row["status"] == "corrected" else active).setdefault(flag_key(row), row)
     for flag in flags:
         row = active.pop(flag_key(flag), None)
+        if row is None and flag_key(flag) in corrected:
+            row = dict(corrected.pop(flag_key(flag)), status="confirmed", actual_value=None)  # forces a reopen below
         if row is None:
             conn.execute(
                 """INSERT INTO flags (deal_id, rent_roll_unit_id, unit_number, rule, field, actual_value, threshold, message)

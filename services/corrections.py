@@ -237,3 +237,60 @@ def originals(deal_id, db_path=None):
             info.update(user=row["user"], when=row["created_at"], reason=row["reason"], source=row["source"])
     return {key: info for key, info in found.items()
             if key[0] in units and units[key[0]].get(key[1]) != info["original"] and "user" in info}
+
+
+# ---- Approval ----
+
+def approval_summary(deal_id, db_path=None):
+    """What a person approves: the flags they resolved and every change still in place."""
+    conn = db.get_connection(db_path)
+    try:
+        flags = _rows(conn, "SELECT * FROM flags WHERE deal_id = ? ORDER BY id", (deal_id,))
+        edits = _rows(conn, "SELECT * FROM edits WHERE deal_id = ? AND reverted_at IS NULL ORDER BY id", (deal_id,))
+    finally:
+        conn.close()
+    return {
+        "open": [f for f in flags if f["status"] == "open"],
+        "confirmed": [f for f in flags if f["status"] == "confirmed"],
+        "corrected": [f for f in flags if f["status"] == "corrected"],
+        "edits": [dict(e, old=json.loads(e["old_value"]), new=json.loads(e["new_value"])) for e in edits],
+        "total_flags": len(flags),
+    }
+
+
+def approve(deal_id, user, db_path=None):
+    """A person approves the deal. Refused while any flag is open."""
+    summary = approval_summary(deal_id, db_path)
+    if summary["open"]:
+        raise ValueError(f"{len(summary['open'])} flag(s) are still open. Resolve every flag before approving.")
+    db.init_db(db_path)
+    conn = db.get_connection(db_path)
+    try:
+        if is_approved(conn, deal_id):
+            raise ValueError("This deal is already approved.")
+        with conn:
+            conn.execute("UPDATE deals SET status = 'Approved', approved_by = ?, approved_at = CURRENT_TIMESTAMP, "
+                         "updated_at = CURRENT_TIMESTAMP WHERE id = ?", (user, deal_id))
+            _event(conn, deal_id, "approved", user, None,
+                   f"{len(summary['confirmed'])} flag(s) confirmed, {len(summary['corrected'])} corrected, "
+                   f"{len(summary['edits'])} value(s) changed.", MANUAL)
+    finally:
+        conn.close()
+
+
+def reopen(deal_id, reason, user, db_path=None):
+    """Reopen an approved deal for changes. The reason is logged; the earlier approval stays in the timeline."""
+    reason = (reason or "").strip()
+    if not reason:
+        raise ValueError("Say why the deal is being reopened.")
+    db.init_db(db_path)
+    conn = db.get_connection(db_path)
+    try:
+        if not is_approved(conn, deal_id):
+            raise ValueError("Only an approved deal can be reopened.")
+        with conn:
+            conn.execute("UPDATE deals SET status = 'Needs Review', approved_by = NULL, approved_at = NULL, "
+                         "updated_at = CURRENT_TIMESTAMP WHERE id = ?", (deal_id,))
+            _event(conn, deal_id, "reopened", user, reason, None, MANUAL)
+    finally:
+        conn.close()
