@@ -115,7 +115,8 @@ def render(deal):
 
     style.section_title("From the deal's data")
     units = queries.deal_units(deal_id)
-    rules = recommendations.rule_recommendations(units, queries.deal_flags(deal_id), queries.deal_t12(deal_id),
+    open_flags = [f for f in queries.deal_flags(deal_id) if f["status"] == "open"]
+    rules = recommendations.rule_recommendations(units, open_flags, queries.deal_t12(deal_id),
                                                  queries.deal_documents(deal_id), date.today())
     if not rules:
         st.caption("No rule fired for this deal's data." if units else "This deal has no extracted numbers yet.")

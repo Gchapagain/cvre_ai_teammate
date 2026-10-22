@@ -304,6 +304,34 @@ h1, h2, h3, h4, .stat-value { font-family: 'Fraunces', Georgia, serif !important
 .left-out { margin: var(--s1) 0 0; padding-left: 18px; font-size: 0.88rem; }
 .left-out li { margin-bottom: 6px; }
 
+/* ---- Flag decision cards, edit preview, timeline ---- */
+[class*="st-key-flagcard_"] { background: var(--surface); border: 1px solid var(--line) !important; border-radius: var(--radius) !important;
+  padding: var(--s2) var(--card-pad) !important; box-shadow: var(--shadow); gap: var(--s1) !important; margin-bottom: var(--s1); }
+[class*="st-key-flagcard_open_"] { border-left: 6px solid var(--red) !important; background: #fffafa; }
+[class*="st-key-flagcard_confirmed_"], [class*="st-key-flagcard_corrected_"] { border-left: 6px solid var(--green-mid) !important; }
+[class*="st-key-flagcard_"] [data-testid="stMarkdownContainer"] { margin-bottom: 0; }
+.flag-head { display: flex; align-items: center; justify-content: space-between; gap: var(--s2); flex-wrap: wrap; }
+.flag-title { font-family: 'Fraunces', Georgia, serif; font-size: 1.1rem; font-weight: 600; color: var(--green); }
+.flag-message { margin-top: 4px; }
+.flag-numbers { font-size: 0.9rem; color: var(--ink-soft); }
+.flag-numbers .num { font-weight: 700; color: var(--red-ink); }
+.flag-detail { font-size: 0.82rem; color: var(--ink-soft); }
+[class*="st-key-flag_choices_"] button { min-height: 44px; font-weight: 600; }
+[class*="st-key-fix_btn_"] button { border-color: var(--red); color: var(--red-ink); }
+[class*="st-key-fix_btn_"] button:hover { background: var(--red-tint); color: var(--red-ink); border-color: var(--red); }
+[class*="st-key-confirm_btn_"] button { border-color: var(--green-mid); color: var(--green); }
+table.preview { width: 100%; border-collapse: collapse; font-size: 0.88rem; margin: 4px 0; }
+table.preview th { text-align: left; color: var(--ink-soft); font-weight: 600; border-bottom: 1px solid var(--line); padding: 6px 8px; }
+table.preview td { padding: 6px 8px; border-bottom: 1px solid #eee9f0; }
+table.preview tr.derived td { background: var(--gold-tint); }
+.original { font-size: 0.86rem; background: var(--gold-tint); border: 1px solid #e2cd7f; border-radius: var(--radius-sm); padding: 8px 12px; }
+.event { padding: var(--s1) 0 4px; border-top: 1px solid #eee9f0; }
+.event-title { font-weight: 600; color: var(--green); }
+.event-meta { font-size: 0.78rem; color: var(--ink-soft); }
+.event-detail, .event-why { font-size: 0.86rem; margin-top: 2px; }
+.event-why { color: var(--ink-soft); }
+[class*="st-key-undo_"] button { min-height: 28px; padding: 0 10px; font-size: 0.85rem; }
+
 /* ---- Notes ---- */
 [class*="st-key-note_"] { background: var(--surface); border: 1px solid var(--line) !important;
   border-radius: var(--radius) !important; padding: var(--s2) var(--card-pad) !important; }

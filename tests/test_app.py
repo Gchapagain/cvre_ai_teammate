@@ -269,12 +269,21 @@ class TestDealWorkspace(AppTestCase):
                          ["Review", "Documents :gray-badge[2]", "Data", "Recommendations", ":material/auto_awesome: Ask AI"])
         self.assertIn("Documents: coming in a later step.", [message.value for message in self.app.info])
 
-    def test_review_shows_the_anomaly_banner_for_unit_110(self):
+    def test_review_shows_a_decision_card_for_the_open_flag(self):
         self.open_deal("fallowmere")
         text = self.page_text()
-        self.assertIn("1 anomaly found", text)
+        self.assertIn("1 flag to resolve", text)
+        self.assertIn("Unit 110 · rent/SF is more than 2x the average of the other units", text)
         self.assertIn("Unit 110 rent/SF is $20.33", text)
-        self.assertIn("Flagged, not hidden", text)
+        self.assertIn('Value: <span class="num">20.33</span> · Limit: <span class="num">17.19</span>', text)
+        self.assertEqual(self.app.button(key=f"fix_btn_{self.flag_id()}").label, "This is wrong - fix it")
+        self.assertEqual(self.app.button(key=f"confirm_btn_{self.flag_id()}").label, "This is correct - confirm it")
+
+    def flag_id(self):
+        conn = db.get_connection(self.db_path)
+        flag_id = conn.execute("SELECT id FROM flags WHERE unit_number = '110'").fetchone()["id"]
+        conn.close()
+        return flag_id
 
     def test_review_table_shows_all_units_and_marks_only_unit_110(self):
         self.open_deal("fallowmere")
@@ -1499,7 +1508,131 @@ class TestNotes(NewDealAppTestCase):
         self.assertNotIn("Waiting on the rent roll", "\n".join(m.value for m in self.app.markdown))
 
 
+class TestResolveFlags(NewDealAppTestCase):
+    def open_fallowmere(self):
+        self.app.button(key=f"open_deal_{self.deals['fallowmere']}").click().run()
+
+    def flag(self):
+        return self.rows("SELECT * FROM flags WHERE unit_number = '110' ORDER BY id")[0]
+
+    def page(self):
+        return "\n".join(e.value for kind in ("markdown", "caption", "success", "warning", "error")
+                         for e in getattr(self.app, kind) if "<style>" not in e.value)
+
+    def test_confirm_needs_a_reason_and_a_note_and_changes_no_data(self):
+        self.use_gemini(AssertionError("confirming never calls the AI"))
+        self.open_fallowmere()
+        flag_id, before = self.flag()["id"], self.rows("SELECT * FROM rent_roll_units")
+        self.app.button(key=f"confirm_btn_{flag_id}").click().run()
+        key = f"confirm_{flag_id}"
+        self.assertEqual(self.app.button_group(key=f"{key}_reason").options,
+                         ["Special lease - verified", "Confirmed with property manager", "Source file is right", "Other"])
+        self.assertTrue(self.app.button(key=f"{key}_go").disabled)
+        self.app.button_group(key=f"{key}_reason").set_value("Special lease - verified").run()
+        self.assertTrue(self.app.button(key=f"{key}_go").disabled)  # the note is still missing
+        self.app.text_area(key=f"{key}_note").set_value("Lab fit-out premium in the signed lease.").run()
+        self.app.button(key=f"{key}_go").click().run()
+        self.assertFalse(self.app.exception)
+        self.assertEqual(self.flag()["status"], "confirmed")
+        self.assertEqual(self.rows("SELECT * FROM rent_roll_units"), before)
+        page = self.page()
+        self.assertIn("Reviewed: confirmed by Avery Sample", page)
+        self.assertIn("Special lease - verified: Lab fit-out premium in the signed lease.", page)
+        self.assertIn("Every flag is resolved", page)
+        self.assertEqual(self.calls, [])
+
+    def test_fix_shows_a_before_and_after_with_recomputed_fields_then_clears_the_flag(self):
+        self.use_gemini(AssertionError("a manual fix never calls the AI"))
+        self.open_fallowmere()
+        flag_id = self.flag()["id"]
+        self.app.button(key=f"fix_btn_{flag_id}").click().run()
+        key = f"fix_{flag_id}"
+        self.assertEqual(self.app.text_input(key=f"{key}_monthly_rent").value, "5421.33")
+        self.app.text_input(key=f"{key}_monthly_rent").set_value("2400").run()
+        page = self.page()
+        self.assertIn("<td>Monthly rent</td><td>5,421.33</td><td>2,400</td><td>Your change</td>", page)
+        self.assertIn('<tr class="derived"><td>Annual rent</td><td>65,055.96</td><td>28,800</td><td>Recomputed: annual rent = monthly rent x 12</td>', page)
+        self.assertIn("<td>Rent / SF</td><td>20.33</td><td>9</td><td>Recomputed: rent/SF = annual rent / SF</td>", page)
+        self.assertTrue(self.app.button(key=f"{key}_save").disabled)  # no reason yet
+        self.assertEqual(self.rows("SELECT id FROM edits"), [])  # previewing saves nothing
+        self.app.text_area(key=f"{key}_reason").set_value("The lease abstract shows $2,400 a month.").run()
+        self.app.button(key=f"{key}_save").click().run()
+        self.assertFalse(self.app.exception)
+        self.assertIn("Flag cleared: Unit 110 rent/SF is $20.33", self.app.success[0].value)
+        self.assertEqual(self.flag()["status"], "corrected")
+        self.assertIn("Reviewed: corrected by Avery Sample", self.page())
+        self.assertEqual(len(self.rows("SELECT id FROM edits")), 3)
+        self.assertEqual(self.calls, [])
+
+    def test_the_dashboard_counts_only_open_flags(self):
+        flag_id = self.flag()["id"]
+        from services import corrections
+        corrections.confirm_flag(flag_id, "Other", "Checked.", "Avery Sample", self.db_path)
+        self.app.button(key="nav_all_deals").click().run()
+        from app import queries
+        self.assertEqual(queries.dashboard_stats()["anomalies"], 0)
+        self.assertNotIn("1 anomaly", "\n".join(m.value for m in self.app.markdown))
+        self.open_fallowmere()
+        self.assertIn("Reviewed: confirmed by Avery Sample", self.page())  # still visible in the deal
+
+    def test_timeline_and_undo(self):
+        from services import corrections
+        unit = self.rows("SELECT * FROM rent_roll_units WHERE unit_number = '110'")[0]
+        changes, _ = corrections.plan(unit, {"monthly_rent": "2400"})
+        result = corrections.apply(self.deals["fallowmere"], unit["id"], changes, "Lease abstract.", "Avery Sample", db_path=self.db_path)
+        self.open_fallowmere()
+        page = self.page()
+        self.assertIn('<div class="event-title">Edited</div>', page)
+        self.assertIn("Avery Sample · just now · Manual", page)
+        self.assertIn("Unit 110 Monthly rent: 5,421.33 -&gt; 2,400", page)
+        self.assertIn("Why: Lease abstract.", page)
+        self.app.button(key=f"undo_{result['batch_id']}").click().run()
+        self.assertFalse(self.app.exception)
+        self.assertEqual(self.rows("SELECT monthly_rent FROM rent_roll_units WHERE unit_number = '110'"), [{"monthly_rent": 5421.33}])
+        self.assertIn('<div class="event-title">Undone</div>', self.page())
+        self.assertIn("1 flag to resolve", self.page())
+
+    def test_edited_cells_are_marked_with_their_original_value(self):
+        from app.views import review
+        from services import corrections
+        unit = self.rows("SELECT * FROM rent_roll_units WHERE unit_number = '110'")[0]
+        changes, _ = corrections.plan(unit, {"monthly_rent": "2400"})
+        corrections.apply(self.deals["fallowmere"], unit["id"], changes, "Lease abstract.", "Avery Sample", db_path=self.db_path)
+        edited = corrections.originals(self.deals["fallowmere"], self.db_path)
+        units = self.rows(f"SELECT * FROM rent_roll_units WHERE deal_id = {self.deals['fallowmere']} ORDER BY id")
+        table = review.units_table(units, self.rows("SELECT * FROM flags"), edited)
+        self.assertEqual(table[table["Unit"] == "110"]["Edited"].iloc[0], "Monthly rent, Annual rent, Rent / SF")
+        self.assertEqual(table[table["Unit"] == "110"]["Flag"].iloc[0], "Corrected")
+        self.assertEqual(review._selected_cell({"selection": {"cells": [[9, "Monthly rent"]]}}), (9, "Monthly rent"))
+        self.assertEqual(review._selected_cell({"selection": {"cells": [{"row": 2, "column": "SF"}]}}), (2, "SF"))
+        self.assertIsNone(review._selected_cell({"selection": {"cells": []}}))
+
+    def test_an_approved_deal_locks_the_buttons(self):
+        conn = db.get_connection(self.db_path)
+        with conn:
+            conn.execute(f"UPDATE deals SET status = 'Approved' WHERE id = {self.deals['fallowmere']}")
+        conn.close()
+        self.open_fallowmere()
+        flag_id = self.flag()["id"]
+        self.assertTrue(self.app.button(key=f"fix_btn_{flag_id}").disabled)
+        self.assertTrue(self.app.button(key=f"confirm_btn_{flag_id}").disabled)
+
+
 class TestAppNeverChangesData(AppTestCase):
+    def test_opening_the_fix_and_confirm_panels_changes_nothing(self):
+        before = hashlib.sha256(self.db_path.read_bytes()).hexdigest()
+        self.sign_in()
+        self.open_deal("fallowmere")
+        conn = db.get_connection(self.db_path)
+        flag_id = conn.execute("SELECT id FROM flags WHERE unit_number = '110'").fetchone()["id"]
+        conn.close()
+        self.app.button(key=f"fix_btn_{flag_id}").click().run()
+        self.app.text_input(key=f"fix_{flag_id}_monthly_rent").set_value("2400").run()
+        self.app.button(key=f"confirm_btn_{flag_id}").click().run()
+        self.app.button(key="back_to_deals").click().run()
+        self.assertFalse(self.app.exception)
+        self.assertEqual(hashlib.sha256(self.db_path.read_bytes()).hexdigest(), before)
+
     def test_opening_and_closing_the_new_deal_dialog_changes_nothing(self):
         before = hashlib.sha256(self.db_path.read_bytes()).hexdigest()
         self.sign_in()

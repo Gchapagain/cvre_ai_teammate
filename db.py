@@ -26,7 +26,9 @@ CREATE TABLE IF NOT EXISTS deals (
     status        TEXT NOT NULL DEFAULT 'New',
     owner_user_id INTEGER REFERENCES users(id),
     created_at    TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    updated_at    TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+    updated_at    TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    approved_by   TEXT,  -- the person who approved the deal, or NULL
+    approved_at   TEXT
 );
 
 -- source: where the file came from (Upload or Email).
@@ -86,7 +88,14 @@ CREATE TABLE IF NOT EXISTS flags (
     actual_value      TEXT,
     threshold         TEXT,
     message           TEXT NOT NULL,
-    created_at        TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+    created_at        TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    -- What a person decided. open: not reviewed yet. confirmed: a person says the value is right.
+    -- corrected: the value was changed and the rule no longer fires. A flag row is never deleted.
+    status            TEXT NOT NULL DEFAULT 'open' CHECK (status IN ('open', 'confirmed', 'corrected')),
+    resolved_by       TEXT,
+    resolved_at       TEXT,
+    resolution_reason TEXT,
+    resolution_note   TEXT
 );
 
 CREATE TABLE IF NOT EXISTS valuation_outputs (
@@ -148,6 +157,41 @@ CREATE TABLE IF NOT EXISTS recommendations (
     UNIQUE (deal_id, rule_key)
 );
 
+-- Every change a person made to an extracted value. old_value and new_value are JSON, so a number
+-- stays a number. The first edit of a field holds the original extracted value. Undo sets
+-- reverted_at; rows are never deleted. Edits saved together share a batch_id (for example a rent
+-- change and the rent/SF recomputed from it), and are undone together.
+CREATE TABLE IF NOT EXISTS edits (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    deal_id     INTEGER NOT NULL REFERENCES deals(id) ON DELETE CASCADE,
+    unit_id     INTEGER REFERENCES rent_roll_units(id) ON DELETE SET NULL,
+    unit_number TEXT,
+    field       TEXT NOT NULL,
+    old_value   TEXT,
+    new_value   TEXT,
+    reason      TEXT NOT NULL,
+    source      TEXT NOT NULL CHECK (source IN ('Manual', 'AI-assisted')),
+    user        TEXT NOT NULL,
+    batch_id    TEXT NOT NULL,
+    derived     INTEGER NOT NULL DEFAULT 0,  -- 1 when the value was recomputed from another change
+    created_at  TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    reverted_at TEXT
+);
+
+-- The deal's activity timeline: edits, undos, confirmations, approvals and reopenings.
+-- A reopening's reason is kept here (the reopen log).
+CREATE TABLE IF NOT EXISTS deal_events (
+    id         INTEGER PRIMARY KEY AUTOINCREMENT,
+    deal_id    INTEGER NOT NULL REFERENCES deals(id) ON DELETE CASCADE,
+    kind       TEXT NOT NULL CHECK (kind IN ('edit', 'undo', 'confirmed', 'approved', 'reopened')),
+    user       TEXT NOT NULL,
+    reason     TEXT,
+    detail     TEXT,
+    source     TEXT,
+    batch_id   TEXT,
+    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
 -- One row per connection (data source) once someone has switched it or used it.
 -- A connection with no row uses its default from services/connections.
 CREATE TABLE IF NOT EXISTS connections (
@@ -207,6 +251,8 @@ CREATE TABLE IF NOT EXISTS deal_notes (
 );
 
 CREATE INDEX IF NOT EXISTS idx_deal_notes_deal       ON deal_notes(deal_id);
+CREATE INDEX IF NOT EXISTS idx_edits_deal            ON edits(deal_id);
+CREATE INDEX IF NOT EXISTS idx_events_deal           ON deal_events(deal_id);
 CREATE INDEX IF NOT EXISTS idx_flags_deal            ON flags(deal_id);
 CREATE INDEX IF NOT EXISTS idx_valuation_deal        ON valuation_outputs(deal_id);
 CREATE INDEX IF NOT EXISTS idx_drafts_deal           ON drafts(deal_id);
@@ -243,6 +289,11 @@ def _retire_old_drafts_table(conn):
 # Columns added to existing tables after they were first created: table -> [(column, definition)].
 # Existing rows keep their data and get the default.
 ADDED_COLUMNS = {
+    "flags": [
+        ("status", "TEXT NOT NULL DEFAULT 'open'"),
+        ("resolved_by", "TEXT"), ("resolved_at", "TEXT"), ("resolution_reason", "TEXT"), ("resolution_note", "TEXT"),
+    ],
+    "deals": [("approved_by", "TEXT"), ("approved_at", "TEXT")],
     "research_findings": [
         ("connection_id", "TEXT NOT NULL DEFAULT 'web_search_tavily'"),
         ("simulated", "INTEGER NOT NULL DEFAULT 0"),

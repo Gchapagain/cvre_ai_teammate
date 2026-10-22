@@ -65,9 +65,10 @@ def deal_facts(deal_id, db_path=None, today=None):
     today = today or date.today()
     data = qa.load_deal_data(deal_id, db_path)
     lines = [qa.build_context(data), "\nCalculated figures:"]
-    lines += [f"{label}: {value}" for label, value, _ in metrics.snapshot(data["units"], data["flags"], data["t12"], today)]
+    open_flags = [f for f in data["flags"] if f.get("status", "open") == "open"]
+    lines += [f"{label}: {value}" for label, value, _ in metrics.snapshot(data["units"], open_flags, data["t12"], today)]
     lines.append("\nKey takeaways (calculated):")
-    lines += metrics.takeaways(data["units"], data["flags"], today) or ["None"]
+    lines += metrics.takeaways(data["units"], open_flags, today) or ["None"]
     conn = db.get_connection(db_path)
     try:
         findings = _accepted_findings(conn, deal_id)
@@ -130,7 +131,7 @@ def generate_draft(deal_id, client=None, db_path=None, model=None, record_to=Non
         text = gemini.generate(client or gemini.get_client(), prompt, types.GenerateContentConfig(temperature=0), model)
         if record_to:
             gemini.save_recording(record_to, prompt, text, model)
-    text = with_flag_sentence(text.strip(), data["flags"])
+    text = with_flag_sentence(text.strip(), [f for f in data["flags"] if f.get("status", "open") == "open"])
     return _write(db_path, "INSERT INTO drafts (deal_id, text) VALUES (?, ?)", (deal_id, text))
 
 

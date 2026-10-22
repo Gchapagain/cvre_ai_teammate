@@ -112,7 +112,7 @@ def load_deal_data(deal_id, db_path=None):
             "documents": _rows(conn, "SELECT filename, doc_type, status FROM documents WHERE deal_id = ? ORDER BY id", deal_id),
             "units": _rows(conn, "SELECT * FROM rent_roll_units WHERE deal_id = ? ORDER BY id", deal_id),
             "t12": _rows(conn, "SELECT category, line_item, period, amount FROM t12_line_items WHERE deal_id = ? ORDER BY id", deal_id),
-            "flags": _rows(conn, "SELECT unit_number, rule, message FROM flags WHERE deal_id = ? ORDER BY id", deal_id),
+            "flags": _rows(conn, "SELECT unit_number, rule, message, status FROM flags WHERE deal_id = ? ORDER BY id", deal_id),
         }
     finally:
         conn.close()
@@ -158,8 +158,8 @@ def build_context(data):
     if data["t12"]:
         lines.append("\nT-12 operating statement (category | line item | period | amount):")
         lines += [f"{t['category']} | {t['line_item']} | {t['period']} | {t['amount']}" for t in data["t12"]]
-    lines.append("\nValidation flags (unit | rule | message):")
-    lines += [f"{f['unit_number']} | {f['rule']} | {f['message']}" for f in data["flags"]] or ["None"]
+    lines.append("\nValidation flags (unit | rule | message | status: open, confirmed by a person, or corrected):")
+    lines += [f"{f['unit_number']} | {f['rule']} | {f['message']} | {f.get('status', 'open')}" for f in data["flags"]] or ["None"]
     lines.append("\nSources you may cite: " + "; ".join(allowed_sources(data)))
     return "\n".join(lines)
 

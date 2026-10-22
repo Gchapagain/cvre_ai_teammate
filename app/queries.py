@@ -44,7 +44,7 @@ def dashboard_stats():
         """SELECT
              (SELECT COUNT(*) FROM deals WHERE status != 'Approved')     AS active_deals,
              (SELECT COUNT(*) FROM deals WHERE status = 'Needs Review')  AS needs_review,
-             (SELECT COUNT(*) FROM flags)                                AS anomalies"""
+             (SELECT COUNT(*) FROM flags WHERE status = 'open')          AS anomalies"""
     )
 
 
@@ -58,7 +58,7 @@ def list_deals():
     return _all(
         """SELECT d.id, d.name, d.property_type, d.submarket, d.status,
                   (SELECT COUNT(*) FROM rent_roll_units u WHERE u.deal_id = d.id) AS unit_count,
-                  (SELECT COUNT(*) FROM flags f WHERE f.deal_id = d.id)           AS flag_count
+                  (SELECT COUNT(*) FROM flags f WHERE f.deal_id = d.id AND f.status = 'open') AS flag_count
            FROM deals d
            ORDER BY CASE WHEN flag_count > 0 OR d.status = 'Needs Review' THEN 0
                          WHEN d.status = 'Approved' THEN 2 ELSE 1 END, d.id"""
@@ -120,6 +120,21 @@ def deal_recommendations(deal_id):
     for row in rows:
         row["evidence"] = json.loads(row["evidence"])
     return rows
+
+
+def deal_edits(deal_id):
+    try:
+        return _all("SELECT * FROM edits WHERE deal_id = ? ORDER BY id", (deal_id,))
+    except sqlite3.OperationalError:
+        return []
+
+
+def deal_events(deal_id):
+    """The activity timeline, newest first."""
+    try:
+        return _all("SELECT * FROM deal_events WHERE deal_id = ? ORDER BY id DESC", (deal_id,))
+    except sqlite3.OperationalError:
+        return []
 
 
 def deal_documents(deal_id):

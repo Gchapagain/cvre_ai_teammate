@@ -13,8 +13,9 @@ import pandas as pd
 import streamlit as st
 
 from app import exports, icons, queries, style
-from app.views import data_tab, notes
-from services import connections, drafting, extraction, gemini, metrics, research
+from app.views import data_tab, editing, notes, timeline
+from app.views import flags as flag_cards
+from services import connections, corrections, drafting, extraction, gemini, metrics, research
 from services.connections.base import TIER_LABELS
 
 log = logging.getLogger(__name__)
@@ -37,16 +38,35 @@ def _number(decimals):
     return show
 
 
-def units_table(units, flags):
-    """The rent roll as a table with a Flag column. Flagged rows are marked in words, not only colour."""
-    flagged_ids = {flag["rent_roll_unit_id"] for flag in flags}
+FLAG_WORDS = {"open": "Flagged", "confirmed": "Confirmed", "corrected": "Corrected"}
+EDITED_CELL_STYLE = "background-color: #fbf3d6; color: #5c4a08; font-weight: 600"
+
+
+def units_table(units, flags, edited=None):
+    """The rent roll as a table. Flag says in words whether a unit has an open or resolved flag;
+    Edited names any field a person changed (the original value is shown when you click the cell)."""
+    edited = edited or {}
+    status = {}
+    for flag in flags:  # an open flag outranks a resolved one
+        current = status.get(flag["rent_roll_unit_id"])
+        if current != "open":
+            status[flag["rent_roll_unit_id"]] = "open" if flag["status"] == "open" else current or flag["status"]
     table = pd.DataFrame([{label: unit[field] for field, label in COLUMNS.items()} for unit in units])
-    table.insert(1, "Flag", ["Flagged" if unit["id"] in flagged_ids else "" for unit in units])
+    table.insert(1, "Flag", [FLAG_WORDS.get(status.get(unit["id"]), "") for unit in units])
+    table["Edited"] = [", ".join(COLUMNS[f] for (unit_id, f) in edited if unit_id == unit["id"] and f in COLUMNS)
+                       for unit in units]
     return table
 
 
-def _styled(table):
-    highlight = lambda row: [FLAG_ROW_STYLE if row["Flag"] else ""] * len(row)
+def _styled(table, units=(), edited=None):
+    edited = edited or {}
+    ids = [unit["id"] for unit in units]
+    columns = {label: field for field, label in COLUMNS.items()}
+
+    def highlight(row):
+        unit_id = ids[row.name] if row.name < len(ids) else None
+        return [EDITED_CELL_STYLE if (unit_id, columns.get(column)) in edited
+                else FLAG_ROW_STYLE if row["Flag"] == "Flagged" else "" for column in row.index]
     return table.style.apply(highlight, axis=1).format(
         {"SF": _number(0), "Monthly rent": _number(2), "Annual rent": _number(2), "Rent / SF": _number(2)}
     )
@@ -72,27 +92,52 @@ def _card(key, title, caption=""):
     return card
 
 
-def _anomaly_banner(flags):
-    if flags:
-        count = len(flags)
-        style.html(style.banner(
-            "flagged", f"{count} anomal{'y' if count == 1 else 'ies'} found",
-            [flag["message"] for flag in flags],
-            "Flagged, not hidden: the numbers below are shown exactly as extracted. A person decides what to do.",
-        ))
+def _selected_cell(event):
+    """(row index, column label) of the clicked cell, or None."""
+    selection = getattr(event, "selection", None) or (event or {}).get("selection", {})
+    cells = selection.get("cells", []) if isinstance(selection, dict) else getattr(selection, "cells", [])
+    if not cells:
+        return None
+    cell = cells[0]
+    row, column = (cell.get("row"), cell.get("column")) if isinstance(cell, dict) else (cell[0], cell[1])
+    return row, column
+
+
+def _cell_editor(deal, units, edited, cell, locked):
+    row, column = cell
+    if row is None or row >= len(units):
+        return
+    unit = units[row]
+    field = {label: field for field, label in COLUMNS.items()}.get(column)
+    st.markdown(f"**Unit {unit['unit_number']} · {column}**")
+    info = edited.get((unit["id"], field))
+    if info:
+        style.html(f'<div class="original">Edited. Original extracted value: <b>{escape(editing.show(info["original"]))}</b> · '
+                   f'changed by {escape(info["user"])}, {escape(metrics.time_ago(info["when"]) or info["when"])} · '
+                   f'{escape(info["source"])} · why: {escape(info["reason"])}</div>')
+    if field in corrections.EDITABLE:
+        editing.render(deal, unit, f"cell_{unit['id']}_{field}", fields=[field], locked=locked)
+    elif field == "rent_per_sf":
+        st.caption("Rent / SF is worked out from annual rent and SF. Change one of those and it is recomputed for you.")
     else:
-        style.html(style.banner("clear", "No anomalies found", footer="Every validation rule passed for this rent roll."))
+        st.caption("Click a value such as SF, rent, a lease date, the tenant or the lease type to change it.")
 
 
-def _extracted_fields(units, flags, documents):
+def _extracted_fields(deal, units, flags, documents, locked):
     line, complete = units_read_line(units, documents)
+    edited = corrections.originals(deal["id"])
     with _card("fields", "Extracted fields", line):
         if not complete:
             st.warning("The number of units read does not match the rows in the source file. Check the document.")
-        st.dataframe(_styled(units_table(units, flags)), hide_index=True, width="stretch",
-                     column_config={"Flag": st.column_config.TextColumn(width=90)})
+        event = st.dataframe(_styled(units_table(units, flags, edited), units, edited), hide_index=True, width="stretch",
+                             column_config={"Flag": st.column_config.TextColumn(width=90)},
+                             on_select="rerun", selection_mode="single-cell", key="fields_table")
         names = ", ".join(doc["filename"] for doc in rent_roll_documents(documents))
-        st.caption(f"From this deal: {names}. Shown exactly as extracted.")
+        changed = f" {len(edited)} value{'s' if len(edited) != 1 else ''} changed by a person (gold cells)." if edited else ""
+        st.caption(f"From this deal: {names}. Shown as extracted unless edited.{changed} Click a cell to change it or see its original value.")
+        cell = _selected_cell(event)
+        if cell:
+            _cell_editor(deal, units, edited, cell, locked)
 
 
 def _generate(deal_id):
@@ -368,15 +413,21 @@ def render(deal):
         notes.render(deal)
         return
     flags, t12 = queries.deal_flags(deal["id"]), queries.deal_t12(deal["id"])
+    open_flags = [f for f in flags if f["status"] == "open"]
+    locked = deal["status"] == "Approved"
+    result = st.session_state.pop("edit_result", None)
+    if result:
+        (st.success if result["kind"] == "success" else st.warning)(result["text"])
     main, side = st.columns([2, 1], gap="medium")
     with main:
-        _anomaly_banner(flags)
-        _extracted_fields(units, flags, documents)
-        _narrative(deal, units, flags)
+        flag_cards.render(deal, flags, units, locked)
+        _extracted_fields(deal, units, flags, documents, locked)
+        _narrative(deal, units, open_flags)
         _research(deal)
         notes.render(deal)
     with side:
-        _snapshot(units, flags, t12)
+        _snapshot(units, open_flags, t12)
+        timeline.render(deal, locked)
         _accepted_recommendations(deal)
-        _takeaways(units, flags)
+        _takeaways(units, open_flags)
         _sources(units, flags, documents)

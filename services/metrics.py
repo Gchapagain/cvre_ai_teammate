@@ -83,7 +83,7 @@ def snapshot(units, flags, t12, today):
         ("Average rent / SF", f"${rent:,.2f}" if rent is not None else NOT_AVAILABLE, "Total annual rent / total SF"),
         ("Weighted avg lease term left", f"{term:.1f} years" if term is not None else NOT_AVAILABLE,
          f"Weighted by SF, as of {today.isoformat()}"),
-        ("Flagged units", str(flagged), "Flagged, never hidden"),
+        ("Flagged units", str(flagged), "Open flags. Resolved ones stay listed on the Review tab"),
         ("Net operating income", f"${noi:,.2f}" if noi is not None else NEEDS_T12,
          "As stated in the T-12" if noi is not None else ""),
         ("Time in review", NOT_MEASURED, ""),

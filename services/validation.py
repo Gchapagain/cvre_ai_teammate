@@ -184,27 +184,61 @@ def load_units(conn, deal_id):
     return [dict(row) for row in rows]
 
 
-def save_flags(conn, deal_id, flags):
-    """Replace this deal's rent roll flags with the new ones."""
+def flag_key(flag):
+    """What makes two flags 'the same problem': the unit row (or its ID), the rule and the field."""
+    get = flag.get if isinstance(flag, dict) else lambda name: getattr(flag, name)
+    return (get("rent_roll_unit_id") or get("unit_number"), get("rule"), get("field"))
+
+
+def save_flags(conn, deal_id, flags, user=None):
+    """Merge newly found flags with the saved ones, keeping what people decided. Nothing is deleted.
+
+    - A problem that still fires keeps its row. If it was confirmed and the value is unchanged it stays
+      confirmed; if the value changed it is reopened for a fresh look.
+    - A problem that no longer fires is marked corrected (kept in history, shown as resolved).
+    - A problem with no open or confirmed row is added as a new open flag.
+    """
     placeholders = ", ".join("?" for _ in RENT_ROLL_RULES)
-    conn.execute(f"DELETE FROM flags WHERE deal_id = ? AND rule IN ({placeholders})", (deal_id, *RENT_ROLL_RULES))
-    conn.executemany(
-        """INSERT INTO flags
-           (deal_id, rent_roll_unit_id, unit_number, rule, field, actual_value, threshold, message)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
-        [(deal_id, f.rent_roll_unit_id, f.unit_number, f.rule, f.field, f.actual_value, f.threshold, f.message)
-         for f in flags],
-    )
+    saved = [dict(row) for row in conn.execute(
+        f"SELECT * FROM flags WHERE deal_id = ? AND rule IN ({placeholders}) ORDER BY id", (deal_id, *RENT_ROLL_RULES))]
+    active = {}
+    for row in saved:
+        if row["status"] != "corrected":
+            active.setdefault(flag_key(row), row)
+    for flag in flags:
+        row = active.pop(flag_key(flag), None)
+        if row is None:
+            conn.execute(
+                """INSERT INTO flags (deal_id, rent_roll_unit_id, unit_number, rule, field, actual_value, threshold, message)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
+                (deal_id, flag.rent_roll_unit_id, flag.unit_number, flag.rule, flag.field, flag.actual_value,
+                 flag.threshold, flag.message))
+            continue
+        reopen = row["status"] == "confirmed" and row["actual_value"] != flag.actual_value
+        conn.execute(
+            """UPDATE flags SET actual_value = ?, threshold = ?, message = ?, unit_number = ?,
+                   status = CASE WHEN ? THEN 'open' ELSE status END,
+                   resolved_by = CASE WHEN ? THEN NULL ELSE resolved_by END,
+                   resolved_at = CASE WHEN ? THEN NULL ELSE resolved_at END,
+                   resolution_reason = CASE WHEN ? THEN NULL ELSE resolution_reason END,
+                   resolution_note = CASE WHEN ? THEN NULL ELSE resolution_note END
+               WHERE id = ?""",
+            (flag.actual_value, flag.threshold, flag.message, flag.unit_number, reopen, reopen, reopen, reopen, reopen, row["id"]))
+    for row in active.values():  # no longer fires
+        conn.execute(
+            """UPDATE flags SET status = 'corrected', resolved_by = ?, resolved_at = CURRENT_TIMESTAMP,
+                   resolution_reason = 'The value was changed and the rule no longer fires.' WHERE id = ?""",
+            (user or "System", row["id"]))
 
 
-def validate_deal(deal_id, db_path=None):
-    """Check a deal's saved rent roll, save the flags, and return them."""
+def validate_deal(deal_id, db_path=None, user=None):
+    """Check a deal's saved rent roll, merge the flags with what people decided, and return the problems found now."""
     db.init_db(db_path)
     conn = db.get_connection(db_path)
     try:
         flags = validate_units(load_units(conn, deal_id))
         with conn:
-            save_flags(conn, deal_id, flags)
+            save_flags(conn, deal_id, flags, user)
     finally:
         conn.close()
     return flags
