@@ -68,6 +68,7 @@ h1, h2, h3, h4, .stat-value { font-family: 'Fraunces', Georgia, serif !important
   background: var(--green-dark); border-bottom: 3px solid var(--gold); box-shadow: 0 2px 8px rgba(19, 39, 30, 0.25); }
 .st-key-topbar [data-testid="stMarkdownContainer"] { margin-bottom: 0; }
 .st-key-topbar_user { gap: var(--s3) !important; flex-wrap: nowrap !important; }
+.st-key-topbar .pill.simulated { margin: 0; }
 .st-key-topbar_nav { gap: var(--s4) !important; flex-wrap: nowrap !important; }
 /* The brand and the All deals link are real buttons, so both can take the person home. */
 .st-key-nav_home button, .st-key-nav_all_deals button { min-height: var(--control-h); border: none; background: none;
@@ -332,6 +333,12 @@ table.preview tr.derived td { background: var(--gold-tint); }
 .event-why { color: var(--ink-soft); }
 [class*="st-key-undo_"] button { min-height: 28px; padding: 0 10px; font-size: 0.85rem; }
 
+.understood { background: var(--gold-tint); border: 1px solid #e2cd7f; border-radius: var(--radius-sm); padding: 10px 14px; margin: 4px 0; }
+[class*="st-key-proposal_"], [class*="st-key-question_"] { background: var(--surface); border: 1px solid var(--line) !important;
+  border-left: 4px solid var(--gold) !important; border-radius: var(--radius-sm) !important; padding: var(--s2) !important; }
+[class*="st-key-proposal_"] [data-testid="stMarkdownContainer"], [class*="st-key-question_"] [data-testid="stMarkdownContainer"] { margin-bottom: 0; }
+.proposal-title { font-weight: 600; color: var(--green); margin-bottom: 4px; }
+
 /* ---- Notes ---- */
 [class*="st-key-note_"] { background: var(--surface); border: 1px solid var(--line) !important;
   border-radius: var(--radius) !important; padding: var(--s2) var(--card-pad) !important; }
@@ -368,6 +375,11 @@ PILL_CLASSES = {"Needs Review": "needs-review", "Extracting": "extracting", "App
 
 def apply():
     st.markdown(CSS, unsafe_allow_html=True)
+
+
+def html_escape(text):
+    from html import escape
+    return escape(str(text))
 
 
 def html(markup):

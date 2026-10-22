@@ -9,6 +9,7 @@ It never sends anything to Gemini: no chat message, no rent roll, no recording. 
 loudly if the app shows an error box or the Streamlit log contains a traceback.
 """
 
+import json
 import os
 import shutil
 import subprocess
@@ -38,7 +39,15 @@ def start_app(log_path):
     work = OUT / "tmp"
     shutil.rmtree(work, ignore_errors=True)
     work.mkdir(parents=True)
-    env = dict(os.environ, CBRE_DB_PATH=str(work / "screenshots.db"), CBRE_UPLOAD_DIR=str(work / "uploads"))
+    # Canned AI replies, so AI screens can be shown without a real request (the app labels this SIMULATED AI).
+    replies = work / "simulated_gemini.json"
+    replies.write_text(json.dumps([{"when": "WHAT THE BROKER WROTE", "reply": {
+        "interpretation": "Unit 110's monthly rent should be 2,400; the rest was a one-off fit-out charge.",
+        "changes": [{"unit": "110", "field": "monthly_rent", "new_value": "2400"},
+                    {"unit": "999", "field": "monthly_rent", "new_value": "2400"}],
+        "questions": []}}]))
+    env = dict(os.environ, CBRE_DB_PATH=str(work / "screenshots.db"), CBRE_UPLOAD_DIR=str(work / "uploads"),
+               CBRE_SIMULATED_GEMINI=str(replies))
     subprocess.run([sys.executable, "seed.py", "--reset"], cwd=ROOT, env=env, check=True, stdout=subprocess.DEVNULL)
     log = open(log_path, "w")
     process = subprocess.Popen(
@@ -415,6 +424,42 @@ def run(page, suffix):
     tall_shot(page, f"19_fix_panel_preview{suffix}", height=2000)
     card.get_by_role("button", name="Cancel").click()
     page.wait_for_timeout(800)
+    card = page.locator('[class*="st-key-flagcard_open_"]').first
+    card.get_by_role("button", name="This is wrong - fix it").click()
+    card.get_by_text("Tell me what is wrong").first.wait_for()
+    page.wait_for_timeout(500)
+
+    print("Tell the AI what is wrong (simulated AI reply)")
+    check("the top bar says the AI is simulated", page.get_by_text("SIMULATED AI").count() == 1)
+    card.locator("textarea").first.fill("Unit 110's monthly rent should be $2,400. The rest was a one-off fit-out charge.")
+    card.locator("textarea").first.press("Tab")
+    page.wait_for_timeout(600)
+    card.locator('[class*="st-key-understand_"] button').first.click()
+    card.get_by_text("Here is what I understood").wait_for()
+    page.wait_for_timeout(800)
+    proposal = card.locator('[class*="st-key-proposal_"]').first
+    check("the AI's understanding, a dropped suggestion and a before/after proposal are shown",
+          "1 suggestion could not be applied: unit 999 is not in this deal" in card.inner_text()
+          and "Proposed change to unit 110" in proposal.inner_text()
+          and all(proposal.get_by_role("button", name=n).count() == 1 for n in ("Apply", "Edit", "Cancel")))
+    card.get_by_text("Here is what I understood").scroll_into_view_if_needed()
+    page.mouse.move(1300, 850)
+    page.keyboard.press("Escape")  # close the hover tooltip left by the automated click
+    page.wait_for_timeout(600)
+    tall_shot(page, f"21_fix_panel_ai_proposal{suffix}", height=2300)
+    proposal.locator('[class*="st-key-ai_apply_"] button').click()
+    page.get_by_text("Applied (AI-assisted).").wait_for()
+    page.wait_for_timeout(800)
+    check("Apply saves it marked AI-assisted and the flag is corrected",
+          "AI-assisted" in page.locator(".st-key-card_timeline").inner_text()
+          and page.locator('[class*="st-key-flagcard_corrected_"]').count() == 1)
+    no_error_box(page, "after applying an AI-assisted change")
+    # Put the sample data back for the steps below, which also shows Undo working.
+    page.locator('.st-key-card_timeline [class*="st-key-undo_"] button').first.click()
+    page.get_by_text("Undone. The old value is back").wait_for()
+    page.wait_for_timeout(800)
+    check("Undo restores the value and the flag is open again", page.locator('[class*="st-key-flagcard_open_"]').count() == 1
+          and "Undone" in page.locator(".st-key-card_timeline").inner_text())
 
     print("Edit a cell")
     table = page.locator(".st-key-card_fields [data-testid='stDataFrame']")

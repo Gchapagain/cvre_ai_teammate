@@ -13,7 +13,7 @@ import pandas as pd
 import streamlit as st
 
 from app import exports, icons, queries, style
-from app.views import data_tab, editing, notes, timeline
+from app.views import correction_panel, data_tab, editing, notes, timeline
 from app.views import flags as flag_cards
 from services import connections, corrections, drafting, extraction, gemini, metrics, research
 from services.connections.base import TIER_LABELS
@@ -420,7 +420,7 @@ def render(deal):
         (st.success if result["kind"] == "success" else st.warning)(result["text"])
     main, side = st.columns([2, 1], gap="medium")
     with main:
-        flag_cards.render(deal, flags, units, locked)
+        flag_cards.render(deal, flags, units, locked, correction_panel.render)
         _extracted_fields(deal, units, flags, documents, locked)
         _narrative(deal, units, open_flags)
         _research(deal)

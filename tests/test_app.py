@@ -1618,6 +1618,99 @@ class TestResolveFlags(NewDealAppTestCase):
         self.assertTrue(self.app.button(key=f"confirm_btn_{flag_id}").disabled)
 
 
+class TestTellTheAi(NewDealAppTestCase):
+    TEXT = "Unit 110's monthly rent should be $2,400. The rest was a one-off fit-out charge."
+
+    def open_fix(self):
+        self.app.button(key=f"open_deal_{self.deals['fallowmere']}").click().run()
+        self.flag_id = self.rows("SELECT id FROM flags WHERE unit_number = '110'")[0]["id"]
+        self.app.button(key=f"fix_btn_{self.flag_id}").click().run()
+
+    def ask(self, text=None):
+        self.app.text_area(key=f"corr_text_{self.flag_id}").set_value(text or self.TEXT).run()
+        self.app.button(key=f"understand_{self.flag_id}").click().run()
+        self.assertFalse(self.app.exception)
+
+    def reply(self, changes=(), questions=()):
+        self.use_gemini({"interpretation": "Unit 110's monthly rent should be 2,400.", "questions": list(questions),
+                         "changes": [{"unit": u, "field": f, "new_value": v} for u, f, v in changes]})
+
+    def page(self):
+        return "\n".join(e.value for kind in ("markdown", "caption", "warning", "success")
+                         for e in getattr(self.app, kind) if "<style>" not in e.value)
+
+    def test_the_panel_has_a_text_box_the_recorder_and_calls_nothing_by_itself(self):
+        self.use_gemini(AssertionError("must not be called"))
+        self.open_fix()
+        self.assertIn("unit 110's monthly rent should be $2,400", self.app.text_area(key=f"corr_text_{self.flag_id}").placeholder)
+        self.assertIn(f"corr_{self.flag_id}_transcribe", [b.key for b in self.app.button])
+        self.assertTrue(self.app.button(key=f"understand_{self.flag_id}").disabled)
+        self.assertEqual(self.calls, [])
+
+    def test_a_proposal_is_shown_and_nothing_is_saved_until_apply(self):
+        self.reply([("110", "monthly_rent", "2400"), ("999", "monthly_rent", "2400")])
+        self.open_fix()
+        self.ask()
+        self.assertEqual(len(self.calls), 1)
+        page = self.page()
+        self.assertIn("Here is what I understood:</b> Unit 110&#x27;s monthly rent should be 2,400.", page)
+        self.assertIn("1 suggestion could not be applied: unit 999 is not in this deal.", page)
+        self.assertIn("Proposed change to unit 110", page)
+        self.assertIn("Recomputed: annual rent = monthly rent x 12", page)
+        self.assertEqual(self.rows("SELECT id FROM edits"), [])
+        self.app.button(key=f"ai_apply_{self.flag_id}_0").click().run()
+        self.assertFalse(self.app.exception)
+        edits = self.rows("SELECT source, reason FROM edits")
+        self.assertEqual({e["source"] for e in edits}, {"AI-assisted"})
+        self.assertEqual(edits[0]["reason"], self.TEXT)
+        self.assertIn("Applied (AI-assisted).", self.app.success[0].value)
+        self.assertIn("Flag cleared", self.app.success[0].value)
+        self.assertEqual(self.rows("SELECT status FROM flags WHERE unit_number = '110'")[0]["status"], "corrected")
+        self.assertEqual(len(self.calls), 1)
+
+    def test_cancel_drops_the_proposal_and_saves_nothing(self):
+        self.reply([("110", "monthly_rent", "2400")])
+        self.open_fix()
+        self.ask()
+        self.app.button(key=f"ai_cancel_{self.flag_id}_0").click().run()
+        self.assertNotIn("Proposed change to unit 110", self.page())
+        self.assertEqual(self.rows("SELECT id FROM edits"), [])
+
+    def test_edit_opens_the_form_filled_with_the_proposal(self):
+        self.reply([("110", "monthly_rent", "2400")])
+        self.open_fix()
+        self.ask()
+        self.app.button(key=f"ai_edit_{self.flag_id}_0").click().run()
+        key = f"aiedit_{self.flag_id}"
+        self.assertEqual(self.app.text_input(key=f"{key}_monthly_rent").value, "2400")
+        self.assertEqual(self.app.text_area(key=f"{key}_reason").value, self.TEXT)
+        self.app.text_input(key=f"{key}_monthly_rent").set_value("2450").run()
+        self.app.button(key=f"{key}_save").click().run()
+        self.assertEqual({e["source"] for e in self.rows("SELECT source FROM edits")}, {"AI-assisted"})
+        self.assertEqual(self.rows("SELECT monthly_rent FROM rent_roll_units WHERE unit_number = '110'"), [{"monthly_rent": 2450.0}])
+
+    def test_an_unsure_ai_asks_a_question_and_the_answer_is_sent_back(self):
+        self.reply(questions=["Which unit's rent is wrong?"])
+        self.open_fix()
+        self.ask("The rent looks wrong.")
+        self.assertIn("The AI needs to know: Which unit&#x27;s rent is wrong?", self.page())
+        self.assertNotIn("Proposed change", self.page())
+        self.reply([("110", "monthly_rent", "2400")])
+        self.app.text_input(key=f"answer_{self.flag_id}_0").set_value("Unit 110, it should be 2400 a month").run()
+        self.app.button(key=f"answer_go_{self.flag_id}_0").click().run()
+        self.assertFalse(self.app.exception)
+        self.assertIn("Proposed change to unit 110", self.page())
+        self.assertIn("Answer: Unit 110, it should be 2400 a month", self.calls[-1])
+
+    def test_quota_used_up_is_friendly_and_the_manual_form_stays(self):
+        self.use_gemini(daily_quota_error())
+        self.open_fix()
+        self.ask()
+        self.assertIn("daily quota is used up", self.page())
+        self.assertIn(f"fix_{self.flag_id}_monthly_rent", [t.key for t in self.app.text_input])
+        self.assertEqual(self.rows("SELECT id FROM edits"), [])
+
+
 class TestAppNeverChangesData(AppTestCase):
     def test_opening_the_fix_and_confirm_panels_changes_nothing(self):
         before = hashlib.sha256(self.db_path.read_bytes()).hexdigest()

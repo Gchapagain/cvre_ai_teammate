@@ -42,8 +42,35 @@ class GeminiBusyError(GeminiError):
     """Gemini was busy or rate limited on every try."""
 
 
+# Only tools/screenshots.py sets this. It points at a JSON file of canned replies so the screenshots
+# can show AI features without spending real requests. The app shows a SIMULATED AI chip while it is set.
+SIMULATED_ENV = "CBRE_SIMULATED_GEMINI"
+
+
+def simulated():
+    return bool(os.getenv(SIMULATED_ENV))
+
+
+class _SimulatedClient:
+    """Answers from the canned replies file: the first reply whose 'when' text is in the prompt."""
+
+    def __init__(self, path):
+        self.replies = json.loads(Path(path).read_text())
+        self.models = self
+
+    def generate_content(self, model=None, contents=None, config=None):
+        from types import SimpleNamespace
+        prompt = contents if isinstance(contents, str) else str(contents)
+        for reply in self.replies:
+            if reply["when"] in prompt:
+                return SimpleNamespace(text=json.dumps(reply["reply"]), candidates=[], usage_metadata=None)
+        raise GeminiError("No simulated reply matches this request.")
+
+
 def get_client():
     """Build a Gemini client using the key in .env."""
+    if simulated():
+        return _SimulatedClient(os.environ[SIMULATED_ENV])
     load_dotenv(PROJECT_ROOT / ".env")
     api_key = os.getenv("GEMINI_API_KEY", "").strip()
     if not api_key or api_key == KEY_PLACEHOLDER:
