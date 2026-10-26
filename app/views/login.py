@@ -38,6 +38,19 @@ PAGE_CSS = f"""
 .login-note {{ font-size: 0.8rem; color: var(--ink-soft); text-align: center; margin-top: var(--s1);
   padding-top: var(--s2); border-top: 1px solid var(--line); }}
 
+/* Phones: the brand panel sits on top and the card below it, both full width. */
+@media (max-width: 760px) {{
+  .block-container {{ padding: 0 16px 32px !important; }}
+  .login-left {{ position: static; inset: auto; margin: 0 -16px; padding: 40px 24px 32px; }}
+  .login-left .logo span {{ font-size: 1.8rem; }}
+  .login-left .logo svg {{ width: 30px; height: 30px; }}
+  .login-left .tagline {{ font-size: 1rem; margin: 16px 0 24px; }}
+  .login-left .point {{ margin-bottom: 14px; font-size: 0.95rem; }}
+  .st-key-login_card {{ position: static; transform: none; width: 100% !important; max-height: none;
+    margin: 24px 0 0; padding: 28px 20px !important; }}
+  .login-title {{ font-size: 1.6rem; }}
+}}
+
 /* Sign-in buttons: full width, provider icon on the left. */
 [class*="st-key-sign_in_"] button {{ width: 100%; min-height: 44px; gap: 10px; font-weight: 600; }}
 [class*="st-key-sign_in_"] button::before {{ content: ""; width: 18px; height: 18px; flex: none;

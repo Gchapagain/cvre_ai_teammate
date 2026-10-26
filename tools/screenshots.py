@@ -1,6 +1,7 @@
 """Open the real app in a headless browser, click through it, and save screenshots.
 
 Run:  .venv/bin/python tools/screenshots.py            (uses the installed Google Chrome)
+      .venv/bin/python tools/screenshots.py mobile     (phone width, 390 x 844, saved as m_*.png)
       .venv/bin/python tools/screenshots.py webkit     (Safari's engine, if Playwright has it installed)
 
 It starts its own copy of the app on port 8765 with its own freshly seeded database and
@@ -760,6 +761,91 @@ def run(page, suffix):
     check("the breadcrumb link goes to the dashboard", page.get_by_role("heading", name="All deals").count() == 1)
 
 
+def overflow(page):
+    """How many pixels the page is wider than the screen (0 means no sideways scrolling)."""
+    return page.evaluate("Math.max(document.documentElement.scrollWidth, document.body.scrollWidth) - window.innerWidth")
+
+
+def small_targets(page):
+    """Visible buttons shorter than 40px (too small to tap comfortably), by label."""
+    return page.evaluate("""[...document.querySelectorAll('button')].filter(b => {
+        const r = b.getBoundingClientRect(); return r.width > 0 && r.height > 0 && r.height < 40
+          && getComputedStyle(b).visibility !== 'hidden' && !b.closest('[data-testid="stDataFrame"]')
+          && !b.closest('[data-baseweb="tab-list"]') && !b.closest('[role="tablist"]');
+      }).map(b => (b.innerText || b.getAttribute('aria-label') || '?').trim().slice(0, 30))""")
+
+
+def run_mobile(page):
+    """Phone-width checks (390 x 844): nothing wider than the screen, and screenshots of each screen."""
+    shot = lambda name: page.screenshot(path=str(OUT / f"m_{name}.png"))
+
+    def page_ok(where):
+        no_error_box(page, where)
+        check(f"no sideways scrolling {where}", overflow(page) <= 1, f"{overflow(page)}px")
+
+    page.goto(URL)
+    page.get_by_text("Welcome back").wait_for()
+    page.wait_for_timeout(1200)
+    page_ok("on the login page")
+    check("both sign-in buttons are on screen", page.get_by_role("button", name="Continue with Google").is_visible()
+          and page.get_by_role("button", name="Continue with Microsoft").bounding_box()["y"] < 2000)
+    tall_shot(page, "m_0_login", height=1300)
+    page.get_by_role("button", name="Continue with Google").click()
+    page.get_by_text("Needs your attention").wait_for()
+    page.wait_for_timeout(1200)
+    page_ok("on the dashboard")
+    bar = box(page, ".st-key-topbar")
+    check("the top bar fits the screen", bar["width"] <= 391 and css(page, ".st-key-topbar", "position") == "fixed", bar)
+    print("  info small tap targets on the dashboard:", small_targets(page))
+    shot("1_dashboard")
+    tall_shot(page, "m_1b_dashboard_full", height=2600)
+
+    page.locator('[class*="st-key-deal_card_"]').first.click()
+    page.get_by_text("Extracted fields").wait_for()
+    page.wait_for_timeout(1500)
+    page_ok("on the deal page")
+    print("  info small tap targets on the deal page:", small_targets(page))
+    shot("2_deal_top")
+    tall_shot(page, "m_2b_deal_review_full", height=7000)
+    tabs = page.get_by_role("tab")
+    check("all five tabs can be reached", tabs.count() == 5)
+    tabs.nth(3).scroll_into_view_if_needed()
+    tabs.nth(3).click()
+    page.get_by_text("AI suggestions. A person decides.").wait_for()
+    page.wait_for_timeout(1000)
+    page_ok("on the Recommendations tab")
+    tall_shot(page, "m_3_recommendations", height=2600)
+    page.mouse.wheel(0, -8000)
+    tabs.last.scroll_into_view_if_needed()
+    tabs.last.click()
+    page.get_by_text("Web search: coming in a later step.").first.wait_for()
+    page.wait_for_timeout(800)
+    page_ok("on the Ask AI tab")
+    shot("4_ask_ai")
+
+    page.locator(".st-key-fab button").click()
+    page.get_by_role("dialog").get_by_text("Ask about", exact=True).wait_for()
+    page.wait_for_timeout(1000)
+    page_ok("with the AI dialog open")
+    shot("5_ai_dialog")
+    page.keyboard.press("Escape")
+    page.wait_for_timeout(1000)
+
+    page.locator(".st-key-nav_connections button").click()
+    page.get_by_role("heading", name="Connections").wait_for()
+    page.wait_for_timeout(1000)
+    page_ok("on the Connections page")
+    shot("6_connections")
+
+    page.locator(".st-key-nav_all_deals button").click()
+    page.get_by_text("Needs your attention").wait_for()
+    page.locator(".st-key-new_deal button").click()
+    page.get_by_role("dialog").get_by_text("How do you want to start?").wait_for()
+    page.wait_for_timeout(1000)
+    page_ok("with the New deal dialog open")
+    shot("7_new_deal")
+
+
 def main():
     global FAKE_MICROPHONE
     engine = sys.argv[1] if len(sys.argv) > 1 else "chrome"
@@ -769,6 +855,13 @@ def main():
     app = start_app(log_path)
     try:
         with sync_playwright() as p:
+            if engine == "mobile":
+                browser = p.chromium.launch(channel="chrome")
+                page = browser.new_page(viewport={"width": 390, "height": 844}, is_mobile=True, has_touch=True)
+                page.set_default_timeout(15000)
+                run_mobile(page)
+                browser.close()
+                return finish(log_path, app)
             if engine == "webkit":
                 browser = p.webkit.launch()
                 page = browser.new_page(viewport={"width": 1440, "height": 900})
@@ -781,6 +874,14 @@ def main():
             run(page, "" if engine == "chrome" else f"_{engine}")
             browser.close()
     finally:
+        if app.poll() is None:
+            app.terminate()
+            app.wait(timeout=10)
+    return finish(log_path, app)
+
+
+def finish(log_path, app):
+    if app.poll() is None:
         app.terminate()
         app.wait(timeout=10)
     log = log_path.read_text()

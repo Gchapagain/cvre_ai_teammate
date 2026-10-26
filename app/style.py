@@ -33,6 +33,8 @@ CSS = """
 }
 
 /* ---- Page ---- */
+/* Blocks that only carry a stylesheet take no space (otherwise each adds an empty gap). */
+[data-testid="stElementContainer"]:has(> [data-testid="stMarkdown"] style) { display: none; }
 h1, h2, h3, h4, .stat-value { font-family: 'Fraunces', Georgia, serif !important; color: var(--green); }
 .block-container { max-width: 1320px; padding: calc(var(--topbar-h) + var(--s4)) var(--s4) 96px; }
 .block-container h2 { padding-top: 0; }  /* the page title starts exactly 32px under the top bar */
@@ -273,6 +275,7 @@ h1, h2, h3, h4, .stat-value { font-family: 'Fraunces', Georgia, serif !important
 .conn-provides { margin: 4px 0 var(--s1); }
 .conn-topics { display: flex; flex-wrap: wrap; gap: 6px; }
 .conn-used { font-size: 0.82rem; color: var(--ink-soft); margin-top: var(--s1); }
+.tier-item { white-space: nowrap; }
 .conn-tiers { margin-top: var(--s1); font-size: 0.86rem; color: var(--ink-soft); display: flex; gap: var(--s2); flex-wrap: wrap; }
 .st-key-card_how_sources { margin-bottom: var(--s2); }
 .st-key-nav_connections button { min-height: var(--control-h); border: none; background: none; box-shadow: none; padding: 0 12px;
@@ -379,6 +382,58 @@ table.preview tr.derived td { background: var(--gold-tint); }
   border-radius: var(--radius-sm); font-size: 0.85rem; font-weight: 500; white-space: nowrap;
   opacity: 0; pointer-events: none; transition: opacity 0.15s; }
 .st-key-fab:hover::before, .st-key-fab:focus-within::before { opacity: 1; }
+
+/* ---- Phones and narrow windows ---- */
+@media (max-width: 760px) {
+  :root { --topbar-h: 104px; --card-pad: 16px; }
+  .block-container { padding: calc(var(--topbar-h) + 16px) 16px 96px !important; }
+  /* Top bar: two rows. Brand and Sign out on top; All deals, Connections and the role badge below. */
+  .st-key-topbar { height: auto; min-height: var(--topbar-h); padding: 8px 16px; flex-wrap: wrap !important;
+    row-gap: 4px !important; align-content: center; }
+  .st-key-topbar_nav { width: 100% !important; gap: 4px !important; flex-wrap: nowrap !important; }
+  .st-key-nav_home { margin-right: auto; }
+  .st-key-nav_home button p { font-size: 1rem; }
+  .st-key-nav_home button { gap: 6px; }
+  .st-key-nav_home button::before { width: 18px; height: 18px; }
+  .st-key-nav_all_deals button, .st-key-nav_connections button { padding: 0 8px; }
+  .st-key-nav_all_deals button p, .st-key-nav_connections button p { font-size: 0.9rem; }
+  .st-key-topbar_user { width: 100% !important; justify-content: space-between; gap: 8px !important; }
+  .who { gap: 8px; font-size: 0.9rem; }
+  .st-key-topbar .pill.simulated { font-size: 0.7rem; padding: 2px 8px; }
+  .st-key-sign_out button { min-height: 40px; padding: 0 12px; }
+  /* Breadcrumb on one line; a long deal name is cut with an ellipsis. */
+  .st-key-breadcrumb { flex-wrap: nowrap !important; }
+  .st-key-breadcrumb [data-testid="stElementContainer"]:last-child { min-width: 0; }
+  .crumb { min-width: 0; }
+  .crumb .here { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  /* Headings and page title row */
+  h2 { font-size: 1.6rem !important; }
+  .st-key-page_head h2 { font-size: 1.6rem !important; }
+  .deal-title { font-size: 1.3rem; }
+  .deal-top { flex-direction: column; gap: 8px; }
+  /* Stat cards: two per row instead of one. */
+  .st-key-stat_row [data-testid="stHorizontalBlock"] { flex-wrap: wrap !important; gap: 12px !important; }
+  .st-key-stat_row [data-testid="stColumn"] { flex: 1 1 calc(50% - 6px) !important; min-width: calc(50% - 6px) !important;
+    width: calc(50% - 6px) !important; }
+  .stat-value { font-size: 1.5rem; }
+  .stat-value.text { font-size: 1rem; line-height: 1.4; }
+  [class*="st-key-statcard_"] { padding: 12px 14px !important; }
+  /* Tabs: scroll sideways instead of overflowing the page. */
+  .stTabs [role="tablist"] { overflow-x: auto; flex-wrap: nowrap; scrollbar-width: none; padding-right: 8px; }
+  .stTabs [role="tab"] { padding: 0 14px; flex: none; }
+  .stTabs [role="tab"]:last-of-type { margin-left: 8px; }
+  /* Cards and rows */
+  .source { grid-template-columns: 56px minmax(0, 1fr); row-gap: 2px; }
+  .source .when { grid-column: 2; }
+  .source .figure { grid-column: 2; text-align: left; }
+  .unchecked { margin-left: 0; }
+  .kv .v { white-space: normal; }
+  table.preview { display: block; overflow-x: auto; }
+  /* Comfortable tap targets for link-style buttons */
+  .st-key-back_to_deals button, .st-key-go_documents button, .st-key-clear_filter button { min-height: 40px; }
+  .st-key-fab { right: 16px; bottom: 16px; }
+  .st-key-fab::before { display: none; }  /* no hover on a phone */
+}
 </style>
 """
 

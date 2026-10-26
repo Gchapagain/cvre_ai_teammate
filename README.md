@@ -88,7 +88,7 @@ CBRE_DB_PATH=sample_data/demo.db .venv/bin/python seed.py --reset
 - **Gemini web search** may not be available on a free Gemini key; if not, that source shows "Source unavailable" and the others still run.
 - **Official data is set up for Fort Worth only** (`config/market_data.json`). Other locations get "No official series are set up".
 - **The deployed copy resets.** Streamlit Cloud's disk is temporary, so edits, approvals and new deals return to the sample data when the app restarts.
-- **Desktop only.** There is no mobile layout.
+- **Phones:** the layout adapts down to phone width (checked at 390px in Chrome's phone mode), but wide tables scroll sideways and there is no bottom navigation.
 - **Accuracy against the 95% KPI has not been measured yet.**
 
 ## Project layout
@@ -121,7 +121,7 @@ tools/screenshots.py    Drives the real app in a browser and checks the layout
 .venv/bin/python -m pytest                                # all offline tests, no API calls
 RUN_LIVE_GEMINI=1 .venv/bin/python -m pytest -s -o log_cli=true   # also one real Gemini extraction
 .venv/bin/pip install -r requirements-dev.txt             # then, for the browser checks:
-.venv/bin/python tools/screenshots.py                     # (add "webkit" for Safari's engine)
+.venv/bin/python tools/screenshots.py                     # (add "webkit" for Safari's engine, or "mobile" for phone width)
 ```
 
 Every external service is simulated in the offline tests, and tests never use the real `.env`. The screenshot tool runs its own copy of the app on a throwaway database and saves images to `screenshots/` (git-ignored).

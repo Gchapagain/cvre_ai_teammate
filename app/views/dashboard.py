@@ -40,7 +40,7 @@ def _stat_card(column, name, label, value, note, is_text=False):
 
 def _stat_cards():
     stats = queries.dashboard_stats()
-    columns = st.columns(4)
+    columns = st.container(key="stat_row").columns(4)
     _stat_card(columns[0], "active", "Active deals", stats["active_deals"], "Not yet approved")
     _stat_card(columns[1], "review", "Needs review", stats["needs_review"], "Waiting for a person")
     _stat_card(columns[2], TIME_SAVED, "Time saved", "Not measured yet", "Click to see how it will be measured", is_text=True)

@@ -11,7 +11,7 @@ Priority 1 is **Research & Value**: the AI Teammate does the document-heavy prep
 - No producer interaction longer than 5 minutes.
 
 ### Scope
-Scope additions (email ingestion, proactive research, locked-file handling) must be flagged to the PM. Mobile is out of scope: the app is desktop only. Keep scope tight and say so when something feels like scope creep.
+Scope additions (email ingestion, proactive research, locked-file handling) must be flagged to the PM. The layout is desktop first and adapts to phones (checked at 390px wide); there is no separate mobile app or bottom navigation. Keep scope tight and say so when something feels like scope creep.
 
 ## How it works end to end
 1. **Capture**: a deal starts from an uploaded document (OM, BOV, rent roll, T-12) or an email captured from a connected inbox (Gmail API / Microsoft Graph, pointed at a safe demo inbox). Built so far: the "+ New deal" button on the dashboard, with two ways in. Upload files (xlsx or csv): the deal is created, files are saved as Received, and the first rent roll is read; T-12 files are saved but not read, because T-12 extraction is not built yet. Describe it to the AI: the AI returns a draft, anything it was not told is left blank, and nothing is saved until the person presses Create deal.
@@ -53,7 +53,7 @@ Every source of market data is an adapter in `services/connections/`, behind one
 - One user type: **Broker**. There are no other roles.
 - Google or Microsoft OAuth proves identity only. For the prototype, both sign-in buttons log in as the made-up demo broker (Avery Sample) and the UI says it is a demo login.
 
-## Screens (Streamlit, desktop only, wide layout)
+## Screens (Streamlit, desktop first, responsive down to phone width)
 1. **Login**: two columns. Left: dark green brand panel. Right: a card with "Welcome back", "Broker sign-in" and two active buttons (Continue with Google / Microsoft). Demo login only for now.
 2. **Deals dashboard**: stat cards (active deals, needs review, time saved, anomalies) and deal cards with status pills. The stat cards are filters: clicking one shows only the matching deals, with "Showing: ..." above the list and a small Clear button. Time saved opens a note explaining it is not measured yet. Deals needing attention (Needs Review or an anomaly) come first with a coloured left border. Clicking a card opens the deal.
 3. **Deal workspace**, opened by clicking a deal, with four tabs:
@@ -68,7 +68,7 @@ Every source of market data is an adapter in `services/connections/`, behind one
 5. **All Data**: master table across every deal, compare two deals, export everything.
 6. **AI Teammate assistant**: a round floating button fixed to the bottom-right of every page after login. It opens a chat where the user picks one deal or "All deals". One deal uses the same logic as the Ask AI tab. "All deals" answers only from the database, is labeled "From these deals" and lists the deals used.
 
-Desktop only. No mobile layout, bottom navigation or tables-as-cards.
+Responsive: below 760px wide the top bar becomes two rows, the login panel stacks above the sign-in card, stat cards go two per row, columns stack, and tabs scroll sideways. Tables scroll sideways inside their card. No bottom navigation or tables-as-cards. Check phones with `.venv/bin/python tools/screenshots.py mobile`.
 
 ## Data (SQLite)
 Tables:

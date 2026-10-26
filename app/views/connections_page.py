@@ -60,7 +60,8 @@ def render():
         style.html('<div class="card-title">How sources are used</div><ul class="takeaways">'
                    + "".join(f"<li>{escape(line)}</li>" for line in HOW_SOURCES_ARE_USED) + "</ul>"
                    '<div class="conn-tiers">' + " ".join(
-                       f'<span class="pill tier{tier}">Tier {tier}</span> {escape(label)}' for tier, label in TIER_LABELS.items())
+                       f'<span class="tier-item"><span class="pill tier{tier}">Tier {tier}</span> {escape(label)}</span>'
+                       for tier, label in TIER_LABELS.items())
                    + "</div>")
     st.caption("Switch a source off to stop Run research from using it.")
     adapters, state = connections.all_adapters(), connections.states()
