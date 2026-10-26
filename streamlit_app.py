@@ -1,14 +1,29 @@
 """CBRE AI Teammate. Start with:  .venv/bin/streamlit run streamlit_app.py
 
-The app only reads the database. It never runs seed.py and never deletes data.
+Viewing only reads the database. The app never runs seed.py and never deletes data.
 """
 
+import os
 from html import escape
 
 import streamlit as st
 
 from app import fresh
 
+
+def _use_cloud_secrets():
+    """On Streamlit Cloud, settings live in the app's Secrets instead of .env. Copy the plain text ones
+    into the environment (never overriding one that is already set), before anything reads them."""
+    try:
+        secrets = dict(st.secrets)
+    except Exception:  # no secrets file: running locally with .env
+        return
+    for name, value in secrets.items():
+        if isinstance(value, str):
+            os.environ.setdefault(name, value)
+
+
+_use_cloud_secrets()
 fresh.ensure()  # must run before the imports below: see app/fresh.py
 
 from app import nav, queries, style  # noqa: E402

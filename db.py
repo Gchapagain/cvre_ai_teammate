@@ -4,8 +4,18 @@ import os
 import sqlite3
 from pathlib import Path
 
-# CBRE_DB_PATH lets tools (for example tools/screenshots.py) run the app against a throwaway database.
-DB_PATH = Path(os.getenv("CBRE_DB_PATH") or Path(__file__).resolve().parent / "cbre_ai_teammate.db")
+PROJECT_ROOT = Path(__file__).resolve().parent
+
+
+def project_path(path):
+    """A path from the settings or the database, made absolute from the project folder if it is relative."""
+    path = Path(path)
+    return path if path.is_absolute() else PROJECT_ROOT / path
+
+
+# CBRE_DB_PATH points the app at another database: tools/screenshots.py uses a throwaway one, and the
+# deployed app on Streamlit Cloud uses the committed sample_data/demo.db (set in the app's Secrets).
+DB_PATH = project_path(os.getenv("CBRE_DB_PATH") or "cbre_ai_teammate.db")
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS users (

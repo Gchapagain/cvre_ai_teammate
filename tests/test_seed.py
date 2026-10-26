@@ -10,7 +10,7 @@ from openpyxl import load_workbook
 
 import db
 import seed
-from services import validation
+from services import extraction, validation
 from tests.test_extraction import FIELDS, read_source_units
 
 
@@ -63,6 +63,11 @@ class TestSeededDeals(SeedTestCase):
             "(SELECT document_id FROM rent_roll_units UNION SELECT document_id FROM t12_line_items)"
         )
         self.assertEqual(statuses, [{"status": "Read"}])
+
+    def test_document_paths_are_relative_so_the_database_works_anywhere(self):
+        paths = [r["file_path"] for r in self.query("SELECT file_path FROM documents WHERE file_path IS NOT NULL")]
+        self.assertEqual(sorted(paths), ["sample_data/rent_roll.xlsx", "sample_data/t12.xlsx"])
+        self.assertEqual(extraction.count_unit_rows(paths[0] if "rent" in paths[0] else paths[1]), 12)
 
     def test_every_number_belongs_to_a_document(self):
         for table in ("rent_roll_units", "t12_line_items"):

@@ -1,7 +1,10 @@
 .env
 .venv/
 *.db
+# The one database that is committed: freshly seeded sample data for the deployed demo.
+!sample_data/demo.db
 __pycache__/
 screenshots/
 .pytest_cache/
 uploads/
+.streamlit/secrets.toml

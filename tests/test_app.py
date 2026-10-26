@@ -1816,6 +1816,19 @@ class TestAppNeverChangesData(AppTestCase):
             conn.execute("DELETE FROM deals")
 
 
+class TestCloudSecrets(unittest.TestCase):
+    def test_plain_text_secrets_become_settings_without_overriding_existing_ones(self):
+        import os
+        with mock.patch.dict("os.environ", {"GEMINI_API_KEY": "already-set"}):
+            app = AppTest.from_file(APP, default_timeout=15)
+            app.secrets["CBRE_TEST_SETTING"] = "from-secrets"
+            app.secrets["GEMINI_API_KEY"] = "from-secrets"
+            app.run()
+            self.assertEqual(os.environ.get("CBRE_TEST_SETTING"), "from-secrets")
+            self.assertEqual(os.environ["GEMINI_API_KEY"], "already-set")
+            os.environ.pop("CBRE_TEST_SETTING", None)
+
+
 class TestNoSampleData(unittest.TestCase):
     def test_missing_database_shows_instructions_and_creates_nothing(self):
         with tempfile.TemporaryDirectory() as folder:

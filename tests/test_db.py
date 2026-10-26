@@ -97,6 +97,23 @@ class TestSchema(SchemaTestCase):
 
 
 
+class TestPaths(unittest.TestCase):
+    def test_relative_paths_are_taken_from_the_project_folder(self):
+        self.assertEqual(db.project_path("sample_data/demo.db"), db.PROJECT_ROOT / "sample_data" / "demo.db")
+        self.assertEqual(db.project_path("/tmp/elsewhere.db"), Path("/tmp/elsewhere.db"))
+
+    def test_the_committed_demo_database_is_fresh_sample_data(self):
+        conn = db.get_connection(db.PROJECT_ROOT / "sample_data" / "demo.db")
+        deals = [r["name"] for r in conn.execute("SELECT name FROM deals ORDER BY id")]
+        users = [tuple(r) for r in conn.execute("SELECT full_name, role FROM users")]
+        edits = conn.execute("SELECT COUNT(*) FROM edits").fetchone()[0]
+        conn.close()
+        self.assertEqual(len(deals), 3)
+        self.assertTrue(all("SAMPLE - fictional" in name for name in deals))
+        self.assertEqual(users, [("Avery Sample", "Broker")])
+        self.assertEqual(edits, 0)
+
+
 class TestOldThreeRoleUsersTable(unittest.TestCase):
     OLD = """CREATE TABLE users (id INTEGER PRIMARY KEY AUTOINCREMENT, email TEXT NOT NULL UNIQUE, full_name TEXT NOT NULL,
              role TEXT NOT NULL CHECK (role IN ('Agent', 'Analyst', 'Administrator')), password_hash TEXT,

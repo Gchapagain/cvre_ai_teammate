@@ -134,6 +134,7 @@ def count_unit_rows(path):
 
     Used to show "12 of 12 units read". Returns None if the file cannot be read or has no unit column.
     """
+    path = db.project_path(path)
     try:
         rows = read_sheet_rows(path)
     except ExtractionError:

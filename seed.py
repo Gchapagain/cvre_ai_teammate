@@ -96,7 +96,9 @@ def add_document(conn, deal_id, filename, doc_type, status, used_for, file_path=
     return conn.execute(
         """INSERT INTO documents (deal_id, filename, doc_type, file_path, source, status, used_for)
            VALUES (?, ?, ?, ?, ?, ?, ?)""",
-        (deal_id, filename, doc_type, file_path and str(file_path), DOCUMENT_SOURCE, status, used_for),
+        # Stored relative to the project folder, so the database works on any machine (and on Streamlit Cloud).
+        (deal_id, filename, doc_type, file_path and str(Path(file_path).relative_to(db.PROJECT_ROOT)), DOCUMENT_SOURCE,
+         status, used_for),
     ).lastrowid
 
 

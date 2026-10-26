@@ -135,6 +135,11 @@ Tables:
 - Login is a demo login for now (no real OAuth), and the UI says so.
 - "Time saved" shows "Not measured yet" until the accuracy report. No assumed numbers anywhere.
 
+## Deploying (Streamlit Community Cloud)
+- The deployed app uses the committed sample database `sample_data/demo.db` (the only .db file in git; it holds freshly seeded sample data only). Rebuild it with `CBRE_DB_PATH=sample_data/demo.db .venv/bin/python seed.py --reset` and commit it.
+- In the app's Secrets on Streamlit Cloud, set `CBRE_DB_PATH = "sample_data/demo.db"` and `GEMINI_API_KEY = "..."` (and any other keys). The app copies plain text Secrets into its settings at start-up. Never commit `.streamlit/secrets.toml`.
+- Streamlit Cloud's disk is temporary: edits, approvals and new deals reset to the sample data when the app restarts or is redeployed.
+
 ## Testing
 - Run one area: `.venv/bin/python -m pytest tests/test_connections.py`, `tests/test_recommendations.py`, `tests/test_research.py`, `tests/test_drafting.py`, `tests/test_metrics.py`. Every external service is simulated in tests (`tests/connection_fakes.py`, `tests/research_fakes.py`); tests use made-up keys and never the real `.env`.
 - After any UI change, look at the real app, not only the tests: `.venv/bin/python tools/screenshots.py` (add `webkit` for Safari's engine). It starts its own copy of the app, clicks through it, checks the layout, fails on any error box or traceback, and saves screenshots to `screenshots/` (git-ignored). It never sends a chat message, so Gemini is not called. It needs `requirements-dev.txt`.
