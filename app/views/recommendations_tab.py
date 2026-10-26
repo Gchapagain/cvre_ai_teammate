@@ -83,6 +83,8 @@ def _generate(deal_id):
         message = f"The AI's daily quota is used up, so no suggestions were written. {exc}"
     except gemini.GeminiBusyError:
         message = "The AI is busy or rate-limited at the moment. Try again in a minute."
+    except gemini.RateLimited as exc:  # our own limit, not Google's
+        message = str(exc)
     except gemini.GeminiError as exc:
         message = f"The AI couldn't write suggestions just now. {exc}"
     except Exception:

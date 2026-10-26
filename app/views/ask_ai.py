@@ -6,7 +6,7 @@ import streamlit as st
 
 from app import style
 from app.views import voice
-from services import gemini, qa
+from services import ai_limits, gemini, qa
 
 log = logging.getLogger(__name__)
 
@@ -37,6 +37,8 @@ def get_answer(deal_id, question, messages):
         return _notice(QUOTA_MESSAGE.format(detail=exc))
     except gemini.GeminiBusyError:
         return _notice(BUSY_MESSAGE)
+    except gemini.RateLimited as exc:  # our own limit, not Google's
+        return _notice(f"{exc} Nothing was changed.")
     except gemini.GeminiError as exc:
         return _notice(OTHER_MESSAGE.format(detail=exc))
     except Exception:
@@ -70,6 +72,7 @@ def render_chat(deal_id, prefix=""):
     scope = "all" if deal_id is None else deal_id
     st.toggle("Web search", value=False, disabled=True, key=f"{prefix}web_search_{scope}")
     st.caption("Web search: coming in a later step.")
+    limits_note = st.empty()  # filled in last, so it counts a message sent on this run
 
     history = st.container()
     question = st.chat_input("Ask about all deals" if deal_id is None else "Ask about this deal",
@@ -87,6 +90,7 @@ def render_chat(deal_id, prefix=""):
                     else "No messages yet. Try: Which deals have anomalies?")
         for message in messages:
             _show(message)
+    limits_note.caption(ai_limits.summary())
 
 
 def render(deal):

@@ -13,7 +13,7 @@ from streamlit.testing.v1 import AppTest
 
 import db
 import seed
-from services import gemini, qa, transcribe
+from services import ai_limits, gemini, qa, transcribe
 from tests.test_extraction import daily_quota_error, gemini_error
 
 APP = str(Path(__file__).resolve().parent.parent / "streamlit_app.py")
@@ -526,6 +526,23 @@ class TestAskAiTab(AppTestCase):
         self.assertFalse(self.app.exception)
         self.assertEqual(len(self.calls), 3)
         self.assertIn("busy or rate-limited", messages[1]["text"])
+
+    def test_the_apps_own_limit_stops_a_request_before_it_reaches_gemini(self):
+        self.use_gemini("Unit 110 pays 20.33 per SF.")
+        self.open_deal("fallowmere")
+        # The test tool reuses one session id for every test, so give this one its own.
+        with mock.patch.dict("os.environ", {"AI_SESSION_HOURLY_LIMIT": "1"}), \
+                mock.patch.object(ai_limits, "current_session", lambda: "limit-test-session"):
+            self.app.run()
+            self.assertIn("AI requests left: 1 this hour (you)", self.page_text())
+            self.ask("What does unit 110 pay per SF?")
+            self.assertIn("AI requests left: 0 this hour (you)", self.page_text())
+            messages = self.ask("And unit 120?")
+        self.assertFalse(self.app.exception)
+        self.assertEqual(len(self.calls), 1)  # the second question never left the app
+        self.assertEqual(messages[3]["label"], "No answer")
+        self.assertIn("You have used your 1 AI requests for this hour.", messages[3]["text"])
+        self.assertIn("Nothing was changed.", messages[3]["text"])
 
     def test_missing_key_or_unexpected_failure_does_not_crash(self):
         for failure in (gemini.GeminiError("GEMINI_API_KEY is not set."), RuntimeError("network down")):

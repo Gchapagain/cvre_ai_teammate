@@ -149,6 +149,8 @@ def _generate(deal_id):
         message = f"The AI's daily quota is used up, so it can't draft right now. {exc} Nothing was saved."
     except gemini.GeminiBusyError:
         message = "The AI is busy or rate-limited at the moment. Try again in a minute. Nothing was saved."
+    except gemini.RateLimited as exc:  # our own limit, not Google's
+        message = f"{exc} Nothing was saved."
     except gemini.GeminiError as exc:
         message = f"The AI couldn't write a draft just now. {exc} Nothing was saved."
     except Exception:

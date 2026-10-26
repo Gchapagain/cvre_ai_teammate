@@ -97,6 +97,7 @@ Tables:
 - The AI never creates or saves a deal on its own. It drafts; a person presses Create deal.
 - Voice: a person can record or upload audio (mp3, m4a, wav) in either chat and in the New deal box. It is sent to Gemini only when Transcribe is pressed. The audio is never saved; only the transcript the person has checked is used or stored (as a deal note, source "Recording"). The UI says: "Audio is sent to Gemini for transcription and is not saved."
 - The free Gemini tier allows 20 requests a day. Each of these uses one: reading a rent roll, a chat message, drafting a deal from a description, transcribing a recording.
+- AI rate limits (`services/ai_limits.py`), checked in `gemini.generate_response` before every request made from the app: at most `AI_DAILY_LIMIT` requests in any 24 hours for the whole app (default 15), and `AI_SESSION_HOURLY_LIMIT` per browser session in any 60 minutes (default 6). No wait between requests: one click can need two (Run research). Set them in `.env` or Streamlit Secrets. Each request is a row in the `ai_usage` table (session id and time only, no content); a refused request is not counted and never reaches Gemini, and the screen shows the plain reason. The chat shows "AI requests left". Scripts and tests (no browser session) are not limited. The per-session limits can be dodged by opening a new tab; the daily limit is the real protection.
 - Web search queries use generic terms only (property type + submarket). Never send client names or deal figures out.
 - No scraping of any website, ever, and no unofficial scraping APIs. Simulated (demo) data is always labelled and never counts.
 - External services and Gemini are only called when a person clicks a button.
@@ -137,7 +138,7 @@ Tables:
 
 ## Deploying (Streamlit Community Cloud)
 - The deployed app uses the committed sample database `sample_data/demo.db` (the only .db file in git; it holds freshly seeded sample data only). Rebuild it with `CBRE_DB_PATH=sample_data/demo.db .venv/bin/python seed.py --reset` and commit it.
-- In the app's Secrets on Streamlit Cloud, set `CBRE_DB_PATH = "sample_data/demo.db"` and `GEMINI_API_KEY = "..."` (and any other keys). The app copies plain text Secrets into its settings at start-up. Never commit `.streamlit/secrets.toml`.
+- In the app's Secrets on Streamlit Cloud, set `CBRE_DB_PATH = "sample_data/demo.db"` and `GEMINI_API_KEY = "..."` (and any other keys). Optionally set the AI rate limits there too. The app copies plain text Secrets into its settings at start-up. Never commit `.streamlit/secrets.toml`.
 - Streamlit Cloud's disk is temporary: edits, approvals and new deals reset to the sample data when the app restarts or is redeployed.
 
 ## Testing

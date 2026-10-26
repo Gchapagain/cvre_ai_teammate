@@ -76,6 +76,8 @@ def _draft(description):
         draft, message = new_deal.DealDraft(), QUOTA_MESSAGE.format(detail=exc)
     except gemini.GeminiBusyError:
         draft, message = new_deal.DealDraft(), BUSY_MESSAGE
+    except gemini.RateLimited as exc:  # our own limit, not Google's
+        draft, message = new_deal.DealDraft(), f"{exc} You can still fill in the form yourself."
     except gemini.GeminiError as exc:
         draft, message = new_deal.DealDraft(), OTHER_MESSAGE.format(detail=exc)
     except Exception:

@@ -32,6 +32,8 @@ def _understand(deal_id, flag, text):
         state["message"] = f"The AI's daily quota is used up, so it can't read your correction right now. {exc} Use the form below instead."
     except gemini.GeminiBusyError:
         state["message"] = "The AI is busy or rate-limited at the moment. Try again in a minute, or use the form below."
+    except gemini.RateLimited as exc:  # our own limit, not Google's
+        state["message"] = f"{exc} Use the form below instead."
     except gemini.GeminiError as exc:
         state["message"] = f"The AI couldn't read your correction just now. {exc} Use the form below instead."
     except Exception:

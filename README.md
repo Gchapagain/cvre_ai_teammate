@@ -79,6 +79,14 @@ CBRE_DB_PATH=sample_data/demo.db .venv/bin/python seed.py --reset
 - Gemini is only called when you click a button. Opening pages never calls it.
 - The free Gemini tier allows about **20 requests a day**. Each of these uses one: a chat message, Generate draft, Generate recommendations, Understand my correction, a transcription, drafting a new deal, reading an uploaded rent roll, and summarising research.
 - Run research also uses up to 4 Tavily searches and a few official-data calls, and reuses results for 24 hours.
+- **Rate limits** protect that quota. Before any AI request the app checks two limits, and if one is reached it shows the reason ("Try again in about 40 minutes") and does not contact Gemini:
+
+  | Setting | Default | What it limits |
+  |---|---|---|
+  | `AI_DAILY_LIMIT` | 15 | AI requests in any 24 hours, everyone together |
+  | `AI_SESSION_HOURLY_LIMIT` | 6 | AI requests per browser session in any 60 minutes |
+
+  Change them in `.env` locally or in Streamlit Secrets when deployed (for example `AI_DAILY_LIMIT = "18"`). The chat shows how many requests are left. Each request is logged in the `ai_usage` table (session id and time only, never the question). Opening a new tab starts a new session, so the daily limit is the one that really protects the quota. On Streamlit Cloud the count also resets when the app restarts, because the disk is temporary.
 
 **Known limits of the prototype**
 - **Demo login:** anyone with the link signs in as the demo broker. There is one user type, Broker.
@@ -109,6 +117,7 @@ services/               Logic with no UI:
   recommendations.py      rule-based and AI recommendations
   research.py, connections/   market research sources (adapters)
   gemini.py               shared Gemini access, retries, quota handling
+  ai_limits.py            rate limits on AI requests (daily for the app, hourly per session)
 config/                 Trusted source tiers, official data series per market
 sample_data/            Fictional rent roll and T-12, and demo.db for deployment
 tests/                  Unit and screen tests (all external services simulated)

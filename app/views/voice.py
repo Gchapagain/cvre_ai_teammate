@@ -39,6 +39,8 @@ def _transcribe(state, audio, from_microphone):
         state["message"] = QUOTA_MESSAGE.format(detail=exc)
     except gemini.GeminiBusyError:
         state["message"] = BUSY_MESSAGE
+    except gemini.RateLimited as exc:  # our own limit, not Google's
+        state["message"] = f"{exc} You can type instead."
     except gemini.GeminiError as exc:
         state["message"] = OTHER_MESSAGE.format(detail=exc)
     except Exception:

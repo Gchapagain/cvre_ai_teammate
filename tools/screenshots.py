@@ -49,7 +49,9 @@ def start_app(log_path):
                     {"unit": "999", "field": "monthly_rent", "new_value": "2400"}],
         "questions": []}}]))
     env = dict(os.environ, CBRE_DB_PATH=str(work / "screenshots.db"), CBRE_UPLOAD_DIR=str(work / "uploads"),
-               CBRE_SIMULATED_GEMINI=str(replies))
+               CBRE_SIMULATED_GEMINI=str(replies),
+               # The checks send many simulated AI requests quickly; the app's rate limits would stop them.
+               AI_DAILY_LIMIT="100000", AI_SESSION_HOURLY_LIMIT="100000")
     subprocess.run([sys.executable, "seed.py", "--reset"], cwd=ROOT, env=env, check=True, stdout=subprocess.DEVNULL)
     log = open(log_path, "w")
     process = subprocess.Popen(

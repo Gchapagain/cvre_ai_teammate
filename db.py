@@ -202,6 +202,14 @@ CREATE TABLE IF NOT EXISTS deal_events (
     created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 
+-- One row per AI request made from the app, for the rate limits in services/ai_limits.py.
+CREATE TABLE IF NOT EXISTS ai_usage (
+    id         INTEGER PRIMARY KEY AUTOINCREMENT,
+    session_id TEXT NOT NULL,
+    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+CREATE INDEX IF NOT EXISTS idx_ai_usage_time ON ai_usage(created_at);
+
 -- One row per connection (data source) once someone has switched it or used it.
 -- A connection with no row uses its default from services/connections.
 CREATE TABLE IF NOT EXISTS connections (

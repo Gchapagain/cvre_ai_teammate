@@ -42,6 +42,10 @@ class GeminiBusyError(GeminiError):
     """Gemini was busy or rate limited on every try."""
 
 
+class RateLimited(GeminiError):
+    """The app's own AI limit was reached, so nothing was sent (see services/ai_limits.py)."""
+
+
 # Only tools/screenshots.py sets this. It points at a JSON file of canned replies so the screenshots
 # can show AI features without spending real requests. The app shows a SIMULATED AI chip while it is set.
 SIMULATED_ENV = "CBRE_SIMULATED_GEMINI"
@@ -112,7 +116,10 @@ def generate_response(client, contents, config, model=None):
 
     The whole response is needed when its metadata matters (for example the sources behind a
     web-search answer). A used-up daily quota stops straight away instead of retrying.
+    The app's own rate limits are checked first; if one is reached, RateLimited is raised and nothing is sent.
     """
+    from services import ai_limits
+    ai_limits.acquire()
     started = time.perf_counter()
     for attempt in range(1, MAX_TRIES + 1):
         attempt_started = time.perf_counter()
