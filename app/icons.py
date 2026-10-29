@@ -15,6 +15,9 @@ SPARKLE = ('<svg viewBox="0 0 24 24" aria-hidden="true"><path fill="#c9a227" '
 FLAG = _line('<path d="M5 21V4"/><path d="M5 4h12l-2.5 4L17 12H5"/>')
 CITE = _line('<path d="M7 3h8l4 4v14H7z"/><path d="M15 3v4h4"/><path d="M10 12h6M10 16h6"/>')
 APPROVE = _line('<circle cx="9" cy="8" r="4"/><path d="M2 21c0-4 3-6 7-6 1.6 0 3 .3 4.200 1"/><path d="M15 18l2.500 2.500L22 16"/>')
+HOURGLASS = _line('<path d="M6 3h12M6 21h12"/><path d="M7 3c0 5 10 5 10 9s-10 4-10 9"/><path d="M17 3c0 5-10 5-10 9s10 4 10 9"/>')
+CALENDAR = _line('<rect x="3" y="5" width="18" height="16" rx="2"/><path d="M3 10h18M8 3v4M16 3v4"/>')
+MAIL = _line('<rect x="3" y="5" width="18" height="14" rx="2"/><path d="M3 7l9 6 9-6"/>')
 
 _GOOGLE = ('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24">'
            '<path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"/>'

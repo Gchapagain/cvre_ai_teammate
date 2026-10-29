@@ -47,7 +47,11 @@ def start_app(log_path):
         "interpretation": "Unit 110's monthly rent should be 2,400; the rest was a one-off fit-out charge.",
         "changes": [{"unit": "110", "field": "monthly_rent", "new_value": "2400"},
                     {"unit": "999", "field": "monthly_rent", "new_value": "2400"}],
-        "questions": []}}]))
+        "questions": []}},
+        {"when": "MEETING PREP BRIEF", "reply": {"brief": (
+            "- 12 units, 154,600 SF, average rent $8.84 per SF.\n"
+            "- Unit 110 is flagged: rent/SF $20.33 is more than 2x the average of the other units. Confirm it first.\n"
+            "- Net operating income is $1,244,311.44 as stated in the T-12.")}}]))
     env = dict(os.environ, CBRE_DB_PATH=str(work / "screenshots.db"), CBRE_UPLOAD_DIR=str(work / "uploads"),
                CBRE_SIMULATED_GEMINI=str(replies),
                # The checks send many simulated AI requests quickly; the app's rate limits would stop them.
@@ -195,8 +199,11 @@ def check_home(page, suffix, width):
     no_error_box(page, "on Home")
     heading = page.locator(".home-greeting").inner_text()
     check("greets Avery by time of day", re.fullmatch(r"Good (morning|afternoon|evening), Avery", heading) is not None, heading)
-    check("summary counts what needs you", page.locator(".home-summary").inner_text() == "1 thing needs you today.",
-          page.locator(".home-summary").inner_text())
+    summary = page.locator(".home-summary").inner_text()
+    needs_now = page.locator('[class*="st-key-feeditem_"]').count() and int(page.evaluate(
+        "(() => { const g = [...document.querySelectorAll('.feed-group')].find(e => e.textContent.startsWith('Needs you now'));"
+        " return g ? g.querySelector('span').textContent : '0'; })()"))
+    check("summary counts the Needs you now group", summary.startswith(f"{needs_now} thing"), (summary, needs_now))
     page.mouse.move(5, 500)  # off the cards, so none is lifted by hover
     page.wait_for_timeout(300)
     cards = page.locator('[class*="st-key-proj_card_"]')
@@ -235,6 +242,84 @@ def check_home(page, suffix, width):
     page.locator(".st-key-nav_home button").click()
     page.get_by_text("Your projects").wait_for()
     check("the logo goes to Home", page.locator(".home-greeting").count() == 1)
+
+
+def check_feed(page, suffix):
+    print("Home feed")
+    tall_shot(page, f"h5_feed_full{suffix}", height=3000)
+    for kind in ("flag", "waiting", "meeting", "email"):
+        check(f"a {kind} card is in the feed", page.locator(f'[class*="st-key-feeditem_{kind}_"]').count() > 0)
+    samples = page.locator('[class*="st-key-feeditem_meeting_"] .chip.sample, [class*="st-key-feeditem_email_"] .chip.sample')
+    check("every sample meeting and email carries a Sample chip", samples.count() == page.locator(
+        '[class*="st-key-feeditem_meeting_"], [class*="st-key-feeditem_email_"]').count(), samples.count())
+    check("the flag card has a red edge", css(page, '[class*="st-key-feeditem_flag_"]', "borderLeftColor") == "rgb(200, 56, 44)")
+    bell = page.locator(".st-key-nav_bell button p").first.inner_text()
+    check("the bell shows the unread count", bell.strip().isdigit() and int(bell.strip()) > 0, bell)
+    # A Fallowmere meeting: the canned brief quotes Fallowmere's numbers, so every number checks out.
+    brief_button = page.locator('[class*="st-key-feeditem_meeting_"]', has_text="Fallowmere").locator(
+        '[class*="st-key-feedbtn_prep_brief_"] button').first
+    brief_button.scroll_into_view_if_needed()
+    brief_button.click()
+    page.locator(".brief").first.wait_for()
+    page.wait_for_timeout(800)
+    check("the prep brief is labelled AI-drafted and checked", "AI-drafted" in page.locator(".brief").first.inner_text()
+          and "Every number was found" in page.locator(".brief").first.inner_text())
+    page.locator(".brief").first.scroll_into_view_if_needed()
+    page.wait_for_timeout(400)
+    page.screenshot(path=str(OUT / f"h6_prep_brief{suffix}.png"))
+    page.locator(".st-key-feed_filter button", has_text="Flags").click()
+    page.wait_for_timeout(1200)
+    cards = page.locator('[class*="st-key-feeditem_"]')
+    check("the Flags filter shows only flags", cards.count() > 0 and cards.count() == page.locator(
+        '[class*="st-key-feeditem_flag_"]').count(), cards.count())
+    page.locator(".st-key-feed_head").scroll_into_view_if_needed()
+    page.wait_for_timeout(400)
+    page.screenshot(path=str(OUT / f"h7_feed_filtered_flags{suffix}.png"))
+    page.locator(".st-key-feed_filter button", has_text="All").click()
+    page.wait_for_timeout(1000)
+    email_menu = page.locator('[class*="st-key-more_email_"] button').first
+    email_menu.scroll_into_view_if_needed()
+    email_menu.click()
+    page.get_by_role("button", name="Snooze 1 day").wait_for()
+    page.wait_for_timeout(400)
+    page.screenshot(path=str(OUT / f"h8_feed_item_menu{suffix}.png"))
+    page.keyboard.press("Escape")
+    page.wait_for_timeout(400)
+    no_error_box(page, "on the feed")
+    page.mouse.wheel(0, -20000)  # back to the top for the next steps
+    page.wait_for_timeout(400)
+
+
+def clear_everything_waiting():
+    """In the script's own database only: resolve and clear everything, so Home has nothing to show."""
+    import sqlite3
+    conn = sqlite3.connect(OUT / "tmp" / "screenshots.db")
+    with conn:
+        conn.execute("UPDATE flags SET status = 'confirmed' WHERE status = 'open'")
+        conn.execute("UPDATE deals SET status = 'Approved'")
+        conn.execute("UPDATE documents SET status = 'Read' WHERE status IN ('Received', 'Needs password')")
+        conn.execute("UPDATE drafts SET status = 'Approved'")
+        conn.execute("UPDATE research_findings SET status = 'dismissed' WHERE status = 'new'")
+        conn.execute("UPDATE emails SET status = 'dismissed'")
+        conn.execute("DELETE FROM meetings")
+    conn.close()
+
+
+def check_empty_feed(page, suffix):
+    print("Home with nothing waiting")
+    clear_everything_waiting()
+    page.locator(".st-key-nav_all_deals button").click()
+    page.get_by_text("Needs your attention", exact=False).or_(page.get_by_text("Other deals")).first.wait_for()
+    page.locator(".st-key-nav_home_link button").click()
+    page.get_by_text("You're all caught up").wait_for()
+    page.wait_for_timeout(800)
+    check("the empty state says you're all caught up", page.locator(".caught-up").count() == 1)
+    check("the summary says nothing needs you", page.locator(".home-summary").inner_text() == "Nothing needs you right now.")
+    check("the bell shows 0", page.locator(".st-key-nav_bell button p").first.inner_text().strip() == "0")
+    page.locator(".caught-up").scroll_into_view_if_needed()
+    page.wait_for_timeout(400)
+    page.screenshot(path=str(OUT / f"h9_feed_empty{suffix}.png"))
+    no_error_box(page, "on the empty feed")
 
 
 def check_home_scrolling(page, suffix):
@@ -303,6 +388,7 @@ def run(page, suffix):
     page.get_by_text("Your projects").wait_for()
     page.wait_for_timeout(1500)
     check_home(page, suffix, width)
+    check_feed(page, suffix)
     page.locator(".st-key-nav_all_deals button").click()
     page.get_by_text("Needs your attention").wait_for()
     page.wait_for_timeout(1200)
@@ -859,8 +945,11 @@ def run(page, suffix):
     page.get_by_role("heading", name="Connections").wait_for()
     page.wait_for_timeout(1200)
     no_error_box(page, "on the Connections page")
-    cards = page.locator('[class*="st-key-conn_card_"]')
+    cards = page.locator('[class*="st-key-conn_card_"]:not([class*="st-key-conn_card_inbox_"])')
     check("a card for each of the 11 sources", cards.count() == 11)
+    inbox = page.locator('[class*="st-key-conn_card_inbox_"]')
+    check("calendar and email cards say Not connected", inbox.count() == 4
+          and all("Not connected" in text for text in inbox.all_inner_texts()))
     check("the How sources are used note is there", "No website is ever scraped" in page.locator(".st-key-card_how_sources").inner_text())
     check("the Broker can use every switch",
           not any(t.is_disabled() for t in page.locator('[class*="st-key-switch_"] input').all()))
@@ -882,6 +971,7 @@ def run(page, suffix):
     page.get_by_text("Needs your attention").wait_for()
     check("the breadcrumb link goes to the dashboard", page.get_by_role("heading", name="All deals").count() == 1)
     check_home_scrolling(page, suffix)
+    check_empty_feed(page, suffix)
 
 
 def overflow(page):
@@ -928,7 +1018,8 @@ def run_mobile(page):
     page_ok("on the dashboard")
     bar = box(page, ".st-key-topbar")
     check("the top bar fits the screen", bar["width"] <= 391 and css(page, ".st-key-topbar", "position") == "fixed", bar)
-    links = [box(page, f".st-key-{key} button") for key in ("nav_home", "nav_home_link", "nav_all_deals", "nav_connections")]
+    links = [box(page, f".st-key-{key} button:visible") for key in ("nav_home", "nav_home_link", "nav_all_deals",
+                                                                     "nav_connections", "nav_bell", "sign_out")]
     check("every top-bar link is fully on screen", all(l["x"] >= 0 and l["x"] + l["width"] <= 390 for l in links),
           [round(l["x"] + l["width"]) for l in links])
     print("  info small tap targets on the dashboard:", small_targets(page))

@@ -49,6 +49,9 @@ def _top_bar(user):
             st.button("All deals", key="nav_all_deals", type="tertiary", on_click=nav.go_all_deals)
             st.button("Connections", key="nav_connections", type="tertiary", on_click=nav.open_connections)
         with st.container(key="topbar_user", horizontal=True, vertical_alignment="center", width="content"):
+            unread = home.unread_count()
+            st.button(str(unread), key="nav_bell", icon=":material/notifications:", type="tertiary", on_click=nav.go_home,
+                      help=f"{unread} unread on Home" if unread else "Nothing unread on Home")
             if gemini.simulated():
                 st.markdown('<span class="pill simulated">SIMULATED AI</span>', unsafe_allow_html=True, width="content")
             st.markdown(f'<div class="who"><span class="user-name">{escape(user["full_name"])}</span>'

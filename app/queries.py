@@ -174,3 +174,44 @@ def projects():
 
 def open_flag_count():
     return _one("SELECT COUNT(*) AS n FROM flags WHERE status = 'open'")["n"]
+
+
+def feed_rows():
+    """Everything the Home feed is built from, read fresh each time (services/feed.py turns it into items).
+
+    A database from before the feed tables simply has no meetings, emails or saved item state.
+    """
+    rows = {
+        "flags": _all("""SELECT f.id, f.deal_id, d.name AS deal_name, f.unit_number, f.rule, f.field, f.actual_value,
+                                f.threshold, f.message, f.created_at
+                         FROM flags f JOIN deals d ON d.id = f.deal_id WHERE f.status = 'open' ORDER BY f.id"""),
+        "review_deals": _all("SELECT id AS deal_id, name AS deal_name, updated_at FROM deals "
+                             "WHERE status = 'Needs Review' ORDER BY id"),
+        "documents": _all("""SELECT x.id, x.deal_id, d.name AS deal_name, x.filename, x.status, x.source, x.received_at
+                             FROM documents x JOIN deals d ON d.id = x.deal_id
+                             WHERE x.status IN ('Received', 'Needs password') ORDER BY x.id"""),
+        "drafts": _all("""SELECT x.id, x.deal_id, d.name AS deal_name, x.created_at FROM drafts x
+                          JOIN deals d ON d.id = x.deal_id
+                          WHERE x.status = 'Generated, not sent'
+                            AND x.id = (SELECT MAX(y.id) FROM drafts y WHERE y.deal_id = x.deal_id) ORDER BY x.id"""),
+        "research": _all("""SELECT x.deal_id, d.name AS deal_name, COUNT(*) AS waiting, MAX(x.id) AS newest,
+                                   MAX(x.fetched_at) AS fetched_at
+                            FROM research_findings x JOIN deals d ON d.id = x.deal_id
+                            WHERE x.status = 'new' AND x.simulated = 0 GROUP BY x.deal_id ORDER BY x.deal_id"""),
+    }
+    try:
+        rows["meetings"] = _all("""SELECT m.*, d.name AS deal_name FROM meetings m LEFT JOIN deals d ON d.id = m.deal_id
+                                   ORDER BY m.starts_at, m.id""")
+        rows["emails"] = _all("""SELECT e.*, d.name AS deal_name FROM emails e LEFT JOIN deals d ON d.id = e.deal_id
+                                 WHERE e.status = 'new' ORDER BY e.received_at DESC, e.id""")
+        rows["state"] = {row["item_key"]: row for row in _all("SELECT * FROM notification_state")}
+    except sqlite3.OperationalError:
+        rows.update(meetings=[], emails=[], state={})
+    for email in rows["emails"]:
+        email["attachment_names"] = json.loads(email["attachment_names"] or "[]")
+    return rows
+
+
+def deal_choices():
+    """(id, name) for every deal, for pickers."""
+    return [(row["id"], row["name"]) for row in _all("SELECT id, name FROM deals ORDER BY name")]

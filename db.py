@@ -204,6 +204,50 @@ CREATE TABLE IF NOT EXISTS deal_events (
 );
 
 -- One row per AI request made from the app, for the rate limits in services/ai_limits.py.
+-- Meetings shown on Home. Times are the broker's local wall-clock time ('YYYY-MM-DD HH:MM:SS').
+-- source Sample rows are made up for the demo and are dated on SAMPLE_ANCHOR_DAY: Home shifts them to
+-- the same position relative to today, so the demo always has meetings. brief is the AI prep brief
+-- (written only when a person clicks Prep brief), brief_at when it was written.
+CREATE TABLE IF NOT EXISTS meetings (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    deal_id     INTEGER REFERENCES deals(id) ON DELETE SET NULL,
+    title       TEXT NOT NULL,
+    client_name TEXT,
+    starts_at   TEXT NOT NULL,
+    ends_at     TEXT,
+    location    TEXT,
+    notes       TEXT,
+    source      TEXT NOT NULL DEFAULT 'Manual'
+                CHECK (source IN ('Manual', 'Sample', 'Google Calendar', 'Outlook Calendar')),
+    brief       TEXT,
+    brief_at    TEXT,
+    created_at  TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+-- Emails shown on Home. No real inbox is connected yet: every row so far is source Sample.
+-- attachment_names is a JSON list of file names. status: new, added (to a deal, as documents), dismissed.
+CREATE TABLE IF NOT EXISTS emails (
+    id               INTEGER PRIMARY KEY AUTOINCREMENT,
+    deal_id          INTEGER REFERENCES deals(id) ON DELETE SET NULL,
+    sender           TEXT NOT NULL,
+    subject          TEXT NOT NULL,
+    preview          TEXT,
+    received_at      TEXT NOT NULL,
+    attachment_names TEXT NOT NULL DEFAULT '[]',
+    status           TEXT NOT NULL DEFAULT 'new' CHECK (status IN ('new', 'added', 'dismissed')),
+    source           TEXT NOT NULL DEFAULT 'Sample' CHECK (source IN ('Sample', 'Gmail', 'Outlook')),
+    created_at       TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+-- What a person did with a Home feed item. The feed itself is built live from the tables above and
+-- the deal tables, so it is never stale; only this per-item state is stored. item_key is e.g. 'flag:12'.
+CREATE TABLE IF NOT EXISTS notification_state (
+    item_key      TEXT PRIMARY KEY,
+    read_at       TEXT,
+    snoozed_until TEXT,
+    dismissed_at  TEXT
+);
+
 CREATE TABLE IF NOT EXISTS ai_usage (
     id         INTEGER PRIMARY KEY AUTOINCREMENT,
     session_id TEXT NOT NULL,
@@ -270,6 +314,8 @@ CREATE TABLE IF NOT EXISTS deal_notes (
 );
 
 CREATE INDEX IF NOT EXISTS idx_deal_notes_deal       ON deal_notes(deal_id);
+CREATE INDEX IF NOT EXISTS idx_meetings_start        ON meetings(starts_at);
+CREATE INDEX IF NOT EXISTS idx_emails_status         ON emails(status);
 CREATE INDEX IF NOT EXISTS idx_edits_deal            ON edits(deal_id);
 CREATE INDEX IF NOT EXISTS idx_events_deal           ON deal_events(deal_id);
 CREATE INDEX IF NOT EXISTS idx_flags_deal            ON flags(deal_id);
@@ -285,7 +331,11 @@ CREATE INDEX IF NOT EXISTS idx_research_briefs_job   ON research_briefs(job_id);
 # Goes up by one with every schema change (new table, new column, changed constraint), and the change
 # is described here. init_db stores it in the database (PRAGMA user_version) after migrating.
 #   1: deals.photo_path
-SCHEMA_VERSION = 1
+#   2: meetings, emails and notification_state tables (the Home feed)
+SCHEMA_VERSION = 2
+
+# Sample meetings and emails are stored on this day; Home moves them to the same place relative to today.
+SAMPLE_ANCHOR_DAY = "2000-01-03"
 
 
 def schema_version(conn):

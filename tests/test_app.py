@@ -5,7 +5,9 @@ import io
 import json
 import tempfile
 import unittest
+from datetime import datetime
 from pathlib import Path
+from zoneinfo import ZoneInfo
 from unittest import mock
 
 import pandas as pd
@@ -13,6 +15,7 @@ from streamlit.testing.v1 import AppTest
 
 import db
 import seed
+from app.views import home
 from services import ai_limits, gemini, qa, transcribe
 from tests.test_extraction import daily_quota_error, gemini_error
 
@@ -235,7 +238,8 @@ class TestDashboard(AppTestCase):
         self.assertIn("1 anomaly", text)
 
     def test_the_deal_name_is_the_only_button_on_each_card(self):
-        labels = {button.key: button.label for button in self.app.button if not button.key.startswith("statbtn_")}
+        # The bell's label is the unread count, which depends on the time of day (sample meetings).
+        labels = {button.key: button.label for button in self.app.button if not button.key.startswith(("statbtn_", "nav_bell"))}
         self.assertEqual(labels, {
             "nav_home": "CBRE AI Teammate",
             "nav_home_link": "Home",
@@ -661,7 +665,7 @@ class TestFloatingAssistant(AppTestCase):
 
     def test_nothing_opens_and_gemini_is_not_called_until_the_button_is_clicked(self):
         self.use_client(all_deals_client(self.calls, AssertionError("must not be called")))
-        self.assertEqual(len(self.app.selectbox), 0)
+        self.assertNotIn("assistant_scope", [box.key for box in self.app.selectbox])
         self.open_assistant()
         self.assertFalse(self.app.exception)
         self.assertEqual(self.calls, [])
@@ -1886,22 +1890,32 @@ if __name__ == "__main__":
     unittest.main()
 
 
-class TestHome(AppTestCase):
+# Home tests run at a fixed time, so sample meetings land in the same groups every run:
+# 2:00 PM Central on 2026-10-28. The Client call (3:00 PM) and tomorrow's Site walk are within 24 hours.
+FIXED_NOW = datetime(2026, 10, 28, 14, 0, tzinfo=ZoneInfo("America/Chicago"))
+
+
+class HomeTestCase(AppTestCase):
     def setUp(self):
+        clock = mock.patch.object(home, "local_now", lambda: FIXED_NOW)
+        clock.start()
+        self.addCleanup(clock.stop)
         super().setUp()
         self.sign_in()
 
+
+class TestHome(HomeTestCase):
     def test_sign_in_lands_on_home_with_a_greeting_and_what_needs_you(self):
         self.assertFalse(self.app.exception)
         self.assertEqual(self.app.session_state["page"], "home")
         text = self.page_text()
         self.assertRegex(text, r"Good (morning|afternoon|evening), Avery")
-        self.assertIn("1 thing needs you today.", text)  # the one open flag on Fallowmere
+        self.assertIn("3 things need you today.", text)  # the open flag and two meetings in the next 24 hours
         self.assertIn("Your projects", text)
 
     def test_top_bar_order_is_home_all_deals_connections(self):
         keys = [b.key for b in self.app.button if b.key.startswith("nav_")]
-        self.assertEqual(keys, ["nav_home", "nav_home_link", "nav_all_deals", "nav_connections"])
+        self.assertEqual(keys, ["nav_home", "nav_home_link", "nav_all_deals", "nav_connections", "nav_bell"])
 
     def test_one_card_per_deal_with_progress_from_the_database(self):
         text = self.page_text()
@@ -1975,3 +1989,138 @@ class TestOldDatabaseIsMigratedOnStart(unittest.TestCase):
             self.assertEqual(conn.execute("SELECT COUNT(*) FROM deals").fetchone()[0], 3)
         finally:
             conn.close()
+
+
+class TestHomeFeed(HomeTestCase):
+    def feed_text(self):
+        return self.page_text()
+
+    def item_keys(self):
+        return [b.key for b in self.app.button if b.key.startswith("feedbtn_")]
+
+    def rows(self, sql, params=()):
+        conn = db.get_connection(self.db_path)
+        try:
+            return [dict(row) for row in conn.execute(sql, params)]
+        finally:
+            conn.close()
+
+    def tearDown(self):
+        # These tests write item state, documents and meetings: put the class database back as it was.
+        conn = db.get_connection(self.db_path)
+        with conn:
+            conn.execute("DELETE FROM notification_state")
+            conn.execute("DELETE FROM documents WHERE source = 'Email'")
+            conn.execute("UPDATE emails SET status = 'new' WHERE source = 'Sample'")
+            conn.execute("UPDATE emails SET deal_id = NULL WHERE id = 2")
+            conn.execute("DELETE FROM meetings WHERE source = 'Manual'")
+            conn.execute("UPDATE meetings SET brief = NULL, brief_at = NULL")
+        conn.close()
+
+    def test_every_item_type_and_group_shows(self):
+        text = self.feed_text()
+        for words in ("Needs you now", "Waiting", "Today", "Coming up", "Earlier",
+                      "Unit 110 rent/SF is 2.37x the average - Fallowmere Industrial Park",
+                      "Today 3:00 PM - Client call - Fallowmere Industrial Park - in 1 hour",
+                      "New email from Dana Reyes about Fallowmere Industrial Park - 1 attachment (fallowmere_rent_roll_v2.xlsx)",
+                      "Fallowmere Industrial Park is waiting for your review"):
+            self.assertIn(words, text)
+        self.assertIn('<span class="chip sample">Sample</span>', text)
+
+    def test_filter_chips_have_counts_and_filter(self):
+        self.assertEqual(self.app.session_state["feed_filter"], "All")
+        self.app.session_state["feed_filter"] = "Flags"
+        self.app.run()
+        keys = self.item_keys()
+        self.assertTrue(keys and all(k.startswith("feedbtn_review_flag_") for k in keys), keys)
+        self.assertNotIn("New email from", self.feed_text())
+
+    def test_review_flag_opens_the_review_tab_at_that_flag_and_marks_it_read(self):
+        flag_id = self.rows("SELECT id FROM flags WHERE status = 'open'")[0]["id"]
+        self.app.button(key=f"feedbtn_review_flag_flag_{flag_id}").click().run()
+        self.assertFalse(self.app.exception)
+        self.assertEqual((self.app.session_state["page"], self.app.session_state["deal_id"]), ("deal", self.deals["fallowmere"]))
+        self.assertEqual(self.app.session_state["deal_tabs"], "Review")
+        self.assertEqual(self.rows("SELECT item_key FROM notification_state WHERE read_at IS NOT NULL"),
+                         [{"item_key": f"flag:{flag_id}"}])
+
+    def test_mark_all_as_read_clears_the_dots_and_the_bell(self):
+        self.assertNotEqual(self.app.button(key="nav_bell").label, "0")
+        self.app.button(key="mark_all_read").click().run()
+        self.assertFalse(self.app.exception)
+        self.assertEqual(self.app.button(key="nav_bell").label, "0")
+        self.assertNotIn('class="unread-dot"', self.feed_text())
+        self.assertTrue(self.app.button(key="mark_all_read").disabled)
+
+    def test_snooze_and_dismiss_from_the_menu(self):
+        self.app.button(key="snooze_email_1").click().run()
+        self.assertNotIn("feedbtn_add_email_email_1", self.item_keys())
+        self.app.button(key="dismiss_meeting_4").click().run()
+        self.assertNotIn("feedbtn_open_deal_meeting_4", self.item_keys())
+        self.assertEqual(len(self.rows("SELECT * FROM notification_state WHERE snoozed_until IS NOT NULL")), 1)
+        self.assertEqual(len(self.rows("SELECT * FROM notification_state WHERE dismissed_at IS NOT NULL")), 1)
+
+    def test_a_flag_has_no_snooze_or_dismiss(self):
+        flag_id = self.rows("SELECT id FROM flags WHERE status = 'open'")[0]["id"]
+        keys = [b.key for b in self.app.button]
+        self.assertNotIn(f"snooze_flag_{flag_id}", keys)
+        self.assertNotIn(f"dismiss_flag_{flag_id}", keys)
+        self.assertIn("Flags cannot be snoozed or dismissed.", self.feed_text())
+
+    def test_add_to_deal_from_an_email(self):
+        self.app.button(key="feedbtn_add_email_email_1").click().run()
+        self.assertFalse(self.app.exception)
+        docs = self.rows("SELECT filename, source, status FROM documents WHERE source = 'Email'")
+        self.assertEqual(docs, [{"filename": "fallowmere_rent_roll_v2.xlsx", "source": "Email", "status": "Received"}])
+        self.assertIn("Added fallowmere_rent_roll_v2.xlsx to Fallowmere Industrial Park", self.app.success[0].value)
+        self.assertIn("fallowmere_rent_roll_v2.xlsx has arrived and has not been read yet", self.feed_text())
+
+    def test_an_email_with_no_deal_asks_which_deal(self):
+        self.app.selectbox(key="pick_deal_email_2").set_value(self.deals["quillhaven"]).run()
+        self.app.button(key="pick_add_email_2").click().run()
+        self.assertFalse(self.app.exception)
+        self.assertEqual(self.rows("SELECT deal_id, status FROM emails WHERE id = 2"),
+                         [{"deal_id": self.deals["quillhaven"], "status": "added"}])
+
+    def test_dismiss_an_email(self):
+        self.app.button(key="feedbtn_dismiss_email_email_1").click().run()
+        self.assertEqual(self.rows("SELECT status FROM emails WHERE id = 1"), [{"status": "dismissed"}])
+        self.assertEqual(self.rows("SELECT id FROM documents WHERE source = 'Email'"), [])
+
+    def test_add_a_meeting(self):
+        form = self.app.text_input
+        form[0].set_value("Lender call")
+        self.app.button(key="FormSubmitter:add_meeting_form-Save meeting").click().run()
+        self.assertFalse(self.app.exception)
+        self.assertEqual(self.rows("SELECT title, source FROM meetings WHERE source = 'Manual'"),
+                         [{"title": "Lender call", "source": "Manual"}])
+
+    def test_prep_brief_uses_one_request_and_is_labelled_ai_drafted(self):
+        calls = []
+
+        def generate_content(**kwargs):
+            calls.append(kwargs["contents"])
+            return type("Reply", (), {"text": json.dumps({"brief": "- 12 units.\n- Unit 110 is flagged."})})()
+        client = type("Client", (), {"models": type("Models", (), {"generate_content": staticmethod(generate_content)})()})()
+        with mock.patch.object(gemini, "get_client", lambda: client):
+            self.assertEqual(calls, [])  # showing Home never calls the AI
+            self.app.button(key="feedbtn_prep_brief_meeting_1").click().run()
+        self.assertFalse(self.app.exception)
+        self.assertEqual(len(calls), 1)
+        text = self.feed_text()
+        self.assertIn("AI-drafted", text)
+        self.assertIn("Every number was found in the deal's data.", text)
+        self.assertEqual(self.app.button(key="feedbtn_prep_brief_meeting_1").label, "Update brief")
+
+
+class TestHomeEmptyFeed(HomeTestCase):
+    def test_everything_handled_shows_you_are_all_caught_up(self):
+        empty = {"flags": [], "review_deals": [], "documents": [], "drafts": [], "research": [], "meetings": [],
+                 "emails": [], "state": {}}
+        with mock.patch("app.queries.feed_rows", lambda: empty):
+            self.app.run()
+        self.assertFalse(self.app.exception)
+        text = self.page_text()
+        self.assertIn("You're all caught up", text)
+        self.assertIn("Nothing needs you right now.", text)
+        self.assertEqual(self.app.button(key="nav_bell").label, "0")

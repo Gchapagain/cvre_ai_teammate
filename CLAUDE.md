@@ -74,6 +74,7 @@ Responsive: below 760px wide the top bar becomes two rows, the login panel stack
 ## Data (SQLite)
 Schema version: `db.SCHEMA_VERSION`, stored in the database as `PRAGMA user_version`. **Every schema change (new table, new column, changed constraint) bumps it by one**, adds a line to the list above it in `db.py`, updates `seed.py` if the sample data needs it, and rebuilds `sample_data/demo.db`. `init_db` migrates without touching rows; the app runs it on start only when the database's version is behind.
 - 1: `deals.photo_path`
+- 2: `meetings`, `emails`, `notification_state` (the Home feed)
 
 Tables:
 - deals (photo_path: a person's own photo, NULL shows the illustration)

@@ -23,6 +23,13 @@ def open_deal(deal_id):
     st.session_state.page = "deal"
 
 
+def open_deal_at(deal_id, tab="Review", flag_id=None):
+    """Open a deal on a given tab, and scroll to one flag's decision card if flag_id is given."""
+    open_deal(deal_id)
+    st.session_state.deal_tabs = tab
+    st.session_state.focus_flag = flag_id
+
+
 def open_dialog(name):
     """Only one dialog can be open at a time, so opening one closes any other."""
     st.session_state.open_dialog = name

@@ -9,7 +9,8 @@ from zoneinfo import ZoneInfo
 import streamlit as st
 
 from app import images, nav, queries, style
-from services import progress
+from app.views import feed_view
+from services import feed, progress
 
 COLOUR_NAMES = {"red": "Just started", "orange": "Under way", "yellow": "Nearly done", "green": "Complete"}
 
@@ -55,9 +56,15 @@ def greeting(user, now):
     return f"Good {part}, {first}" if first else f"Good {part}"
 
 
-def needs_you_count():
-    """How many things need the person today. Stage 1: open flags (the feed adds meetings in Stage 2)."""
-    return queries.open_flag_count()
+def needs_you_count(now):
+    """How many things need the person today: open flags and meetings in the next 24 hours (the feed's
+    "Needs you now" group)."""
+    return feed.needs_you(feed.build(queries.feed_rows(), now))
+
+
+def unread_count():
+    """For the bell in the top bar: feed items the person has not read."""
+    return feed.unread(feed.build(queries.feed_rows(), local_now()))
 
 
 def summary_line(count):
@@ -121,6 +128,8 @@ def _project_strip():
 
 def render():
     user = st.session_state.get("user") or {}
-    style.html(f'<h2 class="home-greeting">{escape(greeting(user, local_now()))}</h2>'
-               f'<div class="home-summary">{escape(summary_line(needs_you_count()))}</div>')
+    now = local_now()
+    style.html(f'<h2 class="home-greeting">{escape(greeting(user, now))}</h2>'
+               f'<div class="home-summary">{escape(summary_line(needs_you_count(now)))}</div>')
     _project_strip()
+    feed_view.render(local_now)

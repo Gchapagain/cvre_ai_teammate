@@ -9,7 +9,7 @@ Every name and number is made up.
 import argparse
 import json
 import sys
-from datetime import datetime
+from datetime import datetime, timedelta
 from pathlib import Path
 
 from openpyxl import load_workbook
@@ -141,6 +141,48 @@ def add_finished_steps(conn, deal_id):
                   "It was dismissed, so it is not used anywhere.", sources, SAMPLE_SOURCE))
 
 
+def _anchor(days, clock):
+    """A sample time: days after SAMPLE_ANCHOR_DAY at a clock time. Home shows the anchor day as today."""
+    day = datetime.fromisoformat(db.SAMPLE_ANCHOR_DAY) + timedelta(days=days)
+    return f"{day:%Y-%m-%d} {clock}:00"
+
+
+def add_sample_inbox(conn, deals):
+    """Made-up meetings and emails for the Home feed, all with source Sample (shown with a Sample chip).
+
+    The people are made up and the deals are the fictional sample deals. No real inbox or calendar.
+    """
+    meetings = [
+        (deals["fallowmere"], "Client call", "Dana Reyes", _anchor(0, "15:00"), _anchor(0, "15:30"), "Phone",
+         "Walk through the flagged unit before pricing."),
+        (None, "Coffee with a prospective client", "Jordan Okafor", _anchor(0, "08:30"), _anchor(0, "09:00"),
+         "Lobby cafe", None),
+        (deals["quillhaven"], "Site walk", "Marcus Bell", _anchor(1, "10:00"), _anchor(1, "11:00"), "On site", None),
+        (deals["fallowmere"], "Pricing review", "Dana Reyes", _anchor(3, "14:00"), _anchor(3, "15:00"),
+         "https://meet.example.com/sample-pricing-review", None),
+        (deals["brindlewick"], "Owner check-in", "Ellis Park", _anchor(-1, "16:00"), _anchor(-1, "16:30"), "Phone", None),
+    ]
+    conn.executemany(
+        """INSERT INTO meetings (deal_id, title, client_name, starts_at, ends_at, location, notes, source)
+           VALUES (?, ?, ?, ?, ?, ?, ?, 'Sample')""", meetings)
+    emails = [
+        (deals["fallowmere"], "Dana Reyes", "Updated rent roll for Fallowmere",
+         "Hi Avery, attached is the updated rent roll. Unit 110 is the one we discussed.", _anchor(0, "08:15"),
+         ["fallowmere_rent_roll_v2.xlsx"]),
+        (None, "Priya Nandakumar", "Flex space inquiry",
+         "We are looking for about 20,000 SF of flex space. Requirements attached.", _anchor(0, "07:05"),
+         ["requirements_sheet.pdf"]),
+        (deals["quillhaven"], "Marcus Bell", "Quillhaven T-12 and lease abstract",
+         "Here are the T-12 and the lease abstract you asked for.", _anchor(-1, "16:40"),
+         ["quillhaven_t12.xlsx", "quillhaven_lease_abstract.pdf"]),
+    ]
+    conn.executemany(
+        """INSERT INTO emails (deal_id, sender, subject, preview, received_at, attachment_names, source)
+           VALUES (?, ?, ?, ?, ?, ?, 'Sample')""",
+        [(deal, sender, subject, preview, received, json.dumps(files))
+         for deal, sender, subject, preview, received, files in emails])
+
+
 def seed(db_path=None):
     """Delete the database at db_path and rebuild it from sample data. Returns the deal IDs."""
     path = Path(db_path or db.DB_PATH)
@@ -175,6 +217,12 @@ def seed(db_path=None):
         conn.close()
 
     deal_ids = {"fallowmere": fallowmere, "quillhaven": quillhaven, "brindlewick": brindlewick}
+    conn = db.get_connection(path)
+    try:
+        with conn:
+            add_sample_inbox(conn, deal_ids)
+    finally:
+        conn.close()
     for deal_id in deal_ids.values():
         validation.validate_deal(deal_id, path)
     return deal_ids

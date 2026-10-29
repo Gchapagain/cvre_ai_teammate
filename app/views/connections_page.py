@@ -20,6 +20,27 @@ HOW_SOURCES_ARE_USED = [
 ]
 
 
+# Where Home's meetings and emails will come from. None is connected yet (roadmap Step 8): until then the
+# feed shows sample meetings and emails, each labelled Sample.
+INBOX_SOURCES = [
+    ("Google Calendar", "Calendar", "Meetings for the Home feed and the Today agenda."),
+    ("Outlook Calendar", "Calendar", "Meetings for the Home feed and the Today agenda, via Microsoft Graph."),
+    ("Gmail", "Email", "Emails about deals for the Home feed. Attachments can be added to a deal as documents."),
+    ("Outlook Mail", "Email", "Emails about deals for the Home feed, via Microsoft Graph."),
+]
+
+
+def _inbox_card(name, kind, provides):
+    key = name.lower().replace(" ", "_")
+    with st.container(border=True, key=f"conn_card_inbox_{key}"):
+        head = st.container(horizontal=True, horizontal_alignment="distribute", vertical_alignment="center")
+        head.markdown(f"**{name}**", width="content")
+        head.markdown(style.pill("Not connected", "other"), unsafe_allow_html=True, width="content")
+        style.html(f'<div class="conn-kind">{escape(kind)}</div><div class="conn-provides">{escape(provides)}</div>')
+        st.caption("Not connected yet (roadmap Step 8, pointed at a safe demo inbox). Until then Home shows "
+                   "made-up sample items, each labelled Sample.")
+
+
 def _switch(adapter_id, key):
     connections.set_enabled(adapter_id, st.session_state[key])
 
@@ -73,3 +94,8 @@ def render():
         for index, adapter in enumerate(group):
             with columns[index % 2]:
                 _card(adapter, state[adapter.id])
+    style.section_title("Calendar and email (for Home)")
+    columns = st.columns(2, gap="medium")
+    for index, source in enumerate(INBOX_SOURCES):
+        with columns[index % 2]:
+            _inbox_card(*source)

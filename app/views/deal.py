@@ -91,3 +91,19 @@ def render():
         recommendations_tab.render(deal)
     with ask_ai_tab:
         ask_ai.render(deal)
+    _scroll_to_flag(st.session_state.pop("focus_flag", None))
+
+
+def _scroll_to_flag(flag_id):
+    """Coming from a Home flag: bring that flag's decision card into view and outline it for a moment."""
+    if flag_id is None:
+        return
+    st.html(f"""<script>
+    setTimeout(function () {{
+      const card = document.querySelector(".st-key-flagcard_open_{int(flag_id)}");
+      if (!card) return;
+      card.scrollIntoView({{behavior: "smooth", block: "center"}});
+      card.classList.add("flag-focus");
+      setTimeout(function () {{ card.classList.remove("flag-focus"); }}, 2500);
+    }}, 400);
+    </script>""", unsafe_allow_javascript=True)
