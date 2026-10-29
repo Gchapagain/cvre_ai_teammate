@@ -113,6 +113,50 @@ class TestPaths(unittest.TestCase):
         self.assertEqual(users, [("Avery Sample", "Broker")])
         self.assertEqual(edits, 0)
 
+    def test_the_committed_demo_database_is_at_the_current_schema_version(self):
+        conn = db.get_connection(db.PROJECT_ROOT / "sample_data" / "demo.db")
+        try:
+            self.assertEqual(db.schema_version(conn), db.SCHEMA_VERSION)
+        finally:
+            conn.close()
+
+
+class TestSchemaVersion(unittest.TestCase):
+    def setUp(self):
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        self.db_path = Path(tmp.name) / "old.db"
+
+    def version(self):
+        conn = db.get_connection(self.db_path)
+        try:
+            return db.schema_version(conn)
+        finally:
+            conn.close()
+
+    def test_a_new_database_records_the_current_version(self):
+        db.init_db(self.db_path)
+        self.assertEqual(self.version(), db.SCHEMA_VERSION)
+
+    def test_a_version_0_database_gets_the_photo_column_and_keeps_its_deals(self):
+        conn = sqlite3.connect(self.db_path)
+        conn.execute("CREATE TABLE deals (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL, property_type TEXT, "
+                     "submarket TEXT, address TEXT, status TEXT NOT NULL DEFAULT 'New', owner_user_id INTEGER, "
+                     "created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP, updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP, "
+                     "approved_by TEXT, approved_at TEXT)")
+        conn.execute("INSERT INTO deals (name) VALUES ('Old Sample Deal')")
+        conn.commit()
+        conn.close()
+        self.assertEqual(self.version(), 0)
+        db.init_db(self.db_path)
+        conn = db.get_connection(self.db_path)
+        try:
+            row = dict(conn.execute("SELECT name, photo_path FROM deals").fetchone())
+        finally:
+            conn.close()
+        self.assertEqual(row, {"name": "Old Sample Deal", "photo_path": None})
+        self.assertEqual(self.version(), db.SCHEMA_VERSION)
+
 
 class TestOldThreeRoleUsersTable(unittest.TestCase):
     OLD = """CREATE TABLE users (id INTEGER PRIMARY KEY AUTOINCREMENT, email TEXT NOT NULL UNIQUE, full_name TEXT NOT NULL,

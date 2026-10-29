@@ -4,7 +4,12 @@ import streamlit as st
 
 
 def go_home():
-    """Go to the main dashboard showing every deal, with any stat-card filter cleared."""
+    """Go to Home: the project strip and what needs the person today."""
+    st.session_state.page = "home"
+
+
+def go_all_deals():
+    """Go to the All deals dashboard, with any stat-card filter cleared."""
     st.session_state.page = "dashboard"
     st.session_state.deal_filter = None
 

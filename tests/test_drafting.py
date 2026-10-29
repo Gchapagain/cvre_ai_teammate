@@ -14,6 +14,9 @@ import seed
 from services import drafting, gemini
 from tests.test_extraction import daily_quota_error, forbidden_client
 
+# Drafts made by the tests, leaving out the sample draft seed.py gives the approved deal.
+NOT_SAMPLE = f"text NOT LIKE '{seed.SAMPLE_DRAFT_PREFIX}%'"
+
 TODAY = date(2026, 10, 13)
 GOOD = ("Fallowmere Industrial Park has 12 units totalling 154,600 SF, with average rent of $8.84 per SF. "
         "Net operating income is $1,244,311.44 as stated in the T-12.")
@@ -82,18 +85,18 @@ class TestGenerate(DraftingTestCase):
     def test_a_deal_with_no_numbers_is_refused_without_calling_gemini(self):
         with self.assertRaises(ValueError):
             drafting.generate_draft(self.deals["quillhaven"], client=forbidden_client(), db_path=self.db_path)
-        self.assertEqual(self.rows("SELECT id FROM drafts"), [])
+        self.assertEqual(self.rows(f"SELECT id FROM drafts WHERE {NOT_SAMPLE}"), [])
 
     def test_quota_error_saves_nothing(self):
         with mock.patch.object(gemini.time, "sleep"):
             with self.assertRaises(gemini.GeminiQuotaError):
                 self.generate(daily_quota_error())
-        self.assertEqual(self.rows("SELECT id FROM drafts"), [])
+        self.assertEqual(self.rows(f"SELECT id FROM drafts WHERE {NOT_SAMPLE}"), [])
 
     def test_the_rent_roll_is_never_changed_by_drafting(self):
-        before = self.rows("SELECT * FROM rent_roll_units")
+        before = self.rows(f"SELECT * FROM rent_roll_units")
         self.generate(GOOD)
-        self.assertEqual(self.rows("SELECT * FROM rent_roll_units"), before)
+        self.assertEqual(self.rows(f"SELECT * FROM rent_roll_units"), before)
 
 
 class TestNumberCheck(DraftingTestCase):
@@ -161,7 +164,7 @@ class TestHumanActions(DraftingTestCase):
 
     def test_generating_never_approves(self):
         self.generate(GOOD)
-        self.assertEqual(self.rows("SELECT DISTINCT status FROM drafts"), [{"status": "Generated, not sent"}])
+        self.assertEqual(self.rows(f"SELECT DISTINCT status FROM drafts WHERE {NOT_SAMPLE}"), [{"status": "Generated, not sent"}])
 
     def test_status_must_be_one_of_the_three(self):
         conn = db.get_connection(self.db_path)

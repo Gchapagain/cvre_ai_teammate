@@ -4,9 +4,9 @@ from html import escape
 
 import streamlit as st
 
-from app import nav, queries, style
+from app import images, nav, queries, style
 from app.views import ask_ai, data_tab, recommendations_tab, review
-from services import metrics
+from services import deals, metrics
 
 # The last tab is styled as the gold AI tab in app/style.py.
 ASK_AI_TAB = ":material/auto_awesome: Ask AI"
@@ -35,18 +35,39 @@ def header_line(deal, units, documents):
 def _header(deal, units, documents):
     chips = "".join(f'<span class="chip">from {escape(doc["filename"])}</span>'
                     for doc in documents if doc["used_for"] == "Rent roll")
+    picture, is_photo = images.picture(deal)
     with st.container(border=True, key="deal_header"):
         style.html(
-            f'<div class="deal-top"><div><div class="deal-title">{escape(deal["name"])}{chips}</div>'
-            f'<div class="deal-meta">{escape(header_line(deal, units, documents))}</div></div>'
+            f'<div class="deal-top"><div class="deal-id"><img class="deal-thumb" src="{picture}" '
+            f'alt="{"Photo" if is_photo else "Illustration"} of the property"><div>'
+            f'<div class="deal-title">{escape(deal["name"])}{chips}</div>'
+            f'<div class="deal-meta">{escape(header_line(deal, units, documents))}</div></div></div>'
             f'<div>{style.pill(deal["status"])}</div></div>'
         )
+        _change_photo(deal, is_photo)
+
+
+def _change_photo(deal, is_photo):
+    """A small upload that swaps the illustration for a real photo of the property. Saved only on Save."""
+    with st.popover("Change photo", icon=":material/photo_camera:", key="change_photo"):
+        st.caption("A PNG, JPEG or WebP picture up to 5 MB. Sample data only: use a photo you are free to share."
+                   + ("" if is_photo else " Until then, Home shows an illustration for the property type."))
+        round_ = st.session_state.get("photo_round", 0)  # a new key after each save empties the uploader
+        upload = st.file_uploader("Property photo", type=["png", "jpg", "jpeg", "webp"], key=f"photo_upload_{round_}")
+        if st.button("Save photo", key="save_photo", type="primary", disabled=upload is None):
+            try:
+                deals.set_photo(deal["id"], upload.name, upload.getvalue())
+            except ValueError as exc:
+                st.error(str(exc))
+            else:
+                st.session_state.photo_round = round_ + 1
+                st.rerun()
 
 
 def render():
     deal = queries.get_deal(st.session_state.get("deal_id"))
     with st.container(key="breadcrumb", horizontal=True, vertical_alignment="center"):
-        st.button("All deals", key="back_to_deals", type="tertiary", on_click=nav.go_home)
+        st.button("All deals", key="back_to_deals", type="tertiary", on_click=nav.go_all_deals)
         name = escape(deal["name"]) if deal else "Deal not found"
         st.markdown(f'<div class="crumb"><span class="sep">›</span><span class="here">{name}</span></div>',
                     unsafe_allow_html=True, width="content")

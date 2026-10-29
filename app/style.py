@@ -28,6 +28,7 @@ CSS = """
   --ink: #16241d; --ink-soft: #4a5750;
   --amber: #b97a00; --amber-tint: #fdf0d0; --amber-ink: #6b4700;
   --red: #c8382c; --red-tint: #fbe1df; --red-ink: #7a1a12;
+  --orange: #dd7a1f; --yellow: #e9c43a;  /* progress colours only: red, orange, yellow, green */
   --shadow: 0 1px 2px rgba(19, 39, 30, 0.06); --shadow-hover: 0 4px 14px rgba(19, 39, 30, 0.12);
   --focus: 0 0 0 3px rgba(201, 162, 39, 0.55);
 }
@@ -73,18 +74,19 @@ h1, h2, h3, h4, .stat-value { font-family: 'Fraunces', Georgia, serif !important
 .st-key-topbar .pill.simulated { margin: 0; }
 .st-key-topbar_nav { gap: var(--s4) !important; flex-wrap: nowrap !important; }
 /* The brand and the All deals link are real buttons, so both can take the person home. */
-.st-key-nav_home button, .st-key-nav_all_deals button { min-height: var(--control-h); border: none; background: none;
+.st-key-nav_home button, .st-key-nav_all_deals button, .st-key-nav_home_link button { min-height: var(--control-h); border: none; background: none;
   box-shadow: none; white-space: nowrap; border-radius: var(--radius-sm); }
 .st-key-nav_home button { padding: 0; gap: 10px; }
 .st-key-nav_home button::before { content: ""; width: 22px; height: 22px; flex: none;
   background: """ + icons.SPARKLE_URL + """ center / contain no-repeat; }
 .st-key-nav_home button p { font-family: 'Fraunces', Georgia, serif; font-size: 1.3rem; font-weight: 600; color: #ffffff; }
 .st-key-nav_home button:hover { background: none; }
-.st-key-nav_all_deals button { padding: 0 12px; }
-.st-key-nav_all_deals button p { color: #dfe7e2; font-weight: 500; }
-.st-key-nav_all_deals button:hover { background: rgba(255, 255, 255, 0.12); }
-.st-key-nav_all_deals button:hover p { color: #ffffff; }
-.st-key-nav_home button:focus-visible, .st-key-nav_all_deals button:focus-visible { box-shadow: var(--focus); }
+.st-key-nav_all_deals button, .st-key-nav_home_link button { padding: 0 12px; }
+.st-key-nav_all_deals button p, .st-key-nav_home_link button p { color: #dfe7e2; font-weight: 500; }
+.st-key-nav_all_deals button:hover, .st-key-nav_home_link button:hover { background: rgba(255, 255, 255, 0.12); }
+.st-key-nav_all_deals button:hover p, .st-key-nav_home_link button:hover p { color: #ffffff; }
+.st-key-nav_home button:focus-visible, .st-key-nav_all_deals button:focus-visible,
+.st-key-nav_home_link button:focus-visible { box-shadow: var(--focus); }
 
 /* ---- Breadcrumb on a deal page: All deals > Deal name ---- */
 .st-key-breadcrumb { gap: var(--s1) !important; margin-bottom: var(--s1); }
@@ -202,6 +204,9 @@ h1, h2, h3, h4, .stat-value { font-family: 'Fraunces', Georgia, serif !important
 .deal-title { font-family: 'Fraunces', Georgia, serif; font-size: 1.7rem; font-weight: 600; color: var(--green);
   line-height: 1.25; display: flex; align-items: center; flex-wrap: wrap; gap: 12px; }
 .deal-top .deal-meta { margin: var(--s1) 0 0; }
+.deal-id { display: flex; align-items: center; gap: var(--s2); min-width: 0; }
+.deal-thumb { width: 96px; height: 64px; object-fit: cover; border-radius: var(--radius-sm); border: 1px solid var(--line); flex: none; }
+.st-key-change_photo button { min-height: 32px; font-size: 0.85rem; }
 .chip { font-family: 'Public Sans', sans-serif; font-size: 0.78rem; font-weight: 500; color: var(--ink-soft);
   background: #f1eef3; border: 1px solid var(--line); border-radius: var(--pill); padding: 2px 10px; white-space: nowrap; }
 
@@ -383,6 +388,63 @@ table.preview tr.derived td { background: var(--gold-tint); }
   opacity: 0; pointer-events: none; transition: opacity 0.15s; }
 .st-key-fab:hover::before, .st-key-fab:focus-within::before { opacity: 1; }
 
+/* ---- Home ---- */
+.home-greeting { font-size: 2rem; margin: 0; padding: 0 !important; }
+.home-summary { color: var(--ink-soft); font-size: 1.05rem; margin: 4px 0 var(--s3); }
+.home-section { font-family: 'Fraunces', Georgia, serif; font-size: 1.3rem; font-weight: 600; color: var(--green); }
+.st-key-strip_head { margin-bottom: var(--s1); }
+.st-key-strip_head [data-testid="stMarkdownContainer"] { margin-bottom: 0; }
+.strip-arrows { display: flex; gap: var(--s1); }
+.strip-arrow { width: 40px; height: 40px; border-radius: 50%; border: 1px solid var(--line); background: var(--surface);
+  color: var(--green); font-size: 1.4rem; line-height: 1; cursor: pointer; box-shadow: var(--shadow);
+  transition: background 0.15s, border-color 0.15s; font-family: 'Public Sans', sans-serif; }
+.strip-arrow:hover { background: var(--green-tint); border-color: var(--green-mid); }
+.strip-arrow:focus-visible { outline: none; box-shadow: var(--focus); }
+.strip-arrow:disabled { opacity: 0.35; cursor: default; background: var(--surface); border-color: var(--line); }
+/* The strip: one row that scrolls sideways (trackpad, wheel+shift, arrows) and snaps to each card. */
+.st-key-project_strip { flex-wrap: nowrap !important; overflow-x: auto; gap: var(--s2) !important;
+  align-items: stretch !important; scroll-snap-type: x mandatory; scroll-padding: 0 4px; padding: 4px 4px var(--s2);
+  scrollbar-width: thin; }
+/* Streamlit wraps each card in a box of its own: that box is what gets the fixed width and the snap point. */
+.st-key-project_strip > div { flex: 0 0 288px !important; width: 288px !important; min-width: 0; scroll-snap-align: start; }
+[class*="st-key-proj_card_"] { position: relative; width: 100% !important; height: 100%; background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius);
+  overflow: hidden; gap: var(--s1) !important; padding: 0 0 var(--s2); box-shadow: var(--shadow);
+  transition: border-color 0.15s, box-shadow 0.15s, transform 0.15s; }
+[class*="st-key-proj_card_"]:hover { border-color: var(--green-mid); box-shadow: var(--shadow-hover); transform: translateY(-2px); }
+[class*="st-key-proj_card_"]:focus-within { box-shadow: var(--focus); border-color: var(--gold); }
+[class*="st-key-proj_card_"] * { position: static !important; }
+[class*="st-key-proj_card_"] [data-testid="stMarkdownContainer"] { margin-bottom: 0; }
+[class*="st-key-proj_card_"] > [data-testid="stElementContainer"]:not(:first-child) { padding: 0 var(--s2); }
+.proj-pic { height: 150px; overflow: hidden; background: var(--green-tint); }
+.proj-pic img { width: 100%; height: 150px; object-fit: cover; display: block; }
+[class*="st-key-proj_card_"] .proj-pic { position: relative !important; }
+[class*="st-key-proj_card_"] .pic-label { position: absolute !important; left: 8px; bottom: 8px; font-size: 0.7rem;
+  font-weight: 600; color: var(--green-dark); background: rgba(255, 255, 255, 0.85); border-radius: var(--pill); padding: 1px 8px; }
+[class*="st-key-open_project_"] button { min-height: 0; padding: 0; border: none; background: none; box-shadow: none;
+  justify-content: flex-start; }
+[class*="st-key-open_project_"] button:hover { background: none; }
+[class*="st-key-open_project_"] button p { font-family: 'Fraunces', Georgia, serif; font-size: 1.08rem; font-weight: 600;
+  color: var(--green); text-align: left; line-height: 1.3; }
+[class*="st-key-proj_card_"]:hover [class*="st-key-open_project_"] button p { text-decoration: underline; }
+[class*="st-key-open_project_"] button::after { content: ""; position: absolute; inset: 0; z-index: 1; cursor: pointer; }
+[class*="st-key-open_project_"] button:focus-visible { box-shadow: none; }
+.proj-meta { font-size: 0.85rem; color: var(--ink-soft); margin-bottom: var(--s1); white-space: nowrap; overflow: hidden;
+  text-overflow: ellipsis; }
+.progress { margin-top: 12px; }
+.progress-track { height: 8px; border-radius: var(--pill); background: #ece8ee; overflow: hidden; }
+.progress-fill { display: block; height: 100%; border-radius: var(--pill); }
+.progress-fill.red, .dot.red { background: var(--red); }
+.progress-fill.orange, .dot.orange { background: var(--orange); }
+.progress-fill.yellow, .dot.yellow { background: var(--yellow); }
+.progress-fill.green, .dot.green { background: var(--green-mid); }
+.progress-text { display: flex; justify-content: space-between; font-size: 0.82rem; color: var(--ink-soft); margin-top: 6px; }
+.progress-text b { color: var(--ink); }
+.progress-next { font-size: 0.85rem; font-weight: 600; color: var(--green); margin-top: 4px; }
+.progress-legend { display: flex; flex-wrap: wrap; gap: var(--s2); font-size: 0.8rem; color: var(--ink-soft); margin: 4px 0 var(--s3); }
+.legend-item { display: inline-flex; align-items: center; gap: 6px; white-space: nowrap; }
+.legend-range { color: #7b8680; }
+.dot { width: 10px; height: 10px; border-radius: 50%; display: inline-block; }
+
 /* ---- Phones and narrow windows ---- */
 @media (max-width: 760px) {
   :root { --topbar-h: 104px; --card-pad: 16px; }
@@ -392,9 +454,10 @@ table.preview tr.derived td { background: var(--gold-tint); }
     row-gap: 4px !important; align-content: center; }
   .st-key-topbar_nav { width: 100% !important; gap: 4px !important; flex-wrap: nowrap !important; }
   .st-key-nav_home { margin-right: auto; }
-  .st-key-nav_home button p { font-size: 1rem; }
-  .st-key-nav_home button { gap: 6px; }
-  .st-key-nav_home button::before { width: 18px; height: 18px; }
+  /* Only the sparkle shows on a phone, so Home, All deals and Connections fit; the name stays for screen readers. */
+  .st-key-nav_home button p { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
+  .st-key-nav_home button { gap: 0; width: 40px; justify-content: center; }
+  .st-key-nav_home button::before { width: 22px; height: 22px; }
   .st-key-nav_all_deals button, .st-key-nav_connections button { padding: 0 8px; }
   .st-key-nav_all_deals button p, .st-key-nav_connections button p { font-size: 0.9rem; }
   .st-key-topbar_user { width: 100% !important; justify-content: space-between; gap: 8px !important; }
@@ -411,6 +474,7 @@ table.preview tr.derived td { background: var(--gold-tint); }
   .st-key-page_head h2 { font-size: 1.6rem !important; }
   .deal-title { font-size: 1.3rem; }
   .deal-top { flex-direction: column; gap: 8px; }
+  .deal-thumb { width: 72px; height: 48px; }
   /* Stat cards: two per row instead of one. */
   .st-key-stat_row [data-testid="stHorizontalBlock"] { flex-wrap: wrap !important; gap: 12px !important; }
   .st-key-stat_row [data-testid="stColumn"] { flex: 1 1 calc(50% - 6px) !important; min-width: calc(50% - 6px) !important;
@@ -432,6 +496,11 @@ table.preview tr.derived td { background: var(--gold-tint); }
   /* Comfortable tap targets for link-style buttons */
   .st-key-back_to_deals button, .st-key-go_documents button, .st-key-clear_filter button { min-height: 40px; }
   .st-key-fab { right: 16px; bottom: 16px; }
+  .home-greeting { font-size: 1.6rem; }
+  .st-key-project_strip > div { flex-basis: 78vw !important; width: 78vw !important; }
+  .strip-arrows { display: none; }  /* swipe instead */
+  .st-key-nav_home_link button { padding: 0 8px; }
+  .st-key-nav_home_link button p { font-size: 0.9rem; }
   .st-key-fab::before { display: none; }  /* no hover on a phone */
 }
 </style>

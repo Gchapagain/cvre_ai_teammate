@@ -1,0 +1,22 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 400 220" role="img" aria-label="Illustration of a flex office and warehouse building">
+  <defs><linearGradient id="sky" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#e8f0ec"/><stop offset="1" stop-color="#f7f3e3"/></linearGradient></defs>
+  <rect width="400" height="220" fill="url(#sky)"/>
+  <circle cx="70" cy="50" r="18" fill="#c9a227" opacity="0.85"/>
+  <path d="M0 162 Q 120 146 220 160 T 400 150 V220 H0Z" fill="#cfe0d6"/>
+  <!-- warehouse half -->
+  <rect x="170" y="92" width="190" height="86" fill="#30654f"/>
+  <rect x="170" y="86" width="190" height="10" fill="#1d3c2f"/>
+  <g fill="#e8f0ec" stroke="#1d3c2f" stroke-width="2"><rect x="196" y="126" width="44" height="52"/><rect x="258" y="126" width="44" height="52"/></g>
+  <g stroke="#9fbcaa" stroke-width="2"><path d="M198 140 H238 M198 154 H238 M198 168 H238 M260 140 H300 M260 154 H300 M260 168 H300"/></g>
+  <rect x="318" y="140" width="24" height="38" fill="#1d3c2f"/>
+  <!-- two-storey office half with glass -->
+  <rect x="40" y="70" width="136" height="108" fill="#1d3c2f"/>
+  <rect x="40" y="64" width="136" height="10" fill="#c9a227"/>
+  <g fill="#c9e0d3"><rect x="54" y="86" width="30" height="30"/><rect x="92" y="86" width="30" height="30"/><rect x="130" y="86" width="30" height="30"/>
+    <rect x="54" y="126" width="30" height="30"/><rect x="130" y="126" width="30" height="30"/></g>
+  <rect x="92" y="126" width="30" height="52" fill="#c9a227"/>
+  <path d="M60 92 L76 108 M98 92 L114 108 M136 92 L152 108" stroke="#ffffff" stroke-width="3" opacity="0.6"/>
+  <rect x="30" y="178" width="340" height="6" fill="#13271e"/>
+  <!-- tree -->
+  <rect x="377" y="150" width="5" height="28" fill="#1d3c2f"/><circle cx="380" cy="142" r="14" fill="#30654f"/>
+</svg>

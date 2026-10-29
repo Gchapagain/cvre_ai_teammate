@@ -152,10 +152,124 @@ def add_simulated_recommendations():
 
 
 def sign_in_again(page):
+    """Sign in (which lands on Home) and go on to All deals, where the later steps start."""
     page.get_by_text("Welcome back").wait_for()
     page.get_by_role("button", name="Continue with Google").click()
+    page.get_by_text("Your projects").wait_for()
+    page.locator(".st-key-nav_all_deals button").click()
     page.get_by_text("Needs your attention").wait_for()
     page.wait_for_timeout(800)
+
+
+def add_extra_projects():
+    """Add made-up deals to the script's own database (never the real one), so the project strip has to
+    scroll and shows every colour whatever earlier steps did to the sample deals."""
+    import sqlite3
+    sys.path.insert(0, str(ROOT))
+    import seed
+    conn = sqlite3.connect(OUT / "tmp" / "screenshots.db")
+    with conn:
+        deal = seed.add_deal(conn, "Larkspur Flex Yards (SCREENSHOT TEST - fictional)", "Flex", "Testville", "Needs Review")
+        doc = seed.add_document(conn, deal, "larkspur_rent_roll.xlsx", "Rent roll", "Read", "Rent roll")
+        seed.add_units(conn, deal, doc, seed.brindlewick_units())
+        conn.execute("INSERT INTO drafts (deal_id, text) VALUES (?, 'Screenshot test draft.')", (deal,))
+        # Orange: documents and units, no flags yet resolved-or-drafted beyond that (4 of 7 steps).
+        deal = seed.add_deal(conn, "Pellam Industrial Annex (SCREENSHOT TEST - fictional)", "Industrial", "Testville", "Needs Review")
+        seed.add_units(conn, deal, seed.add_document(conn, deal, "pellam_rent_roll.xlsx", "Rent roll", "Read", "Rent roll"),
+                       seed.brindlewick_units())
+        # Green: every step done.
+        deal = seed.add_deal(conn, "Fenwick Retail Corner (SCREENSHOT TEST - fictional)", "Retail", "Testville", "Approved")
+        seed.add_units(conn, deal, seed.add_document(conn, deal, "fenwick_rent_roll.xlsx", "Rent roll", "Read", "Rent roll"),
+                       seed.brindlewick_units())
+        seed.add_finished_steps(conn, deal)
+        for name, kind in (("Tamsin Court Retail (SCREENSHOT TEST - fictional)", "Retail"),
+                           ("Orrin Logistics Hub (SCREENSHOT TEST - fictional)", "Industrial"),
+                           ("Wren Office Commons (SCREENSHOT TEST - fictional)", "Office")):
+            seed.add_document(conn, seed.add_deal(conn, name, kind, "Testville", "New"), "rent_roll.xlsx",
+                              "Rent roll", "Received", None)
+    conn.close()
+
+
+def check_home(page, suffix, width):
+    print("Home")
+    no_error_box(page, "on Home")
+    heading = page.locator(".home-greeting").inner_text()
+    check("greets Avery by time of day", re.fullmatch(r"Good (morning|afternoon|evening), Avery", heading) is not None, heading)
+    check("summary counts what needs you", page.locator(".home-summary").inner_text() == "1 thing needs you today.",
+          page.locator(".home-summary").inner_text())
+    page.mouse.move(5, 500)  # off the cards, so none is lifted by hover
+    page.wait_for_timeout(300)
+    cards = page.locator('[class*="st-key-proj_card_"]')
+    check("one project card per deal", cards.count() == 3, cards.count())
+    tops = {round(c.bounding_box()["y"]) for c in cards.all()}
+    check("cards sit in one row", len(tops) == 1, tops)
+    check("cards are 288px wide", all(abs(c.bounding_box()["width"] - 288) < 1 for c in cards.all()))
+    colours = [page.locator(f'.st-key-proj_card_{c}_{i}').count() for c, i in (("orange", 1), ("red", 2), ("green", 3))]
+    check("Fallowmere orange, Quillhaven red, Brindlewick green", colours == [1, 1, 1], colours)
+    fills = {c: css(page, f".progress-fill.{c}", "backgroundColor") for c in ("red", "orange", "green")}
+    check("bar colours are red, orange and green", fills == {"red": "rgb(200, 56, 44)", "orange": "rgb(221, 122, 31)",
+                                                            "green": "rgb(48, 101, 79)"}, fills)
+    check("pictures loaded", all(page.evaluate("img => img.complete && img.naturalWidth > 0", img.element_handle())
+                                 for img in page.locator(".proj-pic img").all()))
+    check("legend is shown", page.locator(".legend-item").count() == 4)
+    check("snaps to cards", css(page, ".st-key-project_strip", "scrollSnapType").startswith("x"),
+          css(page, ".st-key-project_strip", "scrollSnapType"))
+    first = page.locator('[class*="st-key-proj_card_"]').first
+    first.hover()
+    page.wait_for_timeout(300)
+    check("hover lifts the card", css(page, '[class*="st-key-proj_card_"]', "transform") != "none")
+    page.mouse.move(5, 400)
+    page.keyboard.press("Tab")
+    shot = lambda name: page.screenshot(path=str(OUT / f"{name}{suffix}.png"))
+    page.wait_for_timeout(300)
+    shot("h1_home_top")
+    tall_shot(page, f"h1b_home_full{suffix}", height=1400)
+    page.locator('[class*="st-key-open_project_2"] button').click()
+    page.locator(".deal-title").wait_for()
+    check("clicking a card opens that deal", "Quillhaven" in page.locator(".deal-title").inner_text())
+    page.wait_for_timeout(800)
+    page.screenshot(path=str(OUT / f"h4_deal_header_with_picture{suffix}.png"), clip={"x": 0, "y": 0, "width": width, "height": 330})
+    check("the deal page shows the picture and Change photo", page.locator(".deal-thumb").count() == 1
+          and page.get_by_text("Change photo").count() == 1, (page.locator(".deal-thumb").count(),
+                                                             page.get_by_text("Change photo").count()))
+    page.locator(".st-key-nav_home button").click()
+    page.get_by_text("Your projects").wait_for()
+    check("the logo goes to Home", page.locator(".home-greeting").count() == 1)
+
+
+def check_home_scrolling(page, suffix):
+    print("Home with more projects than fit")
+    add_extra_projects()
+    page.locator(".st-key-nav_home_link button").click()
+    page.get_by_text("Your projects").wait_for()
+    page.reload()
+    page.get_by_text("Welcome back").wait_for()
+    page.get_by_role("button", name="Continue with Google").click()
+    page.get_by_text("Your projects").wait_for()
+    page.wait_for_timeout(1200)
+    no_error_box(page, "on Home with more projects")
+    colours = {c: page.locator(f'[class*="st-key-proj_card_{c}_"]').count() for c in ("red", "orange", "yellow", "green")}
+    check("all four colours appear", all(colours.values()), colours)
+    strip = ".st-key-project_strip"
+    sizes = page.evaluate(f"(() => {{ const s = document.querySelector('{strip}'); return [s.scrollWidth, s.clientWidth]; }})()")
+    check("the strip is wider than the page and scrolls inside itself", sizes[0] > sizes[1], sizes)
+    check("the page itself does not scroll sideways",
+          page.evaluate("document.documentElement.scrollWidth <= window.innerWidth + 1"))
+    shot = lambda name: page.screenshot(path=str(OUT / f"{name}{suffix}.png"))
+    shot("h2_home_four_colours")
+    page.locator('[data-strip-scroll="1"]').click()
+    page.wait_for_timeout(900)
+    moved = page.evaluate(f"document.querySelector('{strip}').scrollLeft")
+    check("the right arrow scrolls the strip", moved > 0, moved)
+    shot("h3_home_scrolled_right")
+    page.locator('[data-strip-scroll="-1"]').click()
+    page.wait_for_timeout(900)
+    check("the left arrow scrolls back", page.evaluate(f"document.querySelector('{strip}').scrollLeft") < moved)
+    page.locator(strip).hover()
+    page.mouse.wheel(600, 0)
+    page.wait_for_timeout(900)
+    left = page.evaluate(f"document.querySelector('{strip}').scrollLeft")
+    check("a sideways trackpad scroll moves the strip", left > 0, left)
 
 
 def run(page, suffix):
@@ -186,6 +300,10 @@ def run(page, suffix):
           and not any(word in card_text for word in ("Step 1", "Step 2", "Choose a role", "Analyst", "Administrator")))
     shot("0_login")
     google.click()
+    page.get_by_text("Your projects").wait_for()
+    page.wait_for_timeout(1500)
+    check_home(page, suffix, width)
+    page.locator(".st-key-nav_all_deals button").click()
     page.get_by_text("Needs your attention").wait_for()
     page.wait_for_timeout(1200)
     no_error_box(page, "on the dashboard")
@@ -754,13 +872,16 @@ def run(page, suffix):
 
     print("Going home")
     page.locator(".st-key-nav_home button").click()
+    page.get_by_text("Your projects").wait_for()
+    check("the logo goes to Home", page.locator(".home-greeting").count() == 1)
+    page.locator(".st-key-nav_all_deals button").click()
     page.get_by_text("Needs your attention").wait_for()
-    check("the logo goes to the dashboard", page.get_by_role("heading", name="All deals").count() == 1)
     page.locator('[class*="st-key-deal_card_"]').first.click()
     page.get_by_text("Extracted fields").wait_for()
     page.locator(".st-key-back_to_deals button").click()
     page.get_by_text("Needs your attention").wait_for()
     check("the breadcrumb link goes to the dashboard", page.get_by_role("heading", name="All deals").count() == 1)
+    check_home_scrolling(page, suffix)
 
 
 def overflow(page):
@@ -793,11 +914,23 @@ def run_mobile(page):
           and page.get_by_role("button", name="Continue with Microsoft").bounding_box()["y"] < 2000)
     tall_shot(page, "m_0_login", height=1300)
     page.get_by_role("button", name="Continue with Google").click()
+    page.get_by_text("Your projects").wait_for()
+    page.wait_for_timeout(1500)
+    page_ok("on Home")
+    card = box(page, '[class*="st-key-proj_card_"]')
+    check("a project card fits the phone screen", card["x"] >= 0 and card["x"] + card["width"] <= 391, card)
+    print("  info small tap targets on Home:", small_targets(page))
+    shot("h_home")
+    tall_shot(page, "m_h_home_full", height=1500)
+    page.locator(".st-key-nav_all_deals button").click()
     page.get_by_text("Needs your attention").wait_for()
     page.wait_for_timeout(1200)
     page_ok("on the dashboard")
     bar = box(page, ".st-key-topbar")
     check("the top bar fits the screen", bar["width"] <= 391 and css(page, ".st-key-topbar", "position") == "fixed", bar)
+    links = [box(page, f".st-key-{key} button") for key in ("nav_home", "nav_home_link", "nav_all_deals", "nav_connections")]
+    check("every top-bar link is fully on screen", all(l["x"] >= 0 and l["x"] + l["width"] <= 390 for l in links),
+          [round(l["x"] + l["width"]) for l in links])
     print("  info small tap targets on the dashboard:", small_targets(page))
     shot("1_dashboard")
     tall_shot(page, "m_1b_dashboard_full", height=2600)

@@ -75,3 +75,31 @@ def add_note(deal_id, text, source, db_path=None):
     if source not in NOTE_SOURCES:
         raise ValueError(f"A note's source must be one of {NOTE_SOURCES}.")
     return _write(db_path, "INSERT INTO deal_notes (deal_id, text, source) VALUES (?, ?, ?)", (deal_id, text, source))
+
+
+PHOTO_TYPES = {".png": b"\x89PNG\r\n\x1a\n", ".jpg": b"\xff\xd8\xff", ".jpeg": b"\xff\xd8\xff", ".webp": b"RIFF"}
+PHOTO_MAX_BYTES = 5 * 1024 * 1024
+
+
+def set_photo(deal_id, filename, data, db_path=None, upload_dir=None):
+    """Save a person's photo of the property and use it instead of the illustration. Returns its path.
+
+    Only PNG, JPEG or WebP up to 5 MB, and the file must really be that kind of image.
+    Earlier photos are kept on disk; the deal points at the newest.
+    """
+    suffix = Path(filename or "").suffix.lower()
+    if suffix not in PHOTO_TYPES:
+        raise ValueError("Use a PNG, JPEG or WebP picture.")
+    if len(data) > PHOTO_MAX_BYTES:
+        raise ValueError("The picture is larger than 5 MB.")
+    if not data.startswith(PHOTO_TYPES[suffix]) or (suffix == ".webp" and data[8:12] != b"WEBP"):
+        raise ValueError("That file is not a readable picture.")
+    folder = Path(upload_dir or UPLOAD_DIR) / str(deal_id) / "photos"
+    folder.mkdir(parents=True, exist_ok=True)
+    count = 1
+    while any(folder.glob(f"photo_{count}.*")):  # never overwrite an earlier photo
+        count += 1
+    path = folder / f"photo_{count}{suffix}"
+    path.write_bytes(data)
+    _write(db_path, "UPDATE deals SET photo_path = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?", (str(path), deal_id))
+    return path

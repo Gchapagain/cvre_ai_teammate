@@ -63,7 +63,7 @@ PAGE_CSS = f"""
 
 def _sign_in():
     st.session_state.user = queries.demo_user(ROLE)
-    st.session_state.page = "dashboard"
+    st.session_state.page = "home"
 
 
 def _left_panel():

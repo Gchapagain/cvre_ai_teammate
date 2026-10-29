@@ -1,0 +1,26 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 400 220" role="img" aria-label="Illustration of a row of retail shops">
+  <defs><linearGradient id="sky" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#e8f0ec"/><stop offset="1" stop-color="#f7f3e3"/></linearGradient></defs>
+  <rect width="400" height="220" fill="url(#sky)"/>
+  <circle cx="340" cy="46" r="18" fill="#c9a227" opacity="0.85"/>
+  <path d="M0 170 Q 100 156 200 166 T 400 160 V220 H0Z" fill="#cfe0d6"/>
+  <!-- building -->
+  <rect x="36" y="74" width="328" height="104" fill="#30654f"/>
+  <rect x="30" y="66" width="340" height="12" fill="#1d3c2f"/>
+  <rect x="160" y="50" width="80" height="20" fill="#1d3c2f"/><rect x="172" y="56" width="56" height="8" rx="2" fill="#c9a227"/>
+  <!-- four shopfronts with striped awnings -->
+  <g>
+    <rect x="48" y="112" width="68" height="66" fill="#c9e0d3"/><rect x="128" y="112" width="68" height="66" fill="#c9e0d3"/>
+    <rect x="208" y="112" width="68" height="66" fill="#c9e0d3"/><rect x="288" y="112" width="68" height="66" fill="#c9e0d3"/>
+    <rect x="72" y="136" width="20" height="42" fill="#1d3c2f"/><rect x="152" y="136" width="20" height="42" fill="#1d3c2f"/>
+    <rect x="232" y="136" width="20" height="42" fill="#1d3c2f"/><rect x="312" y="136" width="20" height="42" fill="#1d3c2f"/>
+  </g>
+  <g>
+    <path d="M44 92 H120 L114 110 H50 Z" fill="#c9a227"/><path d="M124 92 H200 L194 110 H130 Z" fill="#faf8fb"/>
+    <path d="M204 92 H280 L274 110 H210 Z" fill="#c9a227"/><path d="M284 92 H360 L354 110 H290 Z" fill="#faf8fb"/>
+  </g>
+  <g stroke="#1d3c2f" stroke-width="1.5" opacity="0.35"><path d="M63 92 L60 110 M82 92 L82 110 M101 92 L104 110 M143 92 L140 110 M162 92 L162 110 M181 92 L184 110 M223 92 L220 110 M242 92 L242 110 M261 92 L264 110 M303 92 L300 110 M322 92 L322 110 M341 92 L344 110"/></g>
+  <rect x="24" y="178" width="352" height="6" fill="#13271e"/>
+  <!-- lamp posts -->
+  <rect x="20" y="138" width="3" height="40" fill="#13271e"/><circle cx="21.5" cy="136" r="5" fill="#c9a227"/>
+  <rect x="377" y="138" width="3" height="40" fill="#13271e"/><circle cx="378.5" cy="136" r="5" fill="#c9a227"/>
+</svg>

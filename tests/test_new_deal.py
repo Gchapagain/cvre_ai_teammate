@@ -300,3 +300,68 @@ class TestCreateFromDraft(NewDealTestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+PNG = b"\x89PNG\r\n\x1a\n" + b"\x00" * 64
+JPEG = b"\xff\xd8\xff\xe0" + b"\x00" * 64
+
+
+class TestPhoto(NewDealTestCase):
+    def setUp(self):
+        super().setUp()
+        self.deal_id = deals.create_deal("Photo Sample Deal (test)", db_path=self.db_path)
+
+    def set_photo(self, filename, data):
+        return deals.set_photo(self.deal_id, filename, data, db_path=self.db_path, upload_dir=self.uploads)
+
+    def photo_path(self):
+        return self.rows("SELECT photo_path FROM deals WHERE id = ?", (self.deal_id,))[0]["photo_path"]
+
+    def test_a_new_deal_has_no_photo(self):
+        self.assertIsNone(self.photo_path())
+
+    def test_a_png_is_saved_and_the_deal_points_at_it(self):
+        path = self.set_photo("front.png", PNG)
+        self.assertEqual(path.read_bytes(), PNG)
+        self.assertEqual(self.photo_path(), str(path))
+
+    def test_a_second_photo_never_overwrites_the_first(self):
+        first, second = self.set_photo("a.png", PNG), self.set_photo("b.jpg", JPEG)
+        self.assertNotEqual(first, second)
+        self.assertTrue(first.exists())
+        self.assertEqual(self.photo_path(), str(second))
+
+    def test_refuses_other_types_fakes_and_large_files_and_saves_nothing(self):
+        cases = {"rent_roll.xlsx": PNG, "drawing.svg": b"<svg/>", "fake.png": b"not really a picture",
+                 "fake.jpg": PNG, "huge.png": PNG + b"\x00" * deals.PHOTO_MAX_BYTES}
+        for filename, data in cases.items():
+            with self.subTest(filename):
+                with self.assertRaises(ValueError):
+                    self.set_photo(filename, data)
+        self.assertIsNone(self.photo_path())
+        self.assertFalse((self.uploads / str(self.deal_id) / "photos").exists()
+                         and any((self.uploads / str(self.deal_id) / "photos").iterdir()))
+
+
+class TestPictures(unittest.TestCase):
+    def test_each_illustrated_type_has_its_own_picture_and_others_share_one(self):
+        from app import images
+        for property_type, name in (("Industrial", "industrial"), ("Flex", "flex"), ("Retail", "retail"),
+                                    ("Office", "other"), (None, "other")):
+            with self.subTest(property_type):
+                path = images.illustration_path(property_type)
+                self.assertEqual(path.name, f"{name}.svg")
+                self.assertTrue(path.read_text().startswith("<svg"))
+
+    def test_no_picture_uses_an_outside_source(self):
+        from app import images
+        for path in images.ILLUSTRATIONS.glob("*.svg"):
+            with self.subTest(path.name):
+                self.assertNotIn("http://", path.read_text().replace("http://www.w3.org/2000/svg", ""))
+                self.assertNotIn("https://", path.read_text())
+
+    def test_a_missing_photo_falls_back_to_the_illustration(self):
+        from app import images
+        uri, is_photo = images.picture({"photo_path": "uploads/gone/photo_1.png", "property_type": "Retail"})
+        self.assertFalse(is_photo)
+        self.assertTrue(uri.startswith("data:image/svg+xml;base64,"))

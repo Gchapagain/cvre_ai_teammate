@@ -54,6 +54,7 @@ Every source of market data is an adapter in `services/connections/`, behind one
 - Google or Microsoft OAuth proves identity only. For the prototype, both sign-in buttons log in as the made-up demo broker (Avery Sample) and the UI says it is a demo login.
 
 ## Screens (Streamlit, desktop first, responsive down to phone width)
+0. **Home** (`app/views/home.py`): the first page after sign-in. A greeting by the time of day in the person's browser timezone ("Good evening, Avery") and "N things need you today". "Your projects": one card per deal in a row that scrolls sideways (trackpad, swipe, or the ‹ › buttons, which grey out at the ends) and snaps to cards. Each card: the property picture, name, type · location, status pill, a progress bar with "x%" and "x of 7 steps", and the next step ("Next: resolve 1 flag"). Clicking a card opens the deal. Progress is calculated in `services/progress.py` from saved rows only, over seven steps: documents received, fields extracted, validation run (counted once units are saved, because validation always runs right after extraction), flags resolved, draft narrative, research reviewed (real findings only), approved. Colour by share of steps done, thresholds in `config/progress.json`: red under 25%, orange 25-69%, yellow 70-99%, green only at 100%. A legend sits under the strip. Pictures: drawn SVG illustrations per type in `static/property/` (Industrial, Flex, Retail, and one for anything else), labelled "Illustration"; "Change photo" on the deal header saves a person's own PNG / JPEG / WebP (checked, up to 5 MB) to `uploads/` and `deals.photo_path`.
 1. **Login**: two columns. Left: dark green brand panel. Right: a card with "Welcome back", "Broker sign-in" and two active buttons (Continue with Google / Microsoft). Demo login only for now.
 2. **Deals dashboard**: stat cards (active deals, needs review, time saved, anomalies) and deal cards with status pills. The stat cards are filters: clicking one shows only the matching deals, with "Showing: ..." above the list and a small Clear button. Time saved opens a note explaining it is not measured yet. Deals needing attention (Needs Review or an anomaly) come first with a coloured left border. Clicking a card opens the deal.
 3. **Deal workspace**, opened by clicking a deal, with four tabs:
@@ -71,8 +72,11 @@ Every source of market data is an adapter in `services/connections/`, behind one
 Responsive: below 760px wide the top bar becomes two rows, the login panel stacks above the sign-in card, stat cards go two per row, columns stack, and tabs scroll sideways. Tables scroll sideways inside their card. No bottom navigation or tables-as-cards. Check phones with `.venv/bin/python tools/screenshots.py mobile`.
 
 ## Data (SQLite)
+Schema version: `db.SCHEMA_VERSION`, stored in the database as `PRAGMA user_version`. **Every schema change (new table, new column, changed constraint) bumps it by one**, adds a line to the list above it in `db.py`, updates `seed.py` if the sample data needs it, and rebuilds `sample_data/demo.db`. `init_db` migrates without touching rows; the app runs it on start only when the database's version is behind.
+- 1: `deals.photo_path`
+
 Tables:
-- deals
+- deals (photo_path: a person's own photo, NULL shows the illustration)
 - deal_notes (deal_id, text, source Recording or Typed, created_at)
 - edits (deal_id, unit_id, field, old_value, new_value, reason, source Manual / AI-assisted, user, batch_id, created_at, reverted_at)
 - deal_events (the timeline: edit, undo, confirmed, approved, reopened, with user, reason and time)
@@ -92,7 +96,7 @@ Tables:
 
 ## Rules that must always hold
 - Human in the loop. Nothing leaves the system without approval.
-- Sample or synthetic data only. No real client data in the repo. The Fallowmere sample deal sits in a real submarket (Alliance, Fort Worth, TX) so research has something to find; the property, tenants and numbers are still made up.
+- Sample or synthetic data only. No real client data in the repo. The approved Brindlewick sample has a draft and one dismissed research finding, both starting with "SAMPLE" and saying they are made up, so its progress is genuinely 100%. The Fallowmere sample deal sits in a real submarket (Alliance, Fort Worth, TX) so research has something to find; the property, tenants and numbers are still made up.
 - Secrets only in .env, never committed, never printed in logs. Keys used: GEMINI_API_KEY, TAVILY_API_KEY (web research; free tier is 1,000 searches a month).
 - The AI never creates or saves a deal on its own. It drafts; a person presses Create deal.
 - Voice: a person can record or upload audio (mp3, m4a, wav) in either chat and in the New deal box. It is sent to Gemini only when Transcribe is pressed. The audio is never saved; only the transcript the person has checked is used or stored (as a deal note, source "Recording"). The UI says: "Audio is sent to Gemini for transcription and is not saved."
@@ -117,7 +121,7 @@ Tables:
 - Amber for warnings, red for flags
 - Fonts: Fraunces (headings), Public Sans (body)
 - Streamlit theme goes in `.streamlit/config.toml`. The design system lives in `app/style.py`: 8px spacing grid, 24px card padding, 12px radius, 40px buttons, 48px tabs. Use its tokens and classes instead of one-off styles.
-- A full-width dark green top bar sits across every signed-in page: sparkle, app name and an "All deals" link on the left (both go to the dashboard and clear any filter); user name, role badge and Sign out on the right.
+- A full-width dark green top bar sits across every signed-in page: sparkle and app name (goes to Home), then Home | All deals | Connections on the left (All deals clears any filter); on a phone only the sparkle shows; user name, role badge and Sign out on the right.
 - Deal pages show a breadcrumb: All deals > Deal name.
 - The Ask AI tab (a gold oval pill) and the assistant button use the gold accent with a sparkle icon so AI features are recognisable.
 

@@ -122,7 +122,7 @@ class TestAiRecommendations(AiTestCase):
         prompt = self.prompts[0]
         self.assertIn(f"[F{self.ids[('fred', 'Employment and demand')]}]", prompt)
         self.assertIn("FRED, St. Louis Fed (Tier 1, 2026-08-01): 4.4%", prompt)
-        self.assertNotIn(f"[F{self.demo_id}]", prompt)
+        self.assertNotIn(f"\n[F{self.demo_id}]", prompt)  # a finding line (the rules quote an example id)
         self.assertNotIn("SIMULATED", prompt)
         self.assertNotIn("11.1%", prompt)
 

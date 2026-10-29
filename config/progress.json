@@ -1,0 +1,5 @@
+{
+  "_about": "Colours for a deal's progress bar on Home, by percent of steps done. Below red_below is red, below orange_below is orange, anything else under 100 is yellow, and only 100 is green.",
+  "red_below": 25,
+  "orange_below": 70
+}

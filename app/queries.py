@@ -139,3 +139,38 @@ def deal_events(deal_id):
 
 def deal_documents(deal_id):
     return _all("SELECT * FROM documents WHERE deal_id = ? ORDER BY id", (deal_id,))
+
+
+def schema_version():
+    """The schema version recorded in the database (0 for one made before versions were recorded)."""
+    conn = _connect()
+    try:
+        return conn.execute("PRAGMA user_version").fetchone()[0]
+    finally:
+        conn.close()
+
+
+def projects():
+    """Every deal for the Home project strip, with the counts its progress is calculated from.
+
+    Needing attention first and approved last, like the deals list. Research counts only real
+    findings: simulated ones can never be accepted, so they never count as reviewed or waiting.
+    """
+    return _all(
+        """SELECT d.id, d.name, d.property_type, d.submarket, d.status, d.photo_path,
+                  (SELECT COUNT(*) FROM documents x WHERE x.deal_id = d.id) AS documents,
+                  (SELECT COUNT(*) FROM rent_roll_units x WHERE x.deal_id = d.id) AS units,
+                  (SELECT COUNT(*) FROM flags x WHERE x.deal_id = d.id AND x.status = 'open') AS open_flags,
+                  (SELECT COUNT(*) FROM drafts x WHERE x.deal_id = d.id) AS drafts,
+                  (SELECT COUNT(*) FROM research_findings x
+                    WHERE x.deal_id = d.id AND x.simulated = 0 AND x.status = 'new') AS findings_new,
+                  (SELECT COUNT(*) FROM research_findings x
+                    WHERE x.deal_id = d.id AND x.simulated = 0 AND x.status != 'new') AS findings_reviewed
+           FROM deals d
+           ORDER BY CASE WHEN open_flags > 0 OR d.status = 'Needs Review' THEN 0
+                         WHEN d.status = 'Approved' THEN 2 ELSE 1 END, d.id"""
+    )
+
+
+def open_flag_count():
+    return _one("SELECT COUNT(*) AS n FROM flags WHERE status = 'open'")["n"]

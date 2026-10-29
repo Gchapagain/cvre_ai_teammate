@@ -32,7 +32,7 @@ def _finish(message, kind="success"):
     """Close the dialog and show the result at the top of the dashboard."""
     st.session_state.flash = {"kind": kind, "message": message}
     nav.close_dialog()
-    nav.go_home()
+    nav.go_all_deals()
     st.rerun()
 
 

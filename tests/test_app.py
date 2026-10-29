@@ -16,6 +16,9 @@ import seed
 from services import ai_limits, gemini, qa, transcribe
 from tests.test_extraction import daily_quota_error, gemini_error
 
+# Drafts made by the tests, leaving out the sample draft seed.py gives the approved deal.
+NOT_SAMPLE = f"text NOT LIKE '{seed.SAMPLE_DRAFT_PREFIX}%'"
+
 APP = str(Path(__file__).resolve().parent.parent / "streamlit_app.py")
 
 
@@ -36,8 +39,15 @@ class AppTestCase(unittest.TestCase):
     def sign_in(self, provider="google"):
         self.app.button(key=f"sign_in_{provider}").click().run()
 
+    def go_all_deals(self):
+        self.app.button(key="nav_all_deals").click().run()
+
     def open_deal(self, name):
-        self.app.button(key=f"open_deal_{self.deals[name]}").click().run()
+        """Open a deal from the All deals list, going there first if needed (sign-in lands on Home)."""
+        key = f"open_deal_{self.deals[name]}"
+        if key not in [button.key for button in self.app.button]:
+            self.go_all_deals()
+        self.app.button(key=key).click().run()
 
     def page_text(self):
         """All markdown, headings, captions and messages on the page as one string."""
@@ -103,6 +113,7 @@ class TestDashboard(AppTestCase):
     def setUp(self):
         super().setUp()
         self.sign_in()
+        self.go_all_deals()
 
     def deal_buttons(self):
         return [button.key for button in self.app.button if button.key.startswith("open_deal_")]
@@ -150,16 +161,23 @@ class TestDashboard(AppTestCase):
     def test_page_title_is_all_deals(self):
         self.assertEqual([header.value for header in self.app.header], ["All deals"])
 
-    def test_top_bar_links_go_home_and_clear_the_filter(self):
-        for key in ("nav_home", "nav_all_deals"):
+    def test_all_deals_link_clears_the_filter(self):
+        self.click_stat("review")
+        self.open_deal("fallowmere")
+        self.app.button(key="nav_all_deals").click().run()
+        self.assertFalse(self.app.exception)
+        self.assertEqual([header.value for header in self.app.header], ["All deals"])
+        self.assertIsNone(self.app.session_state["deal_filter"])
+        self.assertEqual(len(self.deal_buttons()), 3)
+
+    def test_logo_and_home_link_go_to_home(self):
+        for key in ("nav_home", "nav_home_link"):
             with self.subTest(key):
-                self.click_stat("review")
                 self.open_deal("fallowmere")
                 self.app.button(key=key).click().run()
                 self.assertFalse(self.app.exception)
-                self.assertEqual([header.value for header in self.app.header], ["All deals"])
-                self.assertIsNone(self.app.session_state["deal_filter"])
-                self.assertEqual(len(self.deal_buttons()), 3)
+                self.assertEqual(self.app.session_state["page"], "home")
+                self.assertIn("Your projects", self.page_text())
 
     def test_top_bar_links_also_clear_a_filter_from_the_dashboard(self):
         self.click_stat("anomalies")
@@ -220,6 +238,7 @@ class TestDashboard(AppTestCase):
         labels = {button.key: button.label for button in self.app.button if not button.key.startswith("statbtn_")}
         self.assertEqual(labels, {
             "nav_home": "CBRE AI Teammate",
+            "nav_home_link": "Home",
             "nav_all_deals": "All deals",
             "nav_connections": "Connections",
             "new_deal": "New deal",
@@ -412,8 +431,9 @@ class TestDataTabDownloads(AppTestCase):
         self.assertIn("Draft narrative: none yet", text)
 
     def test_deal_without_a_t12_only_offers_the_rent_roll(self):
-        self.open_deal("brindlewick")
-        self.assertEqual(set(self.downloads()), {"download_rent_roll_csv", "download_rent_roll_xlsx", "review_download"})
+        self.open_deal("brindlewick")  # its sample draft can be downloaded too
+        self.assertEqual(set(self.downloads()), {"download_rent_roll_csv", "download_rent_roll_xlsx", "download_draft",
+                                                 "review_download"})
         self.assertIn("T-12: nothing saved for this deal yet.", self.page_text())
 
     def test_deal_with_no_numbers_offers_no_downloads(self):
@@ -737,6 +757,7 @@ class NewDealAppTestCase(unittest.TestCase):
             self.addCleanup(patcher.stop)
         self.app = AppTest.from_file(APP, default_timeout=20).run()
         self.app.button(key="sign_in_google").click().run()
+        self.app.button(key="nav_all_deals").click().run()  # sign-in lands on Home; these start from All deals
 
     def use_gemini(self, reply):
         def generate_content(**kwargs):
@@ -785,7 +806,7 @@ class TestNewDealUpload(NewDealAppTestCase):
         self.assertEqual(self.app.button_group(key="nd_mode").value, "Upload files")
         self.assertEqual(self.app.file_uploader(key="nd_files").allowed_type, [".xlsx", ".csv"])
         self.assertEqual(self.calls, [])
-        self.assertEqual(len(self.rows("SELECT id FROM deals")), 3)
+        self.assertEqual(len(self.rows(f"SELECT id FROM deals")), 3)
 
     def test_uploading_a_rent_roll_creates_the_deal_and_reads_it(self):
         from tests.test_extraction import read_source_units
@@ -795,7 +816,7 @@ class TestNewDealUpload(NewDealAppTestCase):
         self.app.button(key="nd_create_upload").click().run()
         self.assertFalse(self.app.exception)
         self.assertEqual(len(self.calls), 1)
-        deal = self.rows("SELECT * FROM deals ORDER BY id DESC LIMIT 1")[0]
+        deal = self.rows(f"SELECT * FROM deals ORDER BY id DESC LIMIT 1")[0]
         self.assertEqual((deal["name"], deal["property_type"], deal["submarket"], deal["status"]),
                          ("Made-up Depot (test)", "Industrial", "Testville", "Needs Review"))
         self.assertEqual(self.rows(f"SELECT filename, source, status FROM documents WHERE deal_id = {deal['id']} ORDER BY id"),
@@ -813,7 +834,7 @@ class TestNewDealUpload(NewDealAppTestCase):
         self.fill()
         self.app.button(key="nd_create_upload").click().run()
         self.assertFalse(self.app.exception)
-        deal = self.rows("SELECT * FROM deals ORDER BY id DESC LIMIT 1")[0]
+        deal = self.rows(f"SELECT * FROM deals ORDER BY id DESC LIMIT 1")[0]
         self.assertEqual((deal["name"], deal["status"]), ("Made-up Depot (test)", "Extracting"))
         self.assertEqual(self.rows(f"SELECT status FROM documents WHERE deal_id = {deal['id']}"), [{"status": "Received"}])
         self.assertIn("Made-up Depot (test)", self.deal_names())
@@ -829,7 +850,7 @@ class TestNewDealUpload(NewDealAppTestCase):
         self.app.file_uploader(key="nd_files").clear().run()
         self.app.button(key="nd_create_upload").click().run()
         self.assertIn("Add at least one file", self.messages()[0])
-        self.assertEqual(len(self.rows("SELECT id FROM deals")), 3)
+        self.assertEqual(len(self.rows(f"SELECT id FROM deals")), 3)
         self.assertEqual(self.calls, [])
 
 
@@ -862,8 +883,8 @@ class TestNewDealDescribe(NewDealAppTestCase):
         self.assertEqual(self.app.text_area(key="ndf_notes_1").value, "40,000 sf warehouse.\nThree tenants.")
         self.assertIn("The AI left out", self.app.warning[0].value)
         self.assertIn("$9", self.app.warning[0].value)
-        self.assertEqual(len(self.rows("SELECT id FROM deals")), 3)
-        self.assertEqual(self.rows("SELECT id FROM deal_notes"), [])
+        self.assertEqual(len(self.rows(f"SELECT id FROM deals")), 3)
+        self.assertEqual(self.rows(f"SELECT id FROM deal_notes"), [])
 
     def test_the_person_can_edit_the_draft_before_creating(self):
         self.use_gemini(self.REPLY)
@@ -874,10 +895,10 @@ class TestNewDealDescribe(NewDealAppTestCase):
         submit.click().run()
         self.assertFalse(self.app.exception)
         self.assertEqual(len(self.calls), 1)
-        deal = self.rows("SELECT * FROM deals ORDER BY id DESC LIMIT 1")[0]
+        deal = self.rows(f"SELECT * FROM deals ORDER BY id DESC LIMIT 1")[0]
         self.assertEqual((deal["name"], deal["property_type"], deal["submarket"], deal["status"]),
                          ("Oakmere Depot (edited)", "Industrial", "Fort Worth", "New"))
-        self.assertEqual(self.rows("SELECT deal_id, text, source FROM deal_notes"),
+        self.assertEqual(self.rows(f"SELECT deal_id, text, source FROM deal_notes"),
                          [{"deal_id": deal["id"], "text": "Three tenants, one leaving.", "source": "Typed"}])
         self.assertIn("Oakmere Depot (edited)", self.deal_names())
         self.assertIn("Created 'Oakmere Depot (edited)'", self.app.success[0].value)
@@ -890,7 +911,7 @@ class TestNewDealDescribe(NewDealAppTestCase):
         self.assertEqual(self.app.text_input(key="ndf_location_1").value, "")
         [b for b in self.app.button if b.label == "Create deal"][0].click().run()
         self.assertIn("Give the deal a name.", self.messages())
-        self.assertEqual(len(self.rows("SELECT id FROM deals")), 3)
+        self.assertEqual(len(self.rows(f"SELECT id FROM deals")), 3)
 
     def test_quota_used_up_shows_a_friendly_message_and_an_empty_form(self):
         self.use_gemini(daily_quota_error())
@@ -898,7 +919,7 @@ class TestNewDealDescribe(NewDealAppTestCase):
         self.assertEqual(len(self.calls), 1)
         self.assertIn("daily quota is used up", self.app.warning[0].value)
         self.assertEqual(self.app.text_input(key="ndf_name_1").value, "")
-        self.assertEqual(len(self.rows("SELECT id FROM deals")), 3)
+        self.assertEqual(len(self.rows(f"SELECT id FROM deals")), 3)
 
     def test_empty_description_is_not_sent(self):
         self.use_gemini(AssertionError("must not be called"))
@@ -930,7 +951,7 @@ class TestDraftNarrative(NewDealAppTestCase):
         self.open_fallowmere()
         self.app.button(key="draft_generate").click().run()
         self.assertFalse(self.app.exception)
-        drafts = self.rows("SELECT * FROM drafts ORDER BY id DESC")
+        drafts = self.rows(f"SELECT * FROM drafts WHERE {NOT_SAMPLE} ORDER BY id DESC")
         return drafts[0] if drafts else None
 
     def box(self, draft):
@@ -944,7 +965,7 @@ class TestDraftNarrative(NewDealAppTestCase):
         self.use_text(AssertionError("must not be called"))
         self.open_fallowmere()
         self.assertEqual(self.calls, [])
-        self.assertEqual(self.rows("SELECT id FROM drafts"), [])
+        self.assertEqual(self.rows(f"SELECT id FROM drafts WHERE {NOT_SAMPLE}"), [])
 
     def test_generate_uses_one_request_and_shows_a_labelled_unsent_draft(self):
         draft = self.generate(GOOD_DRAFT)
@@ -973,19 +994,19 @@ class TestDraftNarrative(NewDealAppTestCase):
         self.assertTrue(self.app.button(key="draft_approve").disabled)  # not while editing
         self.box(draft).set_value("The 12 units total 154,600 SF. Unit 110 needs confirmation.").run()
         self.app.button(key="draft_edit").click().run()
-        saved = self.rows("SELECT * FROM drafts")[0]
+        saved = self.rows(f"SELECT * FROM drafts WHERE {NOT_SAMPLE}")[0]
         self.assertEqual((saved["text"], saved["edited"]), ("The 12 units total 154,600 SF. Unit 110 needs confirmation.", 1))
         self.assertIn("AI-drafted, then edited by a person", self.page())
         self.assertEqual(len(self.app.error), 0)
         self.app.button(key="draft_approve").click().run()
-        self.assertEqual(self.rows("SELECT status FROM drafts"), [{"status": "Approved"}])
+        self.assertEqual(self.rows(f"SELECT status FROM drafts WHERE {NOT_SAMPLE}"), [{"status": "Approved"}])
         self.assertTrue(self.app.button(key="draft_approve").disabled)
         self.assertEqual(len(self.calls), 1)  # editing and approving never call the AI
 
     def test_flag_for_producer(self):
         self.generate(GOOD_DRAFT)
         self.app.button(key="draft_flag").click().run()
-        self.assertEqual(self.rows("SELECT status FROM drafts"), [{"status": "Flagged for producer"}])
+        self.assertEqual(self.rows(f"SELECT status FROM drafts WHERE {NOT_SAMPLE}"), [{"status": "Flagged for producer"}])
         self.assertIn("Flagged for producer", self.page())
 
     def test_download_becomes_the_draft_with_its_status(self):
@@ -1004,7 +1025,7 @@ class TestDraftNarrative(NewDealAppTestCase):
         self.generate(GOOD_DRAFT)
         self.assertEqual(self.app.button(key="draft_generate").label, "Generate a new draft")
         self.app.button(key="draft_generate").click().run()
-        self.assertEqual(len(self.rows("SELECT id FROM drafts")), 2)
+        self.assertEqual(len(self.rows(f"SELECT id FROM drafts WHERE {NOT_SAMPLE}")), 2)
         self.assertEqual(len(self.calls), 2)
 
 
@@ -1237,9 +1258,9 @@ class TestRecommendationsTab(NewDealAppTestCase):
         self.app.button(key="rec_dismiss_expiring_12_24").click().run()
         self.app.button(key="rec_note_expiring_0_12").click().run()
         self.assertFalse(self.app.exception)
-        rows = {r["rule_key"]: r["status"] for r in self.rows("SELECT rule_key, status FROM recommendations")}
+        rows = {r["rule_key"]: r["status"] for r in self.rows(f"SELECT rule_key, status FROM recommendations")}
         self.assertEqual(rows, {"flag:110:rent_per_sf_above_2x_average": "accepted", "expiring:12-24": "dismissed"})
-        note = self.rows("SELECT text, source FROM deal_notes")[0]
+        note = self.rows(f"SELECT text, source FROM deal_notes")[0]
         self.assertTrue(note["text"].startswith("Recommendation: Check renewals for 4 leases ending in the next 12 months"))
         self.assertEqual(note["source"], "Typed")
         self.assertIn("Added to the deal's notes", self.page())
@@ -1325,7 +1346,7 @@ class TestConnectionsPage(NewDealAppTestCase):
         self.app.toggle(key="switch_fred").set_value(False).run()
         self.app.toggle(key="switch_demo_costar").set_value(True).run()
         self.assertFalse(self.app.exception)
-        rows = {r["id"]: r["enabled"] for r in self.rows("SELECT id, enabled FROM connections")}
+        rows = {r["id"]: r["enabled"] for r in self.rows(f"SELECT id, enabled FROM connections")}
         self.assertEqual((rows["fred"], rows["demo_costar"]), (0, 1))
         self.assertIn('<span class="pill simulated">Demo</span>', self.page())
 
@@ -1335,7 +1356,7 @@ class TestConnectionsPage(NewDealAppTestCase):
         message = [i.value for i in self.app.info if "Zillow cannot be connected" in i.value]
         self.assertEqual(len(message), 1)
         self.assertIn("never scraped", message[0])
-        self.assertEqual(self.rows("SELECT id FROM connections WHERE id = 'demo_zillow'"), [])
+        self.assertEqual(self.rows(f"SELECT id FROM connections WHERE id = 'demo_zillow'"), [])
 
     def test_viewing_the_page_changes_nothing(self):
         before = hashlib.sha256(self.db_path.read_bytes()).hexdigest()
@@ -1401,7 +1422,7 @@ class TestVoice(NewDealAppTestCase):
         self.assertEqual(len(self.audio_calls()), 1)
         self.assertEqual(len(self.calls), 1)  # transcribed, but not yet asked
         self.assertEqual(self.app.session_state[key], [])
-        self.assertEqual(self.rows("SELECT id FROM deal_notes"), [])
+        self.assertEqual(self.rows(f"SELECT id FROM deal_notes"), [])
 
     def test_use_as_my_message_sends_the_edited_text_to_the_chat(self):
         self.use_transcript("How many units are in the building")
@@ -1423,7 +1444,7 @@ class TestVoice(NewDealAppTestCase):
         self.app.text_area(key=f"{key}_text_0").set_value("Owner wants to sell by Q2.")
         self.app.button(key=f"{key}_save_note").click().run()
         self.assertFalse(self.app.exception)
-        self.assertEqual(self.rows("SELECT deal_id, text, source FROM deal_notes"),
+        self.assertEqual(self.rows(f"SELECT deal_id, text, source FROM deal_notes"),
                          [{"deal_id": self.deals["fallowmere"], "text": "Owner wants to sell by Q2.", "source": "Recording"}])
         self.assertEqual(len(self.calls), 1)  # saving a note does not ask the AI anything
         self.assertNotIn(AUDIO, self.db_path.read_bytes())
@@ -1452,6 +1473,7 @@ class TestVoice(NewDealAppTestCase):
                 self.use_transcript(reply)
                 self.app = AppTest.from_file(APP, default_timeout=20).run()
                 self.app.button(key="sign_in_google").click().run()
+                self.app.button(key="nav_all_deals").click().run()
                 key = self.open_fallowmere()
                 self.upload_and_transcribe(key, filename, data)
                 self.assertIn(expected, self.app.warning[0].value)
@@ -1485,7 +1507,7 @@ class TestVoice(NewDealAppTestCase):
         self.assertFalse(self.app.exception)
         self.assertEqual(self.app.text_area(key="nd_description").value, "Oakmere Depot is a warehouse in Fort Worth")
         self.assertEqual(len(self.calls), 1)  # transcribed only; no draft was requested
-        self.assertEqual(len(self.rows("SELECT id FROM deals")), 3)
+        self.assertEqual(len(self.rows(f"SELECT id FROM deals")), 3)
 
 
 class TestNotes(NewDealAppTestCase):
@@ -1500,7 +1522,7 @@ class TestNotes(NewDealAppTestCase):
         self.app.text_area(key=f"new_note_{deal_id}").set_value("Seller prefers a quick close.\nCall back Friday.").run()
         self.app.button(key=f"save_note_{deal_id}").click().run()
         self.assertFalse(self.app.exception)
-        self.assertEqual(self.rows("SELECT deal_id, text, source FROM deal_notes"),
+        self.assertEqual(self.rows(f"SELECT deal_id, text, source FROM deal_notes"),
                          [{"deal_id": deal_id, "text": "Seller prefers a quick close.\nCall back Friday.", "source": "Typed"}])
         page = "\n".join(m.value for m in self.app.markdown)
         self.assertIn("Seller prefers a quick close.\nCall back Friday.", page)
@@ -1511,7 +1533,7 @@ class TestNotes(NewDealAppTestCase):
     def test_an_empty_note_is_not_saved(self):
         self.open_deal("fallowmere")
         self.app.button(key=f"save_note_{self.deals['fallowmere']}").click().run()
-        self.assertEqual(self.rows("SELECT id FROM deal_notes"), [])
+        self.assertEqual(self.rows(f"SELECT id FROM deal_notes"), [])
 
     def test_notes_show_on_a_deal_with_no_numbers_and_only_on_their_own_deal(self):
         from services import deals as deal_writes
@@ -1530,7 +1552,7 @@ class TestResolveFlags(NewDealAppTestCase):
         self.app.button(key=f"open_deal_{self.deals['fallowmere']}").click().run()
 
     def flag(self):
-        return self.rows("SELECT * FROM flags WHERE unit_number = '110' ORDER BY id")[0]
+        return self.rows(f"SELECT * FROM flags WHERE unit_number = '110' ORDER BY id")[0]
 
     def page(self):
         return "\n".join(e.value for kind in ("markdown", "caption", "success", "warning", "error")
@@ -1539,7 +1561,7 @@ class TestResolveFlags(NewDealAppTestCase):
     def test_confirm_needs_a_reason_and_a_note_and_changes_no_data(self):
         self.use_gemini(AssertionError("confirming never calls the AI"))
         self.open_fallowmere()
-        flag_id, before = self.flag()["id"], self.rows("SELECT * FROM rent_roll_units")
+        flag_id, before = self.flag()["id"], self.rows(f"SELECT * FROM rent_roll_units")
         self.app.button(key=f"confirm_btn_{flag_id}").click().run()
         key = f"confirm_{flag_id}"
         self.assertEqual(self.app.button_group(key=f"{key}_reason").options,
@@ -1551,7 +1573,7 @@ class TestResolveFlags(NewDealAppTestCase):
         self.app.button(key=f"{key}_go").click().run()
         self.assertFalse(self.app.exception)
         self.assertEqual(self.flag()["status"], "confirmed")
-        self.assertEqual(self.rows("SELECT * FROM rent_roll_units"), before)
+        self.assertEqual(self.rows(f"SELECT * FROM rent_roll_units"), before)
         page = self.page()
         self.assertIn("Reviewed: confirmed by Avery Sample", page)
         self.assertIn("Special lease - verified: Lab fit-out premium in the signed lease.", page)
@@ -1571,14 +1593,14 @@ class TestResolveFlags(NewDealAppTestCase):
         self.assertIn('<tr class="derived"><td>Annual rent</td><td>65,055.96</td><td>28,800</td><td>Recomputed: annual rent = monthly rent x 12</td>', page)
         self.assertIn("<td>Rent / SF</td><td>20.33</td><td>9</td><td>Recomputed: rent/SF = annual rent / SF</td>", page)
         self.assertTrue(self.app.button(key=f"{key}_save").disabled)  # no reason yet
-        self.assertEqual(self.rows("SELECT id FROM edits"), [])  # previewing saves nothing
+        self.assertEqual(self.rows(f"SELECT id FROM edits"), [])  # previewing saves nothing
         self.app.text_area(key=f"{key}_reason").set_value("The lease abstract shows $2,400 a month.").run()
         self.app.button(key=f"{key}_save").click().run()
         self.assertFalse(self.app.exception)
         self.assertIn("Flag cleared: Unit 110 rent/SF is $20.33", self.app.success[0].value)
         self.assertEqual(self.flag()["status"], "corrected")
         self.assertIn("Reviewed: corrected by Avery Sample", self.page())
-        self.assertEqual(len(self.rows("SELECT id FROM edits")), 3)
+        self.assertEqual(len(self.rows(f"SELECT id FROM edits")), 3)
         self.assertEqual(self.calls, [])
 
     def test_the_dashboard_counts_only_open_flags(self):
@@ -1594,7 +1616,7 @@ class TestResolveFlags(NewDealAppTestCase):
 
     def test_timeline_and_undo(self):
         from services import corrections
-        unit = self.rows("SELECT * FROM rent_roll_units WHERE unit_number = '110'")[0]
+        unit = self.rows(f"SELECT * FROM rent_roll_units WHERE unit_number = '110'")[0]
         changes, _ = corrections.plan(unit, {"monthly_rent": "2400"})
         result = corrections.apply(self.deals["fallowmere"], unit["id"], changes, "Lease abstract.", "Avery Sample", db_path=self.db_path)
         self.open_fallowmere()
@@ -1605,19 +1627,19 @@ class TestResolveFlags(NewDealAppTestCase):
         self.assertIn("Why: Lease abstract.", page)
         self.app.button(key=f"undo_{result['batch_id']}").click().run()
         self.assertFalse(self.app.exception)
-        self.assertEqual(self.rows("SELECT monthly_rent FROM rent_roll_units WHERE unit_number = '110'"), [{"monthly_rent": 5421.33}])
+        self.assertEqual(self.rows(f"SELECT monthly_rent FROM rent_roll_units WHERE unit_number = '110'"), [{"monthly_rent": 5421.33}])
         self.assertIn('<div class="event-title">Undone</div>', self.page())
         self.assertIn("1 flag to resolve", self.page())
 
     def test_edited_cells_are_marked_with_their_original_value(self):
         from app.views import review
         from services import corrections
-        unit = self.rows("SELECT * FROM rent_roll_units WHERE unit_number = '110'")[0]
+        unit = self.rows(f"SELECT * FROM rent_roll_units WHERE unit_number = '110'")[0]
         changes, _ = corrections.plan(unit, {"monthly_rent": "2400"})
         corrections.apply(self.deals["fallowmere"], unit["id"], changes, "Lease abstract.", "Avery Sample", db_path=self.db_path)
         edited = corrections.originals(self.deals["fallowmere"], self.db_path)
         units = self.rows(f"SELECT * FROM rent_roll_units WHERE deal_id = {self.deals['fallowmere']} ORDER BY id")
-        table = review.units_table(units, self.rows("SELECT * FROM flags"), edited)
+        table = review.units_table(units, self.rows(f"SELECT * FROM flags"), edited)
         self.assertEqual(table[table["Unit"] == "110"]["Edited"].iloc[0], "Monthly rent, Annual rent, Rent / SF")
         self.assertEqual(table[table["Unit"] == "110"]["Flag"].iloc[0], "Corrected")
         self.assertEqual(review._selected_cell({"selection": {"cells": [[9, "Monthly rent"]]}}), (9, "Monthly rent"))
@@ -1640,7 +1662,7 @@ class TestTellTheAi(NewDealAppTestCase):
 
     def open_fix(self):
         self.app.button(key=f"open_deal_{self.deals['fallowmere']}").click().run()
-        self.flag_id = self.rows("SELECT id FROM flags WHERE unit_number = '110'")[0]["id"]
+        self.flag_id = self.rows(f"SELECT id FROM flags WHERE unit_number = '110'")[0]["id"]
         self.app.button(key=f"fix_btn_{self.flag_id}").click().run()
 
     def ask(self, text=None):
@@ -1674,15 +1696,15 @@ class TestTellTheAi(NewDealAppTestCase):
         self.assertIn("1 suggestion could not be applied: unit 999 is not in this deal.", page)
         self.assertIn("Proposed change to unit 110", page)
         self.assertIn("Recomputed: annual rent = monthly rent x 12", page)
-        self.assertEqual(self.rows("SELECT id FROM edits"), [])
+        self.assertEqual(self.rows(f"SELECT id FROM edits"), [])
         self.app.button(key=f"ai_apply_{self.flag_id}_0").click().run()
         self.assertFalse(self.app.exception)
-        edits = self.rows("SELECT source, reason FROM edits")
+        edits = self.rows(f"SELECT source, reason FROM edits")
         self.assertEqual({e["source"] for e in edits}, {"AI-assisted"})
         self.assertEqual(edits[0]["reason"], self.TEXT)
         self.assertIn("Applied (AI-assisted).", self.app.success[0].value)
         self.assertIn("Flag cleared", self.app.success[0].value)
-        self.assertEqual(self.rows("SELECT status FROM flags WHERE unit_number = '110'")[0]["status"], "corrected")
+        self.assertEqual(self.rows(f"SELECT status FROM flags WHERE unit_number = '110'")[0]["status"], "corrected")
         self.assertEqual(len(self.calls), 1)
 
     def test_cancel_drops_the_proposal_and_saves_nothing(self):
@@ -1691,7 +1713,7 @@ class TestTellTheAi(NewDealAppTestCase):
         self.ask()
         self.app.button(key=f"ai_cancel_{self.flag_id}_0").click().run()
         self.assertNotIn("Proposed change to unit 110", self.page())
-        self.assertEqual(self.rows("SELECT id FROM edits"), [])
+        self.assertEqual(self.rows(f"SELECT id FROM edits"), [])
 
     def test_edit_opens_the_form_filled_with_the_proposal(self):
         self.reply([("110", "monthly_rent", "2400")])
@@ -1703,8 +1725,8 @@ class TestTellTheAi(NewDealAppTestCase):
         self.assertEqual(self.app.text_area(key=f"{key}_reason").value, self.TEXT)
         self.app.text_input(key=f"{key}_monthly_rent").set_value("2450").run()
         self.app.button(key=f"{key}_save").click().run()
-        self.assertEqual({e["source"] for e in self.rows("SELECT source FROM edits")}, {"AI-assisted"})
-        self.assertEqual(self.rows("SELECT monthly_rent FROM rent_roll_units WHERE unit_number = '110'"), [{"monthly_rent": 2450.0}])
+        self.assertEqual({e["source"] for e in self.rows(f"SELECT source FROM edits")}, {"AI-assisted"})
+        self.assertEqual(self.rows(f"SELECT monthly_rent FROM rent_roll_units WHERE unit_number = '110'"), [{"monthly_rent": 2450.0}])
 
     def test_an_unsure_ai_asks_a_question_and_the_answer_is_sent_back(self):
         self.reply(questions=["Which unit's rent is wrong?"])
@@ -1725,7 +1747,7 @@ class TestTellTheAi(NewDealAppTestCase):
         self.ask()
         self.assertIn("daily quota is used up", self.page())
         self.assertIn(f"fix_{self.flag_id}_monthly_rent", [t.key for t in self.app.text_input])
-        self.assertEqual(self.rows("SELECT id FROM edits"), [])
+        self.assertEqual(self.rows(f"SELECT id FROM edits"), [])
 
 
 class TestApprovalPanel(NewDealAppTestCase):
@@ -1738,7 +1760,7 @@ class TestApprovalPanel(NewDealAppTestCase):
 
     def confirm_flag(self):
         from services import corrections
-        flag_id = self.rows("SELECT id FROM flags WHERE unit_number = '110'")[0]["id"]
+        flag_id = self.rows(f"SELECT id FROM flags WHERE unit_number = '110'")[0]["id"]
         corrections.confirm_flag(flag_id, "Special lease - verified", "Checked the lease.", "Avery Sample", self.db_path)
 
     def test_the_checklist_and_a_locked_button_while_a_flag_is_open(self):
@@ -1786,7 +1808,7 @@ class TestApprovalPanel(NewDealAppTestCase):
         conn.close()
         self.open_fallowmere()
         self.app.button(key="draft_flag").click().run()
-        self.assertEqual(self.rows("SELECT status FROM drafts"), [{"status": "Flagged for producer"}])
+        self.assertEqual(self.rows(f"SELECT status FROM drafts WHERE {NOT_SAMPLE}"), [{"status": "Flagged for producer"}])
         self.assertEqual(self.rows(f"SELECT status FROM deals WHERE id = {self.deals['fallowmere']}"), [{"status": "Needs Review"}])
         self.assertIn('<li class="done">Draft narrative: Flagged for producer</li>', self.page())
 
@@ -1809,6 +1831,7 @@ class TestAppNeverChangesData(AppTestCase):
     def test_opening_and_closing_the_new_deal_dialog_changes_nothing(self):
         before = hashlib.sha256(self.db_path.read_bytes()).hexdigest()
         self.sign_in()
+        self.go_all_deals()
         self.app.button(key="new_deal").click().run()
         self.app.button_group(key="nd_mode").set_value("Describe it to the AI").run()
         self.app.button(key="nav_all_deals").click().run()
@@ -1861,3 +1884,94 @@ class TestNoSampleData(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestHome(AppTestCase):
+    def setUp(self):
+        super().setUp()
+        self.sign_in()
+
+    def test_sign_in_lands_on_home_with_a_greeting_and_what_needs_you(self):
+        self.assertFalse(self.app.exception)
+        self.assertEqual(self.app.session_state["page"], "home")
+        text = self.page_text()
+        self.assertRegex(text, r"Good (morning|afternoon|evening), Avery")
+        self.assertIn("1 thing needs you today.", text)  # the one open flag on Fallowmere
+        self.assertIn("Your projects", text)
+
+    def test_top_bar_order_is_home_all_deals_connections(self):
+        keys = [b.key for b in self.app.button if b.key.startswith("nav_")]
+        self.assertEqual(keys, ["nav_home", "nav_home_link", "nav_all_deals", "nav_connections"])
+
+    def test_one_card_per_deal_with_progress_from_the_database(self):
+        text = self.page_text()
+        for name, colour, percent, steps, next_step in (
+                ("fallowmere", "orange", 43, "3 of 7 steps", "Next: resolve 1 flag"),
+                ("quillhaven", "red", 14, "1 of 7 steps", "Next: read the rent roll"),
+                ("brindlewick", "green", 100, "7 of 7 steps", "All steps done")):
+            with self.subTest(name):
+                self.assertIn(f"open_project_{self.deals[name]}", [b.key for b in self.app.button])
+                self.assertIn(f'class="progress-fill {colour}" style="width:{percent}%"', text)
+                self.assertIn(f"<b>{percent}%</b><span>{steps}</span>", text)
+                self.assertIn(next_step, text)
+        self.assertEqual(text.count('<span class="pic-label">Illustration</span>'), 3)
+
+    def test_the_legend_explains_every_colour(self):
+        text = self.page_text()
+        for words in ("Just started", "under 25%", "Under way", "25-69%", "Nearly done", "70-99%", "Complete", "100%"):
+            self.assertIn(words, text)
+
+    def test_clicking_a_card_opens_the_deal(self):
+        self.app.button(key=f"open_project_{self.deals['quillhaven']}").click().run()
+        self.assertFalse(self.app.exception)
+        self.assertEqual(self.app.session_state["page"], "deal")
+        self.assertEqual(self.app.session_state["deal_id"], self.deals["quillhaven"])
+
+    def test_the_assistant_button_stays_on_home(self):
+        self.assertIn("open_assistant", [b.key for b in self.app.button])
+
+    def test_greeting_follows_the_time_of_day(self):
+        from datetime import datetime
+        from app.views import home
+        user = {"full_name": "Avery Sample"}
+        for hour, part in ((7, "morning"), (12, "afternoon"), (17, "afternoon"), (18, "evening"), (23, "evening")):
+            with self.subTest(hour):
+                self.assertEqual(home.greeting(user, datetime(2026, 10, 28, hour)), f"Good {part}, Avery")
+
+    def test_summary_wording(self):
+        from app.views import home
+        self.assertEqual(home.summary_line(0), "Nothing needs you right now.")
+        self.assertEqual(home.summary_line(1), "1 thing needs you today.")
+        self.assertEqual(home.summary_line(3), "3 things need you today.")
+
+
+class TestHomeNeverChangesData(AppTestCase):
+    def test_opening_home_and_a_card_leaves_the_database_file_identical(self):
+        before = hashlib.sha256(self.db_path.read_bytes()).hexdigest()
+        self.sign_in()
+        self.app.button(key=f"open_project_{self.deals['fallowmere']}").click().run()
+        self.app.button(key="nav_home").click().run()
+        self.assertFalse(self.app.exception)
+        self.assertEqual(hashlib.sha256(self.db_path.read_bytes()).hexdigest(), before)
+
+
+class TestOldDatabaseIsMigratedOnStart(unittest.TestCase):
+    def test_a_version_0_database_is_brought_up_to_date_and_keeps_its_deals(self):
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        path = Path(tmp.name) / "old.db"
+        seed.seed(path)
+        conn = db.get_connection(path)
+        with conn:
+            conn.execute("PRAGMA user_version = 0")
+        conn.close()
+        with mock.patch.object(db, "DB_PATH", path):
+            app = AppTest.from_file(APP, default_timeout=15).run()
+            app.button(key="sign_in_google").click().run()
+        self.assertFalse(app.exception)
+        conn = db.get_connection(path)
+        try:
+            self.assertEqual(db.schema_version(conn), db.SCHEMA_VERSION)
+            self.assertEqual(conn.execute("SELECT COUNT(*) FROM deals").fetchone()[0], 3)
+        finally:
+            conn.close()

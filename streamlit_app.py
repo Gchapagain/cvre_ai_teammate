@@ -28,7 +28,8 @@ fresh.ensure()  # must run before the imports below: see app/fresh.py
 
 from app import nav, queries, style  # noqa: E402
 from services import gemini  # noqa: E402
-from app.views import assistant, connections_page, dashboard, deal, login, new_deal  # noqa: E402
+import db  # noqa: E402
+from app.views import assistant, connections_page, dashboard, deal, home, login, new_deal  # noqa: E402
 
 st.set_page_config(page_title="CBRE AI Teammate", layout="wide")
 style.apply()
@@ -39,12 +40,13 @@ def _sign_out():
 
 
 def _top_bar(user):
-    """The full-width bar across the top: brand and All deals on the left; user, role and sign out on the right."""
+    """The full-width bar across the top: brand, Home, All deals and Connections on the left; user, role and
+    sign out on the right."""
     with st.container(key="topbar", horizontal=True, horizontal_alignment="distribute", vertical_alignment="center"):
         with st.container(key="topbar_nav", horizontal=True, vertical_alignment="center", width="content"):
-            # Both go to the main dashboard and clear any filter.
             st.button("CBRE AI Teammate", key="nav_home", type="tertiary", on_click=nav.go_home)
-            st.button("All deals", key="nav_all_deals", type="tertiary", on_click=nav.go_home)
+            st.button("Home", key="nav_home_link", type="tertiary", on_click=nav.go_home)
+            st.button("All deals", key="nav_all_deals", type="tertiary", on_click=nav.go_all_deals)
             st.button("Connections", key="nav_connections", type="tertiary", on_click=nav.open_connections)
         with st.container(key="topbar_user", horizontal=True, vertical_alignment="center", width="content"):
             if gemini.simulated():
@@ -60,6 +62,8 @@ if not queries.database_ready():
     st.warning("There is no sample data yet. Stop the app, run this in the project folder, then start it again:")
     st.code(".venv/bin/python seed.py --reset")
     st.stop()
+if queries.schema_version() < db.SCHEMA_VERSION:
+    db.init_db()  # a database from an older version: add the new tables and columns (never touches the rows)
 
 user = st.session_state.get("user")
 if user is None:
@@ -70,7 +74,9 @@ else:
         deal.render()
     elif st.session_state.get("page") == "connections":
         connections_page.render()
-    else:
+    elif st.session_state.get("page") == "dashboard":
         dashboard.render()
+    else:
+        home.render()
     assistant.render()
     new_deal.render_dialog()

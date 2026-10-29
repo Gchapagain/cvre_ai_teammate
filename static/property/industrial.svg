@@ -1,0 +1,23 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 400 220" role="img" aria-label="Illustration of an industrial warehouse">
+  <defs><linearGradient id="sky" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#e8f0ec"/><stop offset="1" stop-color="#f7f3e3"/></linearGradient></defs>
+  <rect width="400" height="220" fill="url(#sky)"/>
+  <circle cx="330" cy="52" r="20" fill="#c9a227" opacity="0.85"/>
+  <path d="M0 168 Q 80 150 160 162 T 400 156 V220 H0Z" fill="#cfe0d6"/>
+  <!-- warehouse body with a sawtooth roof -->
+  <path d="M48 96 L88 72 L88 96 L128 72 L128 96 L168 72 L168 96 L208 72 L208 96 L248 72 L248 96 L288 72 L288 96 L328 72 L328 178 L48 178 Z" fill="#30654f"/>
+  <path d="M88 72 L88 96 M128 72 L128 96 M168 72 L168 96 M208 72 L208 96 M248 72 L248 96 M288 72 L288 96" stroke="#1d3c2f" stroke-width="3"/>
+  <rect x="48" y="96" width="280" height="10" fill="#1d3c2f"/>
+  <!-- loading doors -->
+  <g fill="#e8f0ec" stroke="#1d3c2f" stroke-width="2">
+    <rect x="70" y="128" width="40" height="50"/><rect x="124" y="128" width="40" height="50"/>
+    <rect x="178" y="128" width="40" height="50"/><rect x="232" y="128" width="40" height="50"/>
+  </g>
+  <g stroke="#9fbcaa" stroke-width="2"><path d="M72 140 H108 M72 152 H108 M72 164 H108 M126 140 H162 M126 152 H162 M126 164 H162 M180 140 H216 M180 152 H216 M180 164 H216 M234 140 H270 M234 152 H270 M234 164 H270"/></g>
+  <!-- office corner -->
+  <rect x="286" y="118" width="42" height="60" fill="#1d3c2f"/>
+  <rect x="294" y="128" width="26" height="14" fill="#c9a227"/><rect x="294" y="150" width="26" height="14" fill="#c9a227" opacity="0.7"/>
+  <rect x="40" y="178" width="300" height="6" fill="#13271e"/>
+  <!-- truck -->
+  <rect x="346" y="150" width="38" height="24" rx="3" fill="#c9a227"/><rect x="384" y="158" width="12" height="16" rx="2" fill="#1d3c2f"/>
+  <circle cx="356" cy="178" r="5" fill="#13271e"/><circle cx="388" cy="178" r="5" fill="#13271e"/>
+</svg>

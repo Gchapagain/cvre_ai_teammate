@@ -38,7 +38,8 @@ CREATE TABLE IF NOT EXISTS deals (
     created_at    TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at    TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
     approved_by   TEXT,  -- the person who approved the deal, or NULL
-    approved_at   TEXT
+    approved_at   TEXT,
+    photo_path    TEXT   -- a person's own photo of the property; NULL shows the illustration for its type
 );
 
 -- source: where the file came from (Upload or Email).
@@ -281,6 +282,16 @@ CREATE INDEX IF NOT EXISTS idx_research_briefs_job   ON research_briefs(job_id);
 """
 
 
+# Goes up by one with every schema change (new table, new column, changed constraint), and the change
+# is described here. init_db stores it in the database (PRAGMA user_version) after migrating.
+#   1: deals.photo_path
+SCHEMA_VERSION = 1
+
+
+def schema_version(conn):
+    return conn.execute("PRAGMA user_version").fetchone()[0]
+
+
 def get_connection(db_path=None):
     """Open a connection with foreign keys on and dict-style rows."""
     conn = sqlite3.connect(db_path or DB_PATH)
@@ -311,7 +322,7 @@ ADDED_COLUMNS = {
         ("status", "TEXT NOT NULL DEFAULT 'open'"),
         ("resolved_by", "TEXT"), ("resolved_at", "TEXT"), ("resolution_reason", "TEXT"), ("resolution_note", "TEXT"),
     ],
-    "deals": [("approved_by", "TEXT"), ("approved_at", "TEXT")],
+    "deals": [("approved_by", "TEXT"), ("approved_at", "TEXT"), ("photo_path", "TEXT")],
     "research_findings": [
         ("connection_id", "TEXT NOT NULL DEFAULT 'web_search_tavily'"),
         ("simulated", "INTEGER NOT NULL DEFAULT 0"),
@@ -367,13 +378,14 @@ def _make_users_broker_only(conn):
 
 
 def init_db(db_path=None):
-    """Create all tables if they do not exist yet, and add any columns a newer version needs."""
+    """Create all tables if they do not exist yet, add any columns a newer version needs, and record the version."""
     conn = get_connection(db_path)
     try:
         _make_users_broker_only(conn)
         _retire_old_drafts_table(conn)
         _add_missing_columns(conn)
         conn.executescript(SCHEMA)
+        conn.execute(f"PRAGMA user_version = {SCHEMA_VERSION}")
         conn.commit()
     finally:
         conn.close()

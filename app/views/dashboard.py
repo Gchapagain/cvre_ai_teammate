@@ -57,7 +57,7 @@ def _time_saved_panel():
             "- compare that with how long the same prep takes by hand. That baseline has to come from the "
             "team or CBRE, and none has been collected yet."
         )
-        st.button("Close", key="close_time_saved", on_click=nav.go_home)
+        st.button("Close", key="close_time_saved", on_click=nav.go_all_deals)
 
 
 def card_kind(deal):
@@ -94,7 +94,7 @@ def _filtered_list(deals, name):
     with st.container(key="filter_bar", horizontal=True, vertical_alignment="center"):
         st.markdown(f'<div class="showing">Showing: {escape(FILTERS[name][0])} ({len(shown)})</div>',
                     unsafe_allow_html=True, width="content")
-        st.button("Clear", key="clear_filter", icon=":material/close:", on_click=nav.go_home)
+        st.button("Clear", key="clear_filter", icon=":material/close:", on_click=nav.go_all_deals)
     if not shown:
         st.info("No deals match this filter.")
     for deal in shown:

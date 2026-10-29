@@ -7,6 +7,7 @@ Every name and number is made up.
 """
 
 import argparse
+import json
 import sys
 from datetime import datetime
 from pathlib import Path
@@ -117,6 +118,29 @@ def add_t12(conn, deal_id, document_id, items):
     )
 
 
+SAMPLE_SOURCE = "Sample data"
+SAMPLE_DRAFT_PREFIX = "SAMPLE draft"
+
+
+def add_finished_steps(conn, deal_id):
+    """The approved sample deal went through every step, so it has a draft and reviewed research.
+
+    Both say plainly that they are made up for the demo. The draft has no figures (nothing to check),
+    and the finding was dismissed, so it is never used in a narrative or sent to the AI.
+    """
+    conn.execute(
+        "INSERT INTO drafts (deal_id, text, status) VALUES (?, ?, 'Approved')",
+        (deal_id, f"{SAMPLE_DRAFT_PREFIX}, made up for the demo. This fictional retail row was reviewed and approved by the "
+                  "demo broker. See the Review tab for the rent roll figures as extracted."))
+    sources = json.dumps([{"name": "Sample data (fictional, no real source)", "url": None, "tier": None,
+                           "date": None, "figure": None, "metric": None}])
+    conn.execute(
+        "INSERT INTO research_findings (deal_id, topic, summary, sources, status, connection_id) "
+        "VALUES (?, 'Vacancy', ?, ?, 'dismissed', ?)",
+        (deal_id, "SAMPLE finding, made up for the demo: a reviewed research card for a fictional submarket. "
+                  "It was dismissed, so it is not used anywhere.", sources, SAMPLE_SOURCE))
+
+
 def seed(db_path=None):
     """Delete the database at db_path and rebuild it from sample data. Returns the deal IDs."""
     path = Path(db_path or db.DB_PATH)
@@ -146,6 +170,7 @@ def seed(db_path=None):
             # The sample Approved deal records who approved it, like any approval would.
             conn.execute("UPDATE deals SET approved_by = ?, approved_at = CURRENT_TIMESTAMP WHERE id = ?",
                          (DEMO_USERS[0][1], brindlewick))
+            add_finished_steps(conn, brindlewick)
     finally:
         conn.close()
 
