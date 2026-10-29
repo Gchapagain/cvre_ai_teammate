@@ -185,11 +185,56 @@ def _empty(filtered):
                f"emails and anything waiting for you will appear here.</div></div>")
 
 
+def _show_filter(chip):
+    st.session_state.feed_filter = chip
+
+
+def _agenda(rows, now):
+    meetings = feed.todays_meetings(rows, now)
+    with st.container(key="rail_today"):
+        style.html(f'<div class="rail-title">Today<span>{now:%a %b %d}</span></div>'.replace(" 0", " "))
+        if not meetings:
+            style.html('<div class="rail-empty">No meetings today.</div>')
+        lines = []
+        for meeting in meetings:
+            deal = f' · {escape(feed.short_name(meeting["deal_name"]))}' if meeting["deal_name"] else ""
+            sample = '<span class="chip sample">Sample</span>' if meeting["sample"] else ""
+            state = "done" if meeting["status"] == "ended" else "now" if "now" in meeting["status"] else ""
+            lines.append(f'<li class="agenda-item {state}"><span class="agenda-time">{feed.clock(meeting["start"])}</span>'
+                         f'<span class="agenda-body"><span class="agenda-title">{escape(meeting["title"])}</span>'
+                         f'<span class="agenda-meta">{escape(meeting["client_name"] or "")}{deal}</span>'
+                         f'<span class="agenda-status">{escape(meeting["status"])} {sample}</span></span></li>')
+        if lines:
+            style.html(f'<ul class="agenda">{"".join(lines)}</ul>')
+
+
+def _waiting(items):
+    lines = feed.waiting_summary(items)
+    with st.container(key="rail_waiting"):
+        style.html('<div class="rail-title">Waiting on you</div>')
+        if not lines:
+            style.html('<div class="rail-empty">Nothing is waiting.</div>')
+        for label, count, chip in lines:
+            key = label.lower().replace(" ", "_")
+            st.button(f"{label} **{count}**", key=f"rail_{key}", type="tertiary", on_click=_show_filter, args=(chip,),
+                      help=f"Show {chip.lower()} in the feed", width="stretch")
+
+
 @st.fragment(run_every=REFRESH_SECONDS)
 def render(now_fn):
-    """The feed. Re-runs by itself every 60 seconds, reading only the database."""
+    """The feed and the right rail. Re-run by themselves every 60 seconds, reading only the database."""
     now = now_fn()
-    items = feed.build(queries.feed_rows(), now)
+    rows = queries.feed_rows()
+    items = feed.build(rows, now)
+    main, rail = st.columns([2.1, 1], gap="large")
+    with main:
+        _feed(items, now)
+    with rail, st.container(key="home_rail"):
+        _agenda(rows, now)
+        _waiting(items)
+
+
+def _feed(items, now):
     with st.container(key="feed_head", horizontal=True, horizontal_alignment="distribute", vertical_alignment="center"):
         st.markdown('<div class="home-section">What needs you</div>', unsafe_allow_html=True, width="content")
         with st.container(key="feed_tools", horizontal=True, width="content", vertical_alignment="center"):
@@ -201,7 +246,8 @@ def render(now_fn):
     if flash:
         st.success(flash)
     counts = feed.counts(items)
-    choice = st.pills("Show", list(feed.FILTERS), default="All", key="feed_filter", label_visibility="collapsed",
+    st.session_state.setdefault("feed_filter", "All")  # set here, not as a default, so the rail can change it
+    choice = st.pills("Show", list(feed.FILTERS), key="feed_filter", label_visibility="collapsed",
                       format_func=lambda name: f"{name} {counts[name]}")
     kind = feed.FILTERS.get(choice or "All")
     groups = feed.grouped(items, kind)

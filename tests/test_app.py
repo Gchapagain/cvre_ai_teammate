@@ -2124,3 +2124,37 @@ class TestHomeEmptyFeed(HomeTestCase):
         self.assertIn("You're all caught up", text)
         self.assertIn("Nothing needs you right now.", text)
         self.assertEqual(self.app.button(key="nav_bell").label, "0")
+
+
+class TestHomeRail(HomeTestCase):
+    def test_today_lists_todays_meetings_in_time_order(self):
+        text = self.page_text()
+        self.assertIn("Wed Oct 28", text)
+        self.assertLess(text.index("Coffee with a prospective client"), text.index('<span class="agenda-title">Client call'))
+        self.assertIn('<span class="agenda-status">in 1 hour', text)
+
+    def test_waiting_on_you_counts_and_opens_the_matching_filter(self):
+        labels = {b.key: b.label for b in self.app.button if b.key.startswith("rail_")}
+        self.assertEqual(labels, {"rail_open_flags": "Open flags **1**", "rail_deals_to_review": "Deals to review **1**",
+                                  "rail_documents_not_read_yet": "Documents not read yet **1**",
+                                  "rail_new_emails": "New emails **3**"})
+        self.app.button(key="rail_new_emails").click().run()
+        self.assertFalse(self.app.exception)
+        self.assertEqual(self.app.session_state["feed_filter"], "Email")
+        keys = [b.key for b in self.app.button if b.key.startswith("feedbtn_")]
+        self.assertTrue(keys and all("_email_" in k for k in keys), keys)
+        self.assertFalse(self.app.warning)  # no Streamlit warning about setting the filter
+
+    def test_the_floating_ai_button_stays_on_home(self):
+        self.assertIn("open_assistant", [b.key for b in self.app.button])
+
+
+class TestHomeNeverWrites(HomeTestCase):
+    def test_showing_filtering_and_refreshing_home_leaves_the_database_file_identical(self):
+        before = hashlib.sha256(self.db_path.read_bytes()).hexdigest()
+        self.app.run()
+        self.app.button(key="rail_open_flags").click().run()
+        self.app.session_state["feed_filter"] = "Meetings"
+        self.app.run()
+        self.assertFalse(self.app.exception)
+        self.assertEqual(hashlib.sha256(self.db_path.read_bytes()).hexdigest(), before)

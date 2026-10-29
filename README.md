@@ -11,6 +11,7 @@ The AI Teammate does the document-heavy prep work a broker does before pricing a
 | Area | What you can do |
 |---|---|
 | **Login** | Sign in as the demo broker (Avery Sample). Demo login only, no real Google or Microsoft sign-in yet. |
+| **Home** | The first page after sign-in. A greeting, a scrolling strip of your projects with a progress bar per deal (red, orange, yellow, green only at 100%), a feed of what needs you (open flags, things waiting, meetings, emails) with filters and read / snooze / dismiss, today's agenda, and a **Prep brief** button on meetings. A bell in the top bar shows what is unread. |
 | **All deals** | Stat cards that filter the list, deals needing attention first, and **+ New deal** (upload a rent roll / T-12, or describe the deal to the AI). |
 | **Review tab** | Decision card per flag: **fix it** (with a before/after preview) or **confirm it** (with a reason). Edit any extracted value, see the original, undo. Deal snapshot, key takeaways, sources, draft narrative, market research, activity timeline, and **approval**. |
 | **Data tab** | Download the rent roll and T-12 as CSV or Excel, and the draft narrative as text. |
@@ -59,7 +60,7 @@ Without a key, that feature shows "Not set up" and explains where to get one. Ev
    ```
 3. Reboot the app.
 
-The deployed app uses the committed sample database `sample_data/demo.db`. To rebuild it after changing the sample data:
+The deployed app uses the committed sample database `sample_data/demo.db`. The schema has a version number (`SCHEMA_VERSION` in `db.py`); the app brings an older database up to date when it starts. To rebuild it after changing the sample data or the schema:
 
 ```bash
 CBRE_DB_PATH=sample_data/demo.db .venv/bin/python seed.py --reset
@@ -77,7 +78,7 @@ CBRE_DB_PATH=sample_data/demo.db .venv/bin/python seed.py --reset
 
 **AI usage and limits**
 - Gemini is only called when you click a button. Opening pages never calls it.
-- The free Gemini tier allows about **20 requests a day**. Each of these uses one: a chat message, Generate draft, Generate recommendations, Understand my correction, a transcription, drafting a new deal, reading an uploaded rent roll, and summarising research.
+- The free Gemini tier allows about **20 requests a day**. Each of these uses one: a chat message, a meeting **Prep brief**, Generate draft, Generate recommendations, Understand my correction, a transcription, drafting a new deal, reading an uploaded rent roll, and summarising research.
 - Run research also uses up to 4 Tavily searches and a few official-data calls, and reuses results for 24 hours.
 - **Rate limits** protect that quota. Before any AI request the app checks two limits, and if one is reached it shows the reason ("Try again in about 40 minutes") and does not contact Gemini:
 
@@ -91,6 +92,8 @@ CBRE_DB_PATH=sample_data/demo.db .venv/bin/python seed.py --reset
 **Known limits of the prototype**
 - **Demo login:** anyone with the link signs in as the demo broker. There is one user type, Broker.
 - **T-12 files are saved but not read yet**; only rent rolls are extracted.
+- **No real inbox or calendar yet.** Home's meetings and emails are made-up samples, each with a "Sample" chip, and they move with the calendar so there are always meetings today. "Add to deal" records an email's attachments as Received documents but downloads no file. Gmail and Calendar show "Not connected" on Connections.
+- **Home refreshes from the database every 60 seconds**; the bell and the greeting count catch up on the next click.
 - **No occupancy, cap rate, valuation or "time saved" figures are shown**, because none can be calculated from the data or has been measured.
 - **Not tested live:** the outside APIs (Tavily, FRED, BLS, Census, Gemini web search) and Gemini's handling of real corrections have only been tested with simulated replies. Their request formats are the first thing to check with real keys.
 - **Gemini web search** may not be available on a free Gemini key; if not, that source shows "Source unavailable" and the others still run.
@@ -105,7 +108,8 @@ CBRE_DB_PATH=sample_data/demo.db .venv/bin/python seed.py --reset
 streamlit_app.py        Entry point: settings, login, top bar, page routing
 db.py                   SQLite schema and safe migrations
 seed.py                 Loads the sample data (needs --reset)
-app/views/              Screens (dashboard, deal, review, recommendations, connections, ...)
+app/views/              Screens (home, feed_view, dashboard, deal, review, recommendations, connections, ...)
+static/property/        Drawn property illustrations (SVG) used until a real photo is added
 app/style.py            Design system (8px grid, colours, fonts)
 services/               Logic with no UI:
   extraction.py           rent roll -> Gemini -> checked JSON -> SQLite
@@ -117,6 +121,10 @@ services/               Logic with no UI:
   recommendations.py      rule-based and AI recommendations
   research.py, connections/   market research sources (adapters)
   gemini.py               shared Gemini access, retries, quota handling
+  progress.py             project progress steps and colours (thresholds in config/progress.json)
+  feed.py                 the Home feed, built live from the database
+  notifications.py        Home's writes: read / snooze / dismiss, meetings, emails
+  briefs.py               meeting prep briefs (1 Gemini request) + number check
   ai_limits.py            rate limits on AI requests (daily for the app, hourly per session)
 config/                 Trusted source tiers, official data series per market
 sample_data/            Fictional rent roll and T-12, and demo.db for deployment

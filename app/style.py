@@ -515,6 +515,42 @@ table.preview tr.derived td { background: var(--gold-tint); }
   font-size: 0.75rem; font-weight: 700; line-height: 18px; }
 .st-key-nav_bell button:hover { background: rgba(255, 255, 255, 0.12); }
 .st-key-nav_bell button:focus-visible { box-shadow: var(--focus); }
+/* Right rail: Today's agenda and Waiting on you. It stays in view while the feed scrolls (desktop). */
+/* Streamlit wraps the rail in a box only as tall as the rail, so that wrapper is what sticks (inside the
+   column, which is as tall as the feed). */
+[data-testid="stLayoutWrapper"]:has(> .st-key-home_rail) { position: sticky; top: calc(var(--topbar-h) + var(--s2)); }
+.st-key-home_rail { gap: var(--s2) !important; margin-top: var(--s2); }
+.st-key-rail_today, .st-key-rail_waiting { background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius);
+  padding: var(--s2) var(--s3) !important; box-shadow: var(--shadow); gap: 4px !important; }
+.st-key-rail_today { border-top: 3px solid var(--green-mid); }
+.st-key-rail_waiting { border-top: 3px solid var(--amber); }
+.st-key-rail_today [data-testid="stMarkdownContainer"], .st-key-rail_waiting [data-testid="stMarkdownContainer"] { margin-bottom: 0; }
+.rail-title { font-family: 'Fraunces', Georgia, serif; font-size: 1.15rem; font-weight: 600; color: var(--green);
+  display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 4px; }
+.rail-title span { font-family: 'Public Sans', sans-serif; font-size: 0.8rem; font-weight: 500; color: var(--ink-soft); }
+.rail-empty { color: var(--ink-soft); font-size: 0.9rem; padding: 4px 0; }
+.agenda { list-style: none; margin: 0; padding: 0; }
+.agenda-item { display: flex; gap: 12px; padding: 10px 0; border-top: 1px solid #eee9f0; }
+.agenda-item:first-child { border-top: none; }
+.agenda-time { flex: 0 0 64px; font-weight: 700; color: var(--green); font-size: 0.88rem; white-space: nowrap; }
+.agenda-body { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.agenda-title { font-weight: 600; color: var(--ink); }
+.agenda-meta { font-size: 0.82rem; color: var(--ink-soft); }
+.agenda-status { font-size: 0.78rem; color: var(--green-mid); font-weight: 600; display: flex; align-items: center; gap: 6px; }
+.agenda-item.done .agenda-time, .agenda-item.done .agenda-title { color: #8b958f; }
+.agenda-item.done .agenda-status { color: #8b958f; font-weight: 500; }
+.agenda-item.now .agenda-status { color: var(--gold-ink); }
+[class*="st-key-rail_"] .stButton button { justify-content: space-between; min-height: 36px; padding: 0 4px;
+  border: none; border-top: 1px solid #eee9f0; border-radius: 0; background: none; }
+[class*="st-key-rail_"] .stButton button > div, [class*="st-key-rail_"] .stButton button span,
+[class*="st-key-rail_"] .stButton button [data-testid="stMarkdownContainer"] { width: 100%; }
+[class*="st-key-rail_"] .stButton button p { width: 100%; display: flex; justify-content: space-between; align-items: center;
+  color: var(--ink); font-size: 0.92rem; text-align: left; }
+[class*="st-key-rail_"] .stButton button p strong { background: var(--amber-tint); color: var(--amber-ink); border-radius: var(--pill);
+  padding: 1px 9px; font-size: 0.8rem; line-height: 1.4; min-width: 26px; text-align: center; }
+[class*="st-key-rail_open_flags"] .stButton button p strong { background: var(--red-tint); color: var(--red-ink); }
+[class*="st-key-rail_"] .stButton button:hover { background: var(--green-tint); }
+
 /* A flag card opened from Home is outlined for a moment. */
 [class*="st-key-flagcard_open_"].flag-focus { box-shadow: 0 0 0 3px var(--gold), var(--shadow-hover); transition: box-shadow 0.3s; }
 
@@ -576,6 +612,7 @@ table.preview tr.derived td { background: var(--gold-tint); }
   .st-key-nav_home_link button { padding: 0 8px; }
   [class*="st-key-feeditem_"] { padding: 12px 14px !important; }
   .feed-when { margin-left: 0; width: 100%; order: 10; }
+  [data-testid="stLayoutWrapper"]:has(> .st-key-home_rail) { position: static; }
   .st-key-nav_bell button { padding: 0 6px; }
   .st-key-nav_home_link button p { font-size: 0.9rem; }
   .st-key-fab::before { display: none; }  /* no hover on a phone */

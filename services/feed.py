@@ -294,3 +294,36 @@ def needs_you(items):
 
 def unread(items):
     return sum(1 for item in items if not item.read)
+
+
+# ---- Right rail ----
+
+# "Waiting on you": one line per kind of thing, the filter chip it opens, and which item keys it counts.
+WAITING_LINES = (
+    ("Open flags", "Flags", "flag:"),
+    ("Deals to review", "Waiting", "review:"),
+    ("Documents not read yet", "Waiting", "doc:"),
+    ("AI drafts to approve", "Waiting", "draft:"),
+    ("Deals with research to review", "Waiting", "research:"),
+    ("New emails", "Email", "email:"),
+)
+
+
+def todays_meetings(rows, now):
+    """Today's meetings in time order, for the agenda: every one, even if its feed card was dismissed."""
+    now = now.replace(tzinfo=None)
+    agenda = []
+    for meeting in rows["meetings"]:
+        start = local(meeting["starts_at"], meeting["source"], now.date())
+        end = local(meeting["ends_at"], meeting["source"], now.date())
+        if start.date() == now.date():
+            agenda.append({"id": meeting["id"], "start": start, "end": end, "title": meeting["title"],
+                           "deal_name": meeting["deal_name"], "client_name": meeting["client_name"],
+                           "sample": meeting["source"] == "Sample", "status": countdown(start, end, now)})
+    return sorted(agenda, key=lambda m: (m["start"], m["id"]))
+
+
+def waiting_summary(items):
+    """[(label, count, filter chip)] for the kinds of thing that have at least one item in the feed."""
+    lines = [(label, sum(1 for i in items if i.key.startswith(prefix)), chip) for label, chip, prefix in WAITING_LINES]
+    return [line for line in lines if line[1]]

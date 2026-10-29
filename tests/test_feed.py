@@ -319,3 +319,23 @@ class TestSchema(FeedTestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestRail(FeedTestCase):
+    def test_todays_agenda_is_every_meeting_today_in_time_order(self):
+        from app import queries
+        agenda = feed.todays_meetings(queries.feed_rows(), AT_2PM)
+        self.assertEqual([(m["title"], feed.clock(m["start"]), m["status"]) for m in agenda],
+                         [("Coffee with a prospective client", "8:30 AM", "ended"), ("Client call", "3:00 PM", "in 1 hour")])
+        self.assertTrue(all(m["sample"] for m in agenda))
+
+    def test_a_dismissed_meeting_card_stays_on_the_agenda(self):
+        from app import queries
+        notifications.dismiss("meeting:1", LOCAL_2PM, self.db_path)
+        self.assertIsNone(self.item("meeting:1"))
+        self.assertIn("Client call", [m["title"] for m in feed.todays_meetings(queries.feed_rows(), AT_2PM)])
+
+    def test_waiting_summary_counts_each_kind_and_skips_empty_ones(self):
+        summary = feed.waiting_summary(self.items())
+        self.assertEqual(summary, [("Open flags", 1, "Flags"), ("Deals to review", 1, "Waiting"),
+                                   ("Documents not read yet", 1, "Waiting"), ("New emails", 3, "Email")])
