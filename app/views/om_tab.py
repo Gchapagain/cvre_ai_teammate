@@ -3,16 +3,18 @@ person's approval, and how every number was calculated. Showing it never writes;
 """
 
 from html import escape
+from pathlib import Path
 
 import streamlit as st
 
-from app import om_status, style
-from services import om_engine, om_slots
+from app import om_status, queries, style
+from services import om_engine, om_export, om_slots
 
 STATUS_LABELS = {"empty": "Missing", "auto-filled": "Auto-filled", "ai-draft": "AI draft",
                  "broker-provided": "From you", "approved": "Approved"}
 STATUS_PILLS = {"empty": "flag", "auto-filled": "needs-review", "ai-draft": "needs-review",
                 "broker-provided": "needs-review", "approved": "approved"}
+PPTX_MIME = "application/vnd.openxmlformats-officedocument.presentationml.presentation"
 SOURCE_LABELS = {"document_field": "From the deal's documents", "calculated": "Calculated", "broker_input": "Broker input",
                  "broker_photo": "Broker photo", "ai_text": "AI draft", "research": "Research", "fixed": "Fixed wording"}
 
@@ -112,6 +114,46 @@ def _approved(state):
             _how(item)
 
 
+def _download(path, label, mime, key):
+    if path and Path(path).exists():
+        st.download_button(label, Path(path).read_bytes(), file_name=Path(path).name, mime=mime, key=key,
+                           icon=":material/download:")
+
+
+def _export(state, deal):
+    style.section_title("Export")
+    blockers = om_export.final_blockers(state)
+    st.caption("PowerPoint is the master file; the PDF is made from it. A draft always works: it carries the DRAFT mark "
+               "and a red MISSING box for anything not filled in. No AI is used (0 Gemini requests).")
+    draft_col, final_col = st.columns(2)
+    kind = None
+    with draft_col:
+        if st.button("Export draft", key="om_export_draft", icon=":material/description:", width="stretch"):
+            kind = "draft"
+    with final_col:
+        if st.button("Export client-ready", key="om_export_final", icon=":material/verified:", width="stretch",
+                     disabled=bool(blockers), type="primary"):
+            kind = "final"
+    if blockers:
+        st.caption(f"Client-ready export unlocks at 100% approved ({len(blockers)} item{'s' if len(blockers) != 1 else ''} "
+                   "still missing or waiting for approval).")
+    if kind:
+        with st.spinner("Building the PowerPoint and the PDF..."):
+            result = om_export.export(deal["id"], queries.om_facts(deal["id"]), kind, _user())
+        st.session_state[f"om_export_{deal['id']}"] = result
+    result = st.session_state.get(f"om_export_{deal['id']}")
+    if result:
+        st.success(f"Version {result['version']} ({result['kind_label']}), "
+                   f"{result['slides']} slides, {result['completion']}% approved.")
+        left, right = st.columns(2)
+        with left:
+            _download(result["pptx"], "PowerPoint (.pptx)", PPTX_MIME, "om_dl_pptx")
+        with right:
+            _download(result["pdf"], "PDF", "application/pdf", "om_dl_pdf")
+        if result["pdf_error"]:
+            st.warning(result["pdf_error"])
+
+
 def render(deal):
     state = om_status.state(deal["id"])
     style.html(completion_bar_html(state))
@@ -122,6 +164,7 @@ def render(deal):
     with left:
         _missing(state)
     with right:
+        _export(state, deal)
         _waiting(state, deal["id"])
         _approved(state)
     st.caption(f"{count} slides from the template '{state.template.name}'. Numbers are calculated in code from this deal's "
