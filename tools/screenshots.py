@@ -298,6 +298,48 @@ def check_feed(page, suffix):
     page.wait_for_timeout(400)
 
 
+def open_om_tab(page, deal_name):
+    page.locator(".st-key-nav_all_deals button").click()
+    page.get_by_text("Needs your attention").wait_for()
+    page.locator('[class*="st-key-deal_card_"]', has_text=deal_name).locator("button").first.click()
+    page.locator(".deal-title").wait_for()
+    page.get_by_role("tab", name="OM", exact=True).click()
+    page.locator(".om-head").wait_for()
+    page.wait_for_timeout(1000)
+
+
+def check_om(page, suffix):
+    print("OM Builder (Stage 1)")
+    check("Home cards show an OM badge", page.locator('[class*="st-key-proj_card_"] .om-badge').count() == 3)
+    open_om_tab(page, "Quillhaven")
+    no_error_box(page, "on the OM tab")
+    check("a deal with almost nothing is at 0%", page.locator(".om-percent").inner_text().strip() == "0%")
+    check("the missing list is long and required first", page.locator(".om-item.required").count() > 15
+          and "required" in page.locator(".om-item").first.get_attribute("class"))
+    check("the deal header shows the OM badge", page.locator(".deal-pills .om-badge").count() == 1)
+    tall_shot(page, f"o1_om_tab_0pct{suffix}", height=2400)
+    open_om_tab(page, "Fallowmere")
+    check("deal cards show an OM badge", True)
+    before = page.locator(".om-percent").inner_text().strip()
+    page.locator('[class*="st-key-om_wait_property_total_sf"]').get_by_text("How is this calculated?").click()
+    page.wait_for_timeout(500)
+    check("How is this calculated? shows the sum", "154,600 SF" in page.locator('[class*="st-key-om_wait_property_total_sf"]').inner_text())
+    page.locator('[class*="st-key-om_wait_property_total_sf"]').scroll_into_view_if_needed()
+    page.screenshot(path=str(OUT / f"o2_om_how_calculated{suffix}.png"))
+    for slot in ("property_name", "property_type", "property_total_sf"):
+        page.locator(f'.st-key-om_approve_{slot} button').click()
+        page.wait_for_timeout(1200)
+    after = page.locator(".om-percent").inner_text().strip()
+    check("approving items raises the OM %", after != before and after != "0%", (before, after))
+    page.mouse.wheel(0, -5000)
+    page.wait_for_timeout(500)
+    tall_shot(page, f"o3_om_tab_partial{suffix}", height=2400)
+    no_error_box(page, "after approving OM items")
+    page.locator(".st-key-nav_home button").click()
+    page.get_by_text("Your projects").wait_for()
+    page.wait_for_timeout(800)
+
+
 def clear_everything_waiting():
     """In the script's own database only: resolve and clear everything, so Home has nothing to show."""
     import sqlite3
@@ -311,6 +353,18 @@ def clear_everything_waiting():
         conn.execute("UPDATE emails SET status = 'dismissed'")
         conn.execute("DELETE FROM meetings")
     conn.close()
+    # Unfinished OMs stay in the feed (correctly); dismiss what is left, as a person could from the menu.
+    sys.path.insert(0, str(ROOT))
+    from datetime import datetime
+    from unittest import mock
+    import db
+    from app import queries
+    from services import feed, notifications
+    path = OUT / "tmp" / "screenshots.db"
+    with mock.patch.object(db, "DB_PATH", path):
+        for item in feed.build(queries.feed_rows(), datetime.now()):
+            if item.can_hide:
+                notifications.dismiss(item.key, datetime.now(), path)
 
 
 def check_empty_feed(page, suffix):
@@ -397,6 +451,7 @@ def run(page, suffix):
     page.wait_for_timeout(1500)
     check_home(page, suffix, width)
     check_feed(page, suffix)
+    check_om(page, suffix)
     page.locator(".st-key-nav_all_deals button").click()
     page.get_by_text("Needs your attention").wait_for()
     page.wait_for_timeout(1200)
@@ -464,11 +519,13 @@ def run(page, suffix):
           and page.get_by_role("button", name="Show all deals").count() == 0)
     page.get_by_role("button", name="Active deals").click()
     page.get_by_text("Showing: Active deals (2)").wait_for()
+    page.wait_for_timeout(700)  # let the list finish drawing before counting
     check("active deals filter lists 2", page.locator('[class*="st-key-deal_card_"]').count() == 2)
     page.get_by_role("button", name="Anomalies").click()
     page.get_by_text("Showing: Anomalies (1)").wait_for()
     page.get_by_role("button", name="Time saved").click()
     page.get_by_text("Time saved is not measured yet.").wait_for()
+    page.wait_for_timeout(700)  # let the list finish drawing before counting
     check("time saved panel keeps every deal listed", page.locator('[class*="st-key-deal_card_"]').count() == 3)
     page.wait_for_timeout(400)
     shot("6_time_saved_panel")
@@ -476,11 +533,13 @@ def run(page, suffix):
     page.get_by_text("Showing: Needs Review (1)").wait_for()
     page.get_by_role("button", name="Clear").click()
     page.get_by_text("Needs your attention").wait_for()
+    page.wait_for_timeout(700)  # let the list finish drawing before counting
     check("Clear resets the list", page.locator('[class*="st-key-deal_card_"]').count() == 3)
     page.get_by_role("button", name="Anomalies").click()
     page.get_by_text("Showing: Anomalies (1)").wait_for()
     page.locator(".st-key-nav_all_deals button").click()
     page.get_by_text("Needs your attention").wait_for()
+    page.wait_for_timeout(700)  # let the list finish drawing before counting
     check("All deals in the top bar clears the filter", page.locator('[class*="st-key-deal_card_"]').count() == 3)
     no_error_box(page, "after using the filters")
 
@@ -570,7 +629,7 @@ def run(page, suffix):
     no_error_box(page, "on the deal page")
     tabs = page.get_by_role("tab")
     heights = [round(tab.bounding_box()["height"]) for tab in tabs.all()]
-    check("five tabs, each at least 44px tall", len(heights) == 5 and min(heights) >= 44, heights)
+    check("six tabs, each at least 44px tall", len(heights) == 6 and min(heights) >= 44, heights)
     check("tab text is 16px", css(page, '.stTabs [role="tab"] p', "fontSize") == "16px")
     ai = '.stTabs [role="tab"]:last-of-type'
     check("Ask AI is gold", css(page, ai, "backgroundColor") == "rgb(201, 162, 39)", css(page, ai, "backgroundColor"))
@@ -840,8 +899,8 @@ def run(page, suffix):
     no_error_box(page, "on the Recommendations tab")
     tabs = page.get_by_role("tab")
     labels = [t.inner_text() for t in tabs.all()]
-    check("tabs are Review, Documents, Data, Recommendations, Ask AI",
-          len(labels) == 5 and all(word in label for word, label in zip(("Review", "Documents", "Data", "Recommendations", "Ask AI"), labels))
+    check("tabs are Review, Documents, Data, Recommendations, OM, Ask AI",
+          len(labels) == 6 and all(word in label for word, label in zip(("Review", "Documents", "Data", "Recommendations", "OM", "Ask AI"), labels))
           and css(page, '.stTabs [role="tab"]:last-of-type', "backgroundColor") == "rgb(201, 162, 39)")
     panel = page.get_by_role("tabpanel")
     rule_cards, ai_cards = panel.locator('[class*="st-key-rec_rule_"]'), panel.locator('[class*="st-key-rec_ai_"]')
@@ -1042,7 +1101,7 @@ def run_mobile(page):
     shot("2_deal_top")
     tall_shot(page, "m_2b_deal_review_full", height=7000)
     tabs = page.get_by_role("tab")
-    check("all five tabs can be reached", tabs.count() == 5)
+    check("all six tabs can be reached", tabs.count() == 6)
     tabs.nth(3).scroll_into_view_if_needed()
     tabs.nth(3).click()
     page.get_by_text("AI suggestions. A person decides.").wait_for()

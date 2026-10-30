@@ -19,6 +19,8 @@ RULE_NAMES = {
     "invalid_date": "a date cannot be read",
     "lease_end_before_start": "the lease ends before it starts",
     "duplicate_unit_id": "the unit ID appears more than once",
+    "annual_rent_not_sf_times_rate": "annual rent is not SF x rent per SF",
+    "unit_rents_do_not_sum_to_total": "the unit rents do not add up to the rent roll's total",
 }
 
 

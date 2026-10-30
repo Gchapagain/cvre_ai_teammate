@@ -1,0 +1,275 @@
+{
+  "id": "om_v1",
+  "name": "Standard Offering Memorandum (v1)",
+  "about": "Our own OM template. Slots are defined once and placed on slides by id. Edit wording here; see CLAUDE.md > OM Builder for how to add a slot or a slide.",
+  "sections": [
+    {"id": "exec", "number": "01", "title": "Executive Summary"},
+    {"id": "property", "number": "02", "title": "Property Overview"},
+    {"id": "market", "number": "03", "title": "Market Overview"},
+    {"id": "financial", "number": "04", "title": "Financial Analysis"},
+    {"id": "tenant", "number": "05", "title": "Tenant Summary"}
+  ],
+  "slots": {
+    "cover.title": {
+      "label": "Cover title", "type": "boilerplate", "source": "fixed", "required": false,
+      "boilerplate": "cover_title", "why": "Fixed wording on every OM cover."
+    },
+    "property.name": {
+      "label": "Property name", "type": "text", "source": "document_field", "required": true, "auto": "deal.name",
+      "why": "The name buyers will know the property by, on the cover and in every footer.",
+      "broker_question": "What name should the OM use for the property?",
+      "client_question": "Could you confirm the exact property name you would like us to market it under?",
+      "answer_by": ["broker", "client"], "topic": "Property details", "priority": "high",
+      "validation": {"kind": "text", "min_length": 3}
+    },
+    "property.address": {
+      "label": "Street address", "type": "text", "source": "broker_input", "required": true, "auto": "deal.address",
+      "why": "Buyers need the exact address on the cover and the features table.",
+      "broker_question": "What is the property's street address?",
+      "client_question": "Could you confirm the full street address of the property, including the suite or building numbers if there are several?",
+      "answer_by": ["broker", "client", "document"], "topic": "Property details", "priority": "high",
+      "validation": {"kind": "text", "min_length": 5}
+    },
+    "property.city_state": {
+      "label": "City and state", "type": "text", "source": "broker_input", "required": true,
+      "why": "Used on the cover and in the footer of every slide (\"Property | City, ST\").",
+      "broker_question": "Which city and state is the property in? (for example: Fort Worth, TX)",
+      "client_question": "Could you confirm the city and state the property is in?",
+      "answer_by": ["broker", "client"], "topic": "Property details", "priority": "high",
+      "validation": {"kind": "city_state"}
+    },
+    "photo.hero": {
+      "label": "Cover photo", "type": "photo", "source": "broker_photo", "required": true, "photo_kinds": ["exterior", "aerial"], "count": 1,
+      "why": "The first thing a buyer sees. A clear exterior or aerial shot of the whole property.",
+      "broker_question": "Please upload one strong exterior or aerial photo for the cover.",
+      "client_question": "Do you have a recent high-quality exterior or aerial photo of the property we may use on the cover?",
+      "answer_by": ["broker", "client"], "topic": "Photos", "priority": "high"
+    },
+    "disclosures.text": {
+      "label": "Disclosures", "type": "boilerplate", "source": "fixed", "required": false,
+      "boilerplate": "disclosures", "why": "Fixed legal wording. Edit only in config/om_boilerplate.json."
+    },
+    "contents.list": {
+      "label": "Contents", "type": "auto", "source": "calculated", "required": false, "auto": "calc.contents",
+      "why": "Built from the sections."
+    },
+    "photo.divider_exec": {
+      "label": "Executive Summary divider photo", "type": "photo", "source": "broker_photo", "required": false, "photo_kinds": ["exterior", "aerial", "interior"], "count": 1,
+      "why": "Optional. A plain green divider is used without it.",
+      "broker_question": "Optional: a photo for the Executive Summary divider page.",
+      "answer_by": ["broker"], "topic": "Photos", "priority": "low"
+    },
+    "offering.narrative": {
+      "label": "The Offering", "type": "text", "source": "ai_text", "required": true,
+      "why": "A short summary of what is for sale and why it is attractive, written from this deal's data.",
+      "broker_question": "Write two or three sentences on what is being offered, or let the AI draft it from the deal's data.",
+      "answer_by": ["broker"], "topic": "Offering", "priority": "high",
+      "validation": {"kind": "text", "min_length": 80}
+    },
+    "photo.offering": {
+      "label": "Offering photos", "type": "photo", "source": "broker_photo", "required": true, "photo_kinds": ["exterior", "interior"], "count": 2,
+      "why": "Two photos next to The Offering text.",
+      "broker_question": "Please upload two exterior or interior photos for The Offering page.",
+      "client_question": "Could you share a few recent exterior and interior photos of the property?",
+      "answer_by": ["broker", "client"], "topic": "Photos", "priority": "medium"
+    },
+    "highlights.upside": {
+      "label": "Highlights: immediate upside", "type": "bullets", "source": "ai_text", "required": true,
+      "why": "Why a buyer could add value quickly (for example leases rolling to market).",
+      "broker_question": "List two or three reasons a buyer could add value soon, or let the AI draft them.",
+      "answer_by": ["broker"], "topic": "Offering", "priority": "high", "validation": {"kind": "bullets", "min_items": 2}
+    },
+    "highlights.location_building": {
+      "label": "Highlights: location and building", "type": "bullets", "source": "ai_text", "required": true,
+      "why": "What is good about the site and the building.",
+      "broker_question": "List two or three location or building features, or let the AI draft them.",
+      "answer_by": ["broker"], "topic": "Offering", "priority": "high", "validation": {"kind": "bullets", "min_items": 2}
+    },
+    "highlights.rare": {
+      "label": "Highlights: rare opportunity", "type": "bullets", "source": "ai_text", "required": true,
+      "why": "What makes this offering hard to find.",
+      "broker_question": "List one to three things that make this offering unusual, or let the AI draft them.",
+      "answer_by": ["broker"], "topic": "Offering", "priority": "high", "validation": {"kind": "bullets", "min_items": 1}
+    },
+    "photo.highlights_aerial": {
+      "label": "Highlights aerial", "type": "photo", "source": "broker_photo", "required": true, "photo_kinds": ["aerial"], "count": 1,
+      "why": "An aerial next to the highlights. The AI cannot make aerials: they need licensed imagery.",
+      "broker_question": "Please upload an aerial photo of the property.",
+      "client_question": "Do you have a recent aerial photo of the property we may use? If not, we can arrange one.",
+      "answer_by": ["broker", "client"], "topic": "Photos", "priority": "medium"
+    },
+    "photo.divider_property": {
+      "label": "Property Overview divider photo", "type": "photo", "source": "broker_photo", "required": false, "photo_kinds": ["exterior", "aerial", "interior"], "count": 1,
+      "why": "Optional. A plain green divider is used without it.", "broker_question": "Optional: a photo for the Property Overview divider page.",
+      "answer_by": ["broker"], "topic": "Photos", "priority": "low"
+    },
+    "property.type": {
+      "label": "Property type", "type": "text", "source": "document_field", "required": true, "auto": "deal.property_type",
+      "why": "Shown in the features table.", "broker_question": "What type of property is it (Industrial, Flex, Retail, ...)?",
+      "answer_by": ["broker"], "topic": "Property details", "priority": "high", "validation": {"kind": "text", "min_length": 3}
+    },
+    "property.buildings": {
+      "label": "Number of buildings", "type": "text", "source": "broker_input", "required": true,
+      "why": "Buyers compare single- and multi-building sites differently.",
+      "broker_question": "How many buildings are on the site?",
+      "client_question": "How many separate buildings are on the property?",
+      "answer_by": ["broker", "client"], "topic": "Building", "priority": "medium", "validation": {"kind": "integer", "min": 1, "max": 200}
+    },
+    "property.total_sf": {
+      "label": "Total SF", "type": "kpi", "source": "calculated", "required": true, "auto": "calc.total_sf",
+      "why": "The building size every per-SF figure is based on.", "answer_by": ["document"], "priority": "high"
+    },
+    "property.avg_unit_size": {
+      "label": "Average unit size", "type": "kpi", "source": "calculated", "required": true, "auto": "calc.avg_unit_size",
+      "why": "Tells buyers the typical tenant size.", "answer_by": ["document"], "priority": "medium"
+    },
+    "property.bay_doors": {
+      "label": "Bay doors", "type": "text", "source": "broker_input", "required": false,
+      "why": "Optional. Industrial buyers look for dock-high and drive-in doors. Left off the slide if unknown.",
+      "broker_question": "How many dock-high and drive-in doors are there? (for example: 24 dock-high, 6 drive-in)",
+      "client_question": "Could you tell us how many dock-high and drive-in doors the buildings have?",
+      "answer_by": ["broker", "client"], "topic": "Building", "priority": "low", "validation": {"kind": "text", "min_length": 1}
+    },
+    "property.clear_height": {
+      "label": "Clear height", "type": "text", "source": "broker_input", "required": false,
+      "why": "Optional. Matters for warehouse use. Left off the slide if unknown.",
+      "broker_question": "What is the clear height? (for example: 24')",
+      "client_question": "Do you know the clear height inside the buildings?",
+      "answer_by": ["broker", "client"], "topic": "Building", "priority": "low", "validation": {"kind": "text", "min_length": 1}
+    },
+    "property.land_size": {
+      "label": "Land size", "type": "text", "source": "broker_input", "required": true,
+      "why": "Buyers value land and parking; it is a standard line in the features table.",
+      "broker_question": "How large is the site? (acres)",
+      "client_question": "Could you confirm the size of the land parcel, in acres if you have it?",
+      "answer_by": ["broker", "client", "document"], "topic": "Building", "priority": "medium", "validation": {"kind": "acres"}
+    },
+    "property.year_built": {
+      "label": "Year built / renovated", "type": "text", "source": "broker_input", "required": true,
+      "why": "Age and renovations drive a buyer's capital plan.",
+      "broker_question": "What year was it built, and any year of major renovation? (for example: 1998 / 2019)",
+      "client_question": "What year was the property built, and has it had any major renovations (roof, HVAC, parking) since?",
+      "answer_by": ["broker", "client", "document"], "topic": "Building", "priority": "medium", "validation": {"kind": "year_built"}
+    },
+    "property.leased_pct": {
+      "label": "Current occupancy (% leased)", "type": "kpi", "source": "calculated", "required": true, "auto": "calc.leased_pct",
+      "why": "Leased SF as a share of total SF, from the rent roll.", "answer_by": ["document"], "priority": "high"
+    },
+    "photo.features": {
+      "label": "Features photo", "type": "photo", "source": "broker_photo", "required": true, "photo_kinds": ["exterior", "interior"], "count": 1,
+      "why": "A photo beside the features table.", "broker_question": "Please upload one more exterior or interior photo for the features page.",
+      "client_question": "Could you share a few recent exterior and interior photos of the property?",
+      "answer_by": ["broker", "client"], "topic": "Photos", "priority": "medium"
+    },
+    "photo.site_plan": {
+      "label": "Site plan", "type": "photo", "source": "broker_photo", "required": true, "photo_kinds": ["site_plan", "aerial"], "count": 1,
+      "why": "Shows the buildings, parking and access. The AI cannot draw site plans: please upload one.",
+      "broker_question": "Please upload a site plan (or an aerial with the site outlined).",
+      "client_question": "Do you have a site plan or survey of the property you could share?",
+      "answer_by": ["broker", "client", "document"], "topic": "Photos", "priority": "medium"
+    },
+    "photo.grid": {
+      "label": "Photo page", "type": "photo", "source": "broker_photo", "required": true, "photo_kinds": ["exterior", "interior"], "count": 4,
+      "why": "Four photos so buyers can see the property before touring.", "broker_question": "Please upload four exterior or interior photos.",
+      "client_question": "Could you share a few recent exterior and interior photos of the property?",
+      "answer_by": ["broker", "client"], "topic": "Photos", "priority": "medium"
+    },
+    "photo.divider_market": {
+      "label": "Market Overview divider photo", "type": "photo", "source": "broker_photo", "required": false, "photo_kinds": ["aerial", "map", "exterior"], "count": 1,
+      "why": "Optional. A plain green divider is used without it.", "broker_question": "Optional: a photo for the Market Overview divider page.",
+      "answer_by": ["broker"], "topic": "Photos", "priority": "low"
+    },
+    "location.narrative": {
+      "label": "Location overview", "type": "text", "source": "research", "required": true,
+      "why": "Where the property sits and what drives demand there, from cited research and the broker.",
+      "broker_question": "Describe the location in two or three sentences (access, nearby demand drivers), or run research and let the AI draft it.",
+      "answer_by": ["broker"], "topic": "Market", "priority": "high", "validation": {"kind": "text", "min_length": 80}
+    },
+    "photo.location_aerial": {
+      "label": "Location aerial", "type": "photo", "source": "broker_photo", "required": true, "photo_kinds": ["aerial", "map"], "count": 1,
+      "why": "Shows the property in its surroundings. The AI cannot make maps: they need licensed imagery.",
+      "broker_question": "Please upload an aerial or map showing the property and nearby roads.",
+      "client_question": "Do you have an aerial or location map of the property and the roads around it?",
+      "answer_by": ["broker", "client"], "topic": "Photos", "priority": "medium"
+    },
+    "photo.regional_aerial": {
+      "label": "Regional aerial", "type": "photo", "source": "broker_photo", "required": false, "photo_kinds": ["aerial", "map"], "count": 1,
+      "why": "Optional. A wider view of the region.", "broker_question": "Optional: a regional aerial or map.",
+      "answer_by": ["broker"], "topic": "Photos", "priority": "low"
+    },
+    "photo.divider_financial": {
+      "label": "Financial Analysis divider photo", "type": "photo", "source": "broker_photo", "required": false, "photo_kinds": ["exterior", "aerial", "interior"], "count": 1,
+      "why": "Optional. A plain green divider is used without it.", "broker_question": "Optional: a photo for the Financial Analysis divider page.",
+      "answer_by": ["broker"], "topic": "Photos", "priority": "low"
+    },
+    "financial.sale_price": {
+      "label": "Sale price", "type": "kpi", "source": "broker_input", "required": true,
+      "why": "The asking price. Only the broker sets it; the AI never does. Price per SF and cap rates are calculated from it.",
+      "broker_question": "What is the asking price? (only you set this; a BOV value, if any, is shown as a suggestion)",
+      "answer_by": ["broker"], "topic": "Pricing", "priority": "high", "validation": {"kind": "currency", "min": 1000}
+    },
+    "financial.price_per_sf": {
+      "label": "Price per SF", "type": "kpi", "source": "calculated", "required": true, "auto": "calc.price_per_sf",
+      "why": "Sale price divided by total SF.", "answer_by": ["broker"], "priority": "high"
+    },
+    "financial.cap_rate_y4": {
+      "label": "Year-4 cap rate", "type": "kpi", "source": "calculated", "required": true, "auto": "calc.cap_rate_y4",
+      "why": "Projected year-4 NOI divided by the sale price, from approved assumptions.", "answer_by": ["broker"], "priority": "high"
+    },
+    "photo.financial": {
+      "label": "Pricing page photo", "type": "photo", "source": "broker_photo", "required": false, "photo_kinds": ["exterior", "aerial"], "count": 1,
+      "why": "Optional photo beside the price tiles.", "broker_question": "Optional: a photo for the pricing page.",
+      "answer_by": ["broker"], "topic": "Photos", "priority": "low"
+    },
+    "financial.cash_flow": {
+      "label": "Cash flow projections", "type": "table", "source": "calculated", "required": true, "auto": "calc.cash_flow",
+      "why": "In-place plus five years, calculated from the T-12, the rent roll and approved assumptions only.",
+      "answer_by": ["broker", "document"], "priority": "high"
+    },
+    "financial.assumptions_note": {
+      "label": "Leasing assumptions note", "type": "text", "source": "calculated", "required": true, "auto": "calc.assumptions_note",
+      "why": "Lists the approved assumptions so the projections can be explained.", "answer_by": ["broker"], "priority": "medium"
+    },
+    "photo.divider_tenant": {
+      "label": "Tenant Summary divider photo", "type": "photo", "source": "broker_photo", "required": false, "photo_kinds": ["exterior", "interior"], "count": 1,
+      "why": "Optional. A plain green divider is used without it.", "broker_question": "Optional: a photo for the Tenant Summary divider page.",
+      "answer_by": ["broker"], "topic": "Photos", "priority": "low"
+    },
+    "tenant.rent_roll": {
+      "label": "Tenant rent roll", "type": "table", "source": "document_field", "required": true, "auto": "calc.rent_roll_table",
+      "why": "Every unit, tenant, size, lease dates and rent, from the rent roll.", "answer_by": ["document"], "priority": "high"
+    },
+    "contacts.list": {
+      "label": "Investment contacts", "type": "text", "source": "calculated", "required": true, "auto": "calc.contacts",
+      "why": "Who buyers call. Taken from your profile (name, title, phone, email).",
+      "broker_question": "Please complete your profile in Settings (title and phone).",
+      "answer_by": ["broker"], "topic": "Contacts", "priority": "medium"
+    },
+    "backcover.text": {
+      "label": "Back cover notice", "type": "boilerplate", "source": "fixed", "required": false,
+      "boilerplate": "back_cover", "why": "Fixed wording. Edit only in config/om_boilerplate.json."
+    }
+  },
+  "slides": [
+    {"id": "cover", "layout": "cover", "title": "Cover", "section": "exec", "slots": ["property.name", "property.address", "property.city_state", "photo.hero", "cover.title"]},
+    {"id": "disclosures", "layout": "boilerplate", "title": "Disclosures", "section": "exec", "slots": ["disclosures.text"]},
+    {"id": "contents", "layout": "contents", "title": "Contents", "section": "exec", "slots": ["contents.list"]},
+    {"id": "divider_exec", "layout": "divider", "title": "01 Executive Summary", "section": "exec", "slots": ["photo.divider_exec"]},
+    {"id": "offering", "layout": "narrative_photo", "title": "The Offering", "section": "exec", "slots": ["offering.narrative", "photo.offering"]},
+    {"id": "highlights", "layout": "bullets_photo", "title": "Investment Highlights", "section": "exec", "slots": ["highlights.upside", "highlights.location_building", "highlights.rare", "photo.highlights_aerial"]},
+    {"id": "divider_property", "layout": "divider", "title": "02 Property Overview", "section": "property", "slots": ["photo.divider_property"]},
+    {"id": "features", "layout": "features_photo", "title": "Property Features", "section": "property", "slots": ["property.name", "property.address", "property.type", "property.buildings", "property.total_sf", "property.avg_unit_size", "property.bay_doors", "property.clear_height", "property.land_size", "property.year_built", "property.leased_pct", "photo.features"]},
+    {"id": "site_plan", "layout": "full_photo", "title": "Site Plan", "section": "property", "slots": ["photo.site_plan"]},
+    {"id": "photos", "layout": "photo_grid", "title": "Property Photos", "section": "property", "slots": ["photo.grid"]},
+    {"id": "divider_market", "layout": "divider", "title": "03 Market Overview", "section": "market", "slots": ["photo.divider_market"]},
+    {"id": "location", "layout": "narrative_photo", "title": "Location Overview", "section": "market", "slots": ["location.narrative", "photo.location_aerial"]},
+    {"id": "regional", "layout": "full_photo", "title": "Regional Aerial", "section": "market", "slots": ["photo.regional_aerial"], "only_if_filled": "photo.regional_aerial"},
+    {"id": "divider_financial", "layout": "divider", "title": "04 Financial Analysis", "section": "financial", "slots": ["photo.divider_financial"]},
+    {"id": "pricing", "layout": "kpi_tiles", "title": "Investment Price Overview", "section": "financial", "slots": ["financial.sale_price", "property.leased_pct", "financial.cap_rate_y4", "financial.price_per_sf", "photo.financial"]},
+    {"id": "cash_flow", "layout": "financial_table", "title": "Cash Flow Projections", "section": "financial", "slots": ["financial.cash_flow", "financial.assumptions_note"]},
+    {"id": "divider_tenant", "layout": "divider", "title": "05 Tenant Summary", "section": "tenant", "slots": ["photo.divider_tenant"]},
+    {"id": "rent_roll", "layout": "rent_roll_table", "title": "Tenant Rent Roll", "section": "tenant", "slots": ["tenant.rent_roll", "financial.assumptions_note"]},
+    {"id": "back_cover", "layout": "contacts", "title": "Investment Contacts", "section": "exec", "slots": ["contacts.list", "backcover.text"]}
+  ],
+  "slide_limits": {"min": 18, "max": 25}
+}

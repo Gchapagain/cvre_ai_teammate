@@ -33,6 +33,11 @@ class CorrectionsTestCase(unittest.TestCase):
     def flags(self):
         return self.rows("SELECT * FROM flags WHERE deal_id = ? ORDER BY id", (self.deal_id,))
 
+    def outlier_flags(self):
+        """Only the rent/SF outlier flags. Changing a rent also changes whether the units add up to the rent
+        roll's stated total, which is its own flag (see TestStatedTotal)."""
+        return [f for f in self.flags() if f["rule"] == validation.RULE_RENT_OUTLIER]
+
     def save(self, unit, values, reason="Checked the signed lease.", source=corrections.MANUAL):
         changes, errors = corrections.plan(unit, values)
         self.assertEqual(errors, [])
@@ -138,7 +143,7 @@ class TestUndo(CorrectionsTestCase):
         self.assertEqual((unit["monthly_rent"], unit["annual_rent"], unit["rent_per_sf"]), (5421.33, 65055.96, 20.33))
         self.assertTrue(all(e["reverted_at"] for e in self.rows("SELECT * FROM edits")))
         self.assertEqual([e["kind"] for e in self.rows("SELECT kind FROM deal_events ORDER BY id")], ["edit", "undo"])
-        flags = self.flags()
+        flags = self.outlier_flags()
         self.assertEqual([(f["status"], f["resolved_by"]) for f in flags], [("open", None)])  # the same row, open again
         self.assertEqual(corrections.originals(self.deal_id, self.db_path), {})
 
@@ -195,7 +200,7 @@ class TestValidationKeepsDecisions(CorrectionsTestCase):
     def test_a_changed_value_that_no_longer_fires_is_corrected_and_kept(self):
         flag_id = self.flags()[0]["id"]
         self.save(self.unit, {"monthly_rent": "2400"})
-        flags = self.flags()
+        flags = self.outlier_flags()
         self.assertEqual([(f["id"], f["status"]) for f in flags], [(flag_id, "corrected")])
         self.assertIn("no longer fires", flags[0]["resolution_reason"])
 
@@ -214,7 +219,7 @@ class TestValidationKeepsDecisions(CorrectionsTestCase):
         flag_id = self.flags()[0]["id"]
         self.save(self.unit, {"monthly_rent": "2400"})
         self.save(self.unit_row("110"), {"monthly_rent": "5421.33"})
-        self.assertEqual([(f["id"], f["status"], f["resolution_reason"]) for f in self.flags()], [(flag_id, "open", None)])
+        self.assertEqual([(f["id"], f["status"], f["resolution_reason"]) for f in self.outlier_flags()], [(flag_id, "open", None)])
         self.assertEqual([e["kind"] for e in self.rows("SELECT kind FROM deal_events ORDER BY id")], ["edit", "edit"])
 
     def test_rerunning_validation_never_deletes_a_flag(self):
@@ -296,3 +301,20 @@ class TestApproval(CorrectionsTestCase):
     def test_the_sample_approved_deal_records_its_approver(self):
         deal = self.rows("SELECT status, approved_by FROM deals WHERE id = ?", (self.deals["brindlewick"],))[0]
         self.assertEqual(deal, {"status": "Approved", "approved_by": "Avery Sample"})
+
+
+class TestStatedTotal(CorrectionsTestCase):
+    def total_flags(self):
+        return [f for f in self.flags() if f["rule"] == validation.RULE_RENT_TOTAL]
+
+    def test_the_sample_units_add_up_to_the_rent_rolls_total_row(self):
+        self.assertEqual(self.total_flags(), [])
+
+    def test_correcting_a_rent_opens_a_total_flag_and_undo_resolves_it(self):
+        result = self.save(self.unit, {"monthly_rent": "2400"})
+        [flag] = self.total_flags()
+        self.assertEqual(flag["status"], "open")
+        self.assertIn("but the rent roll's total row says $1,366,485.96", flag["message"])
+        corrections.undo(result["batch_id"], USER, self.db_path)
+        self.assertEqual([f["status"] for f in self.total_flags()], ["corrected"])  # kept in history
+

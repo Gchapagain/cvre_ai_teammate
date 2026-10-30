@@ -6,6 +6,7 @@ because the data is bad.
 """
 
 import math
+import sqlite3
 from collections import Counter
 from dataclasses import dataclass
 from datetime import date, datetime
@@ -21,10 +22,14 @@ RULE_ZERO_OR_NEGATIVE = "zero_or_negative_value"
 RULE_INVALID_DATE = "invalid_date"
 RULE_LEASE_DATES = "lease_end_before_start"
 RULE_DUPLICATE = "duplicate_unit_id"
+RULE_RENT_MATH = "annual_rent_not_sf_times_rate"
+RULE_RENT_TOTAL = "unit_rents_do_not_sum_to_total"
 RENT_ROLL_RULES = (
     RULE_RENT_OUTLIER, RULE_MISSING, RULE_NON_NUMERIC, RULE_ZERO_OR_NEGATIVE,
-    RULE_INVALID_DATE, RULE_LEASE_DATES, RULE_DUPLICATE,
+    RULE_INVALID_DATE, RULE_LEASE_DATES, RULE_DUPLICATE, RULE_RENT_MATH, RULE_RENT_TOTAL,
 )
+RENT_TOLERANCE = 1.00        # dollars
+RATE_ROUNDING = 0.005        # a rate written to the cent can be off by up to half a cent per SF
 
 NUMERIC_FIELDS = {
     "square_feet": "square footage",
@@ -137,6 +142,44 @@ def check_duplicates(units):
     ]
 
 
+def _money(value):
+    return f"${value:,.2f}"
+
+
+def check_rent_math(unit):
+    """Flag a unit whose annual rent is not its SF x its stated rent per SF.
+
+    Allowed difference: $1, or what rounding the stated rate to the cent can explain (SF x $0.005),
+    whichever is larger. Without the second part a 50,000 SF unit would be flagged for a rate that is
+    simply written to two decimals. Skipped when any of the three numbers is missing or not a number
+    (other rules flag those).
+    """
+    sf, rate, annual = unit.get("square_feet"), unit.get("rent_per_sf"), unit.get("annual_rent")
+    if not all(_is_number(v) and v > 0 for v in (sf, rate, annual)):
+        return []
+    expected = sf * rate
+    difference = annual - expected
+    if abs(difference) <= max(RENT_TOLERANCE, sf * RATE_ROUNDING):
+        return []
+    return [_flag(unit, RULE_RENT_MATH, "annual_rent", annual, f"{expected:.2f}",
+                  f"{_name(unit)} annual rent is {_money(annual)}, but {sf:,.0f} SF x {_money(rate)}/SF = "
+                  f"{_money(expected)} (a {_money(abs(difference))} difference).")]
+
+
+def check_stated_total(units, totals):
+    """Flag when the unit annual rents do not add up to the rent roll's own stated total (within $1)."""
+    stated = (totals or {}).get("total_annual_rent")
+    rents = [u.get("annual_rent") for u in units if _is_number(u.get("annual_rent"))]
+    if not _is_number(stated) or not rents:
+        return []
+    total = sum(rents)
+    if abs(total - stated) <= RENT_TOLERANCE:
+        return []
+    return [Flag(None, RULE_RENT_TOTAL, "annual_rent", f"{total:.2f}", f"{stated:.2f}",
+                 f"The unit annual rents add up to {_money(total)}, but the rent roll's total row says {_money(stated)} "
+                 f"(a {_money(abs(total - stated))} difference).")]
+
+
 def _usable_for_average(unit):
     return (_is_number(unit.get("square_feet")) and unit["square_feet"] > 0
             and _is_number(unit.get("annual_rent")) and unit["annual_rent"] > 0)
@@ -171,17 +214,27 @@ def check_rent_outliers(units):
     return flags
 
 
-def validate_units(units):
-    """Run every rule on a list of unit dicts and return the flags. The units are not changed."""
+def validate_units(units, totals=None):
+    """Run every rule on a list of unit dicts (and the rent roll's stated totals, if any) and return the
+    flags. The units are not changed."""
     flags = []
     for unit in units:
-        flags += check_unit_id(unit) + check_numbers(unit) + check_dates(unit)
-    return flags + check_duplicates(units) + check_rent_outliers(units)
+        flags += check_unit_id(unit) + check_numbers(unit) + check_dates(unit) + check_rent_math(unit)
+    return flags + check_duplicates(units) + check_rent_outliers(units) + check_stated_total(units, totals)
 
 
 def load_units(conn, deal_id):
     rows = conn.execute("SELECT * FROM rent_roll_units WHERE deal_id = ? ORDER BY id", (deal_id,))
     return [dict(row) for row in rows]
+
+
+def load_totals(conn, deal_id):
+    """The newest stated totals for a deal's rent roll, or None (also for a database from before totals)."""
+    try:
+        row = conn.execute("SELECT * FROM rent_roll_totals WHERE deal_id = ? ORDER BY id DESC LIMIT 1", (deal_id,)).fetchone()
+    except sqlite3.OperationalError:
+        return None
+    return dict(row) if row else None
 
 
 def flag_key(flag):
@@ -239,7 +292,7 @@ def validate_deal(deal_id, db_path=None, user=None):
     db.init_db(db_path)
     conn = db.get_connection(db_path)
     try:
-        flags = validate_units(load_units(conn, deal_id))
+        flags = validate_units(load_units(conn, deal_id), load_totals(conn, deal_id))
         with conn:
             save_flags(conn, deal_id, flags, user)
     finally:

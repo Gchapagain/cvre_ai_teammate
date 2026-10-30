@@ -209,9 +209,69 @@ def feed_rows():
         rows.update(meetings=[], emails=[], state={})
     for email in rows["emails"]:
         email["attachment_names"] = json.loads(email["attachment_names"] or "[]")
+    rows["om"] = om_summaries()
     return rows
+
+
+def om_summaries():
+    """Each deal's OM completion for the feed and the rail."""
+    from services import om_engine, feed  # here, to keep queries free of service imports at load time
+    summaries = []
+    for deal in _all("SELECT id, name FROM deals ORDER BY id"):
+        state = om_engine.build(om_facts(deal["id"]))
+        summaries.append({"deal_id": deal["id"], "deal_name": deal["name"], "percent": state.percent,
+                          "missing": len(state.required_missing()),
+                          "waiting": len([s for s in state.waiting() if s.slot.required]),
+                          "message": om_engine.summary_line(state, feed.short_name(deal["name"]))})
+    return summaries
 
 
 def deal_choices():
     """(id, name) for every deal, for pickers."""
     return [(row["id"], row["name"]) for row in _all("SELECT id, name FROM deals ORDER BY name")]
+
+
+def _om_table(sql, params):
+    """OM rows; a database from before the OM Builder simply has none."""
+    try:
+        return _all(sql, params)
+    except sqlite3.OperationalError:
+        return []
+
+
+def profile(email=None):
+    """The broker's profile for the OM contacts page: the signed-in broker, or the first broker."""
+    try:
+        if email:
+            row = _one("SELECT email, full_name, role, title, phone FROM users WHERE email = ?", (email,))
+            if row:
+                return row
+        return _one("SELECT email, full_name, role, title, phone FROM users WHERE role = 'Broker' ORDER BY id")
+    except sqlite3.OperationalError:
+        return demo_user("Broker")
+
+
+def om_facts(deal_id, email=None):
+    """Everything the OM engine (services/om_engine.py) works from for one deal, read-only."""
+    rows = {}
+    for row in _om_table("SELECT * FROM om_slots WHERE deal_id = ?", (deal_id,)):
+        row["value"] = json.loads(row["value"]) if row["value"] else None
+        row["source"] = json.loads(row["source"] or "{}")
+        rows[row["slot_id"]] = row
+    assumptions = {}
+    for row in _om_table("SELECT * FROM om_assumptions WHERE deal_id = ?", (deal_id,)):
+        row["value"] = json.loads(row["value"])
+        row["source"] = json.loads(row["source"] or "{}")
+        assumptions[row["key"]] = row
+    price = rows.get("financial.sale_price", {}).get("value")
+    return {
+        "deal": get_deal(deal_id) or {},
+        "units": deal_units(deal_id),
+        "t12": deal_t12(deal_id),
+        "documents": deal_documents(deal_id),
+        "rows": rows,
+        "assets": _om_table("SELECT * FROM om_assets WHERE deal_id = ? ORDER BY slot_id, position, id", (deal_id,)),
+        "assumptions": assumptions,
+        "price": price if isinstance(price, (int, float)) else None,
+        "profile": profile(email),
+    }

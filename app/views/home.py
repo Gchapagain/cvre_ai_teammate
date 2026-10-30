@@ -8,7 +8,7 @@ from zoneinfo import ZoneInfo
 
 import streamlit as st
 
-from app import images, nav, queries, style
+from app import images, nav, om_status, queries, style
 from app.views import feed_view
 from services import feed, progress
 
@@ -97,7 +97,8 @@ def _project_card(project):
         st.button(project["name"], key=f"open_project_{project['id']}", type="tertiary",
                   on_click=nav.open_deal, args=(project["id"],))
         meta = " · ".join(part for part in (project["property_type"], project["submarket"]) if part)
-        style.html(f'<div class="proj-meta">{escape(meta)}</div>{style.pill(project["status"])}{progress_html(result)}')
+        style.html(f'<div class="proj-meta">{escape(meta)}</div><div class="proj-pills">{style.pill(project["status"])}'
+                   f'{om_status.badge_html(om_status.state(project["id"]))}</div>{progress_html(result)}')
 
 
 def legend_html():

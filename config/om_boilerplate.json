@@ -1,0 +1,13 @@
+{
+  "_about": "Fixed wording used on every OM. The AI never writes or rewrites any of this. Have it reviewed by legal before real use; this prototype text is a generic placeholder.",
+  "cover_title": "Confidential Offering Memorandum",
+  "disclosures": [
+    "Confidentiality. This Offering Memorandum is provided only to the party who received it, for the sole purpose of considering a purchase of the property described. It may not be copied, shared or used for any other purpose without the written consent of the owner and the listing broker.",
+    "No representation. The information in this memorandum was obtained from the owner and from sources believed to be reliable, but it has not been independently verified. Neither the owner nor the listing broker makes any representation or warranty, express or implied, as to its accuracy or completeness. Prospective buyers must make their own investigation and rely on their own advisors.",
+    "Projections. Any projections, assumptions or estimates are for illustration only and do not represent the current or future performance of the property. Actual results may differ materially.",
+    "No offer. This memorandum is not an offer to sell. The owner may accept or reject any proposal, change the terms, or end discussions at any time without notice. No obligation exists until a purchase agreement is signed by both parties.",
+    "Affiliated business. The listing broker or its affiliates may provide other services in connection with this transaction (for example financing, property management or appraisal) and may be paid for them. Buyers are free to choose any provider."
+  ],
+  "back_cover": "This memorandum is confidential and subject to the disclosures at the front of this document. Prices, terms and availability may change without notice.",
+  "draft_mark": "DRAFT - NOT FOR DISTRIBUTION"
+}

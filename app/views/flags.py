@@ -6,7 +6,7 @@ import streamlit as st
 
 from app import style
 from app.views import editing
-from services import corrections, metrics
+from services import corrections, metrics, validation
 
 
 def _open(flag_id, panel):
@@ -24,6 +24,13 @@ def _confirm(flag_id, key):
     st.session_state.pop("open_panel", None)
 
 
+def _subject(flag):
+    """What the flag is about: a unit, or the rent roll as a whole (the stated-total check)."""
+    if flag["rule"] == validation.RULE_RENT_TOTAL:
+        return "Rent roll total"
+    return f'Unit {flag["unit_number"] or "(no ID)"}'
+
+
 def _numbers(flag):
     actual = f'<span class="num">{escape(str(flag["actual_value"]))}</span>' if flag["actual_value"] is not None else "empty"
     return f'<div class="flag-numbers">Value: {actual} · Limit: <span class="num">{escape(str(flag["threshold"]))}</span></div>'
@@ -38,7 +45,7 @@ def _resolved(flag):
         line = f"Reviewed: corrected by {who}, {when}"
         detail = flag["resolution_reason"] or ""
     with st.container(border=True, key=f"flagcard_{flag['status']}_{flag['id']}"):
-        style.html(f'<div class="flag-head"><span class="flag-title">Unit {escape(flag["unit_number"] or "(no ID)")} · '
+        style.html(f'<div class="flag-head"><span class="flag-title">{escape(_subject(flag))} · '
                    f'{escape(metrics.rule_name(flag["rule"]))}</span><span class="pill approved">{escape(line)}</span></div>'
                    f'<div class="flag-message">{escape(flag["message"])}</div><div class="flag-detail">{escape(detail)}</div>')
 
@@ -58,6 +65,11 @@ def _confirm_panel(flag, locked):
 
 def _fix_panel(deal, flag, units, locked, ai_panel=None):
     unit = next((u for u in units if u["id"] == flag["rent_roll_unit_id"]), None)
+    if flag["rule"] == validation.RULE_RENT_TOTAL:
+        st.info("This is about the rent roll as a whole. Correct the unit rent that is wrong in Extracted fields "
+                "(click its cell); the totals are checked again after every change. If the total row itself is wrong, "
+                "confirm this flag with a note instead.")
+        return
     if unit is None:
         st.warning("The unit for this flag is no longer in the rent roll.")
         return
@@ -81,7 +93,7 @@ def render(deal, flags, units, locked, ai_panel=None):
     panel = st.session_state.get("open_panel")
     for flag in open_flags:
         with st.container(border=True, key=f"flagcard_open_{flag['id']}"):
-            style.html(f'<div class="flag-head"><span class="flag-title">Unit {escape(flag["unit_number"] or "(no ID)")} · '
+            style.html(f'<div class="flag-head"><span class="flag-title">{escape(_subject(flag))} · '
                        f'{escape(metrics.rule_name(flag["rule"]))}</span><span class="pill flag">Open</span></div>'
                        f'<div class="flag-message">{escape(flag["message"])}</div>{_numbers(flag)}'
                        f'<div class="flag-detail">Rule: {escape(flag["rule"])}</div>')

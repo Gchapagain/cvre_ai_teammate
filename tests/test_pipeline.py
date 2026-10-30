@@ -1,7 +1,9 @@
 """Tests for process_deal: extraction then validation, with a short summary. No Gemini calls."""
 
+from unittest import mock
+
 import db
-from services import extraction, pipeline, validation
+from services import extraction, pipeline, rent_totals, validation
 from tests.test_extraction import RENT_ROLL, ExtractionTestCase, fake_client
 
 
@@ -35,14 +37,21 @@ class TestProcessDeal(ExtractionTestCase):
             validation.RULE_ZERO_OR_NEGATIVE: 2,
             validation.RULE_NON_NUMERIC: 1,
             validation.RULE_RENT_OUTLIER: 1,
+            validation.RULE_RENT_TOTAL: 1,  # "TBD" leaves the units short of the file's Total row
         })
-        self.assertEqual(summary["flags_raised"], 4)
-        self.assertEqual(self.flag_count(), 4)
+        self.assertEqual(summary["flags_raised"], 5)
+        self.assertEqual(self.flag_count(), 5)
 
     def test_clean_rent_roll_has_no_flags(self):
         units = [u for u in self.source if u["unit_number"] != "110"]
-        summary = pipeline.process_deal(RENT_ROLL, self.deal_id, client=fake_client(units), db_path=self.db_path)
+        with mock.patch.object(rent_totals, "read_stated_totals", lambda path: None):  # a file with no Total row
+            summary = pipeline.process_deal(RENT_ROLL, self.deal_id, client=fake_client(units), db_path=self.db_path)
         self.assertEqual(summary, {"units_saved": 11, "flags_raised": 0, "rules": {}})
+
+    def test_a_unit_left_out_no_longer_adds_up_to_the_files_total_row(self):
+        units = [u for u in self.source if u["unit_number"] != "110"]
+        summary = pipeline.process_deal(RENT_ROLL, self.deal_id, client=fake_client(units), db_path=self.db_path)
+        self.assertEqual(summary["rules"], {validation.RULE_RENT_TOTAL: 1})
 
     def test_rejected_file_saves_nothing_and_skips_validation(self):
         with self.assertRaises(extraction.ExtractionError):

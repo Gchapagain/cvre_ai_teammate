@@ -24,7 +24,9 @@ CREATE TABLE IF NOT EXISTS users (
     full_name     TEXT NOT NULL,
     role          TEXT NOT NULL CHECK (role IN ('Broker')),  -- brokers are the only user type
     password_hash TEXT,
-    created_at    TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+    created_at    TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    title         TEXT,  -- for the OM's contacts page (Settings)
+    phone         TEXT
 );
 
 CREATE TABLE IF NOT EXISTS deals (
@@ -248,6 +250,98 @@ CREATE TABLE IF NOT EXISTS notification_state (
     dismissed_at  TEXT
 );
 
+-- Totals as stated on a rent roll document (its "Total" row), kept so validation can check that the
+-- unit rents add up to them. Not every rent roll has one.
+CREATE TABLE IF NOT EXISTS rent_roll_totals (
+    id                 INTEGER PRIMARY KEY AUTOINCREMENT,
+    deal_id            INTEGER NOT NULL REFERENCES deals(id) ON DELETE CASCADE,
+    document_id        INTEGER REFERENCES documents(id) ON DELETE SET NULL,
+    total_sf           REAL,
+    total_monthly_rent REAL,
+    total_annual_rent  REAL,
+    created_at         TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+-- ---- Offering Memorandum (OM) Builder. The template (slots, slides) lives in templates/om_v1.json. ----
+-- om_slots: a person's value or decision for one template slot. Calculated and auto-filled values are
+-- worked out live from the deal's data and are not stored, except as the snapshot a person approved.
+-- value and source are JSON. status: empty, auto-filled, ai-draft, broker-provided, approved.
+CREATE TABLE IF NOT EXISTS om_slots (
+    id         INTEGER PRIMARY KEY AUTOINCREMENT,
+    deal_id    INTEGER NOT NULL REFERENCES deals(id) ON DELETE CASCADE,
+    slot_id    TEXT NOT NULL,
+    value      TEXT,
+    status     TEXT NOT NULL DEFAULT 'empty'
+               CHECK (status IN ('empty', 'auto-filled', 'ai-draft', 'broker-provided', 'approved')),
+    source     TEXT NOT NULL DEFAULT '{}',
+    updated_by TEXT,
+    updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE (deal_id, slot_id)
+);
+
+-- Photos for the OM, saved under om_assets/ (git-ignored). sample = made-up illustration for the demo.
+CREATE TABLE IF NOT EXISTS om_assets (
+    id         INTEGER PRIMARY KEY AUTOINCREMENT,
+    deal_id    INTEGER NOT NULL REFERENCES deals(id) ON DELETE CASCADE,
+    file_path  TEXT NOT NULL,
+    kind       TEXT CHECK (kind IN ('aerial', 'exterior', 'interior', 'site_plan', 'map')),
+    caption    TEXT,
+    slot_id    TEXT,
+    position   INTEGER NOT NULL DEFAULT 0,
+    sample     INTEGER NOT NULL DEFAULT 0,
+    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+-- Questions the OM Builder asked, to the broker or for the client. status: open, answered, skipped.
+CREATE TABLE IF NOT EXISTS om_questions (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    deal_id     INTEGER NOT NULL REFERENCES deals(id) ON DELETE CASCADE,
+    slot_id     TEXT,
+    audience    TEXT NOT NULL CHECK (audience IN ('broker', 'client')),
+    text        TEXT NOT NULL,
+    status      TEXT NOT NULL DEFAULT 'open' CHECK (status IN ('open', 'answered', 'skipped')),
+    created_at  TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    answered_at TEXT
+);
+
+-- Financial assumptions for the cash flow (market rent, escalation, lease-up, ...). value and source are
+-- JSON. Only approved ones are used in any calculation; the AI may only propose.
+CREATE TABLE IF NOT EXISTS om_assumptions (
+    id         INTEGER PRIMARY KEY AUTOINCREMENT,
+    deal_id    INTEGER NOT NULL REFERENCES deals(id) ON DELETE CASCADE,
+    key        TEXT NOT NULL,
+    value      TEXT NOT NULL,
+    source     TEXT NOT NULL DEFAULT '{}',
+    status     TEXT NOT NULL DEFAULT 'proposed' CHECK (status IN ('proposed', 'approved')),
+    updated_by TEXT,
+    updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE (deal_id, key)
+);
+
+-- Every OM file made. unapproved is a JSON list of required slots not approved at export time.
+CREATE TABLE IF NOT EXISTS om_exports (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    deal_id     INTEGER NOT NULL REFERENCES deals(id) ON DELETE CASCADE,
+    version     INTEGER NOT NULL,
+    kind        TEXT NOT NULL CHECK (kind IN ('draft', 'final')),
+    format      TEXT NOT NULL CHECK (format IN ('pptx', 'pdf')),
+    completion  REAL NOT NULL,
+    unapproved  TEXT NOT NULL DEFAULT '[]',
+    created_by  TEXT,
+    created_at  TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    file_path   TEXT
+);
+
+-- What a person did on the OM, with a time, for "OM time so far" (no time-saved claim).
+CREATE TABLE IF NOT EXISTS om_events (
+    id         INTEGER PRIMARY KEY AUTOINCREMENT,
+    deal_id    INTEGER NOT NULL REFERENCES deals(id) ON DELETE CASCADE,
+    action     TEXT NOT NULL,
+    detail     TEXT,
+    user       TEXT,
+    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
 CREATE TABLE IF NOT EXISTS ai_usage (
     id         INTEGER PRIMARY KEY AUTOINCREMENT,
     session_id TEXT NOT NULL,
@@ -315,6 +409,9 @@ CREATE TABLE IF NOT EXISTS deal_notes (
 
 CREATE INDEX IF NOT EXISTS idx_deal_notes_deal       ON deal_notes(deal_id);
 CREATE INDEX IF NOT EXISTS idx_meetings_start        ON meetings(starts_at);
+CREATE INDEX IF NOT EXISTS idx_om_slots_deal         ON om_slots(deal_id);
+CREATE INDEX IF NOT EXISTS idx_om_assets_deal        ON om_assets(deal_id);
+CREATE INDEX IF NOT EXISTS idx_om_events_deal        ON om_events(deal_id);
 CREATE INDEX IF NOT EXISTS idx_emails_status         ON emails(status);
 CREATE INDEX IF NOT EXISTS idx_edits_deal            ON edits(deal_id);
 CREATE INDEX IF NOT EXISTS idx_events_deal           ON deal_events(deal_id);
@@ -332,7 +429,9 @@ CREATE INDEX IF NOT EXISTS idx_research_briefs_job   ON research_briefs(job_id);
 # is described here. init_db stores it in the database (PRAGMA user_version) after migrating.
 #   1: deals.photo_path
 #   2: meetings, emails and notification_state tables (the Home feed)
-SCHEMA_VERSION = 2
+#   3: OM Builder tables (om_slots, om_assets, om_questions, om_assumptions, om_exports, om_events),
+#      rent_roll_totals, and users.title / users.phone for the OM's contacts page
+SCHEMA_VERSION = 3
 
 # Sample meetings and emails are stored on this day; Home moves them to the same place relative to today.
 SAMPLE_ANCHOR_DAY = "2000-01-03"
@@ -373,6 +472,7 @@ ADDED_COLUMNS = {
         ("resolved_by", "TEXT"), ("resolved_at", "TEXT"), ("resolution_reason", "TEXT"), ("resolution_note", "TEXT"),
     ],
     "deals": [("approved_by", "TEXT"), ("approved_at", "TEXT"), ("photo_path", "TEXT")],
+    "users": [("title", "TEXT"), ("phone", "TEXT")],
     "research_findings": [
         ("connection_id", "TEXT NOT NULL DEFAULT 'web_search_tavily'"),
         ("simulated", "INTEGER NOT NULL DEFAULT 0"),

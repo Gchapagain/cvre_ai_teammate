@@ -23,7 +23,8 @@ CONCENTRATION_SHARE = 0.25     # one tenant at or above this share of SF is a co
 CONCENTRATION_HIGH = 0.50
 EXPIRY_HIGH_SHARE = 0.20       # expiring leases at or above this share of SF are High priority
 DATA_QUALITY_RULES = {"missing_value", "non_numeric_value", "zero_or_negative_value", "invalid_date",
-                      "lease_end_before_start", "duplicate_unit_id"}
+                      "lease_end_before_start", "duplicate_unit_id", "annual_rent_not_sf_times_rate",
+                      "unit_rents_do_not_sum_to_total"}
 TIER_PRIORITY = {1: "High", 2: "Medium", 3: "Low"}
 AI_PRIORITY_RULE = "Priority from the strongest source cited: Tier 1 High, Tier 2 Medium, Tier 3 Low."
 

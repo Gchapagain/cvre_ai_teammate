@@ -4,8 +4,8 @@ from html import escape
 
 import streamlit as st
 
-from app import images, nav, queries, style
-from app.views import ask_ai, data_tab, recommendations_tab, review
+from app import images, nav, om_status, queries, style
+from app.views import ask_ai, data_tab, om_tab, recommendations_tab, review
 from services import deals, metrics
 
 # The last tab is styled as the gold AI tab in app/style.py.
@@ -13,8 +13,8 @@ ASK_AI_TAB = ":material/auto_awesome: Ask AI"
 
 
 def tab_labels(document_count):
-    """The four tabs. Documents carries a count badge."""
-    return ["Review", f"Documents :gray-badge[{document_count}]", "Data", "Recommendations", ASK_AI_TAB]
+    """The tabs. Documents carries a count badge. Ask AI stays last (it is styled as the gold AI tab)."""
+    return ["Review", f"Documents :gray-badge[{document_count}]", "Data", "Recommendations", "OM", ASK_AI_TAB]
 
 
 def header_line(deal, units, documents):
@@ -42,7 +42,7 @@ def _header(deal, units, documents):
             f'alt="{"Photo" if is_photo else "Illustration"} of the property"><div>'
             f'<div class="deal-title">{escape(deal["name"])}{chips}</div>'
             f'<div class="deal-meta">{escape(header_line(deal, units, documents))}</div></div></div>'
-            f'<div>{style.pill(deal["status"])}</div></div>'
+            f'<div class="deal-pills">{style.pill(deal["status"])}{om_status.badge_html(om_status.state(deal["id"]))}</div></div>'
         )
         _change_photo(deal, is_photo)
 
@@ -80,7 +80,7 @@ def render():
     labels = tab_labels(len(documents))
     st.session_state.documents_tab_label = labels[1]
     # on_change="rerun" makes the tabs keep their state, which lets a link switch tabs.
-    review_tab, documents_tab, data, recommendations, ask_ai_tab = st.tabs(labels, key="deal_tabs", on_change="rerun")
+    review_tab, documents_tab, data, recommendations, om, ask_ai_tab = st.tabs(labels, key="deal_tabs", on_change="rerun")
     with review_tab:
         review.render(deal)
     with documents_tab:
@@ -89,6 +89,8 @@ def render():
         data_tab.render(deal)
     with recommendations:
         recommendations_tab.render(deal)
+    with om:
+        om_tab.render(deal)
     with ask_ai_tab:
         ask_ai.render(deal)
     _scroll_to_flag(st.session_state.pop("focus_flag", None))

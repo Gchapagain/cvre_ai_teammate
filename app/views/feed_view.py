@@ -76,6 +76,8 @@ def _do(action, item, now):
         nav.open_deal_at(item.deal_id, "Review")
     elif action == "open_deal":
         nav.open_deal(item.deal_id)
+    elif action == "open_om":
+        nav.open_deal_at(item.deal_id, "OM")
     elif action == "prep_brief":
         _prep_brief(item, now)
     elif action == "add_email":

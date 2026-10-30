@@ -235,7 +235,14 @@ def _email_items(rows, now, today):
     return items
 
 
-SOURCES = (_flag_items, _waiting_items, _meeting_items, _email_items)
+def _om_items(rows, now, today):
+    """One item per deal whose OM is not finished: 'OM for <deal> is 24% complete - 18 items missing'."""
+    return [Item(f"om:{om['deal_id']}:{om['missing']}:{om['waiting']}", WAITING_KIND, WAITING, om["message"], now.replace(tzinfo=None),
+                 om["deal_id"], om["deal_name"], (("Open OM", "open_om"),), extra={"percent": om["percent"]})
+            for om in rows.get("om", []) if om["percent"] < 100]
+
+
+SOURCES = (_flag_items, _waiting_items, _om_items, _meeting_items, _email_items)
 
 
 # ---- Putting it together ----
@@ -305,6 +312,7 @@ WAITING_LINES = (
     ("Documents not read yet", "Waiting", "doc:"),
     ("AI drafts to approve", "Waiting", "draft:"),
     ("Deals with research to review", "Waiting", "research:"),
+    ("OMs to finish", "Waiting", "om:"),
     ("New emails", "Email", "email:"),
 )
 

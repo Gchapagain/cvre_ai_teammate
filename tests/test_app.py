@@ -285,11 +285,11 @@ class TestDealWorkspace(AppTestCase):
         super().setUp()
         self.sign_in()
 
-    def test_four_tabs(self):
+    def test_the_tabs_in_order_with_ask_ai_last(self):
         self.open_deal("fallowmere")
         self.assertFalse(self.app.exception)
         self.assertEqual([tab.label for tab in self.app.tabs],
-                         ["Review", "Documents :gray-badge[2]", "Data", "Recommendations", ":material/auto_awesome: Ask AI"])
+                         ["Review", "Documents :gray-badge[2]", "Data", "Recommendations", "OM", ":material/auto_awesome: Ask AI"])
         self.assertIn("Documents: coming in a later step.", [message.value for message in self.app.info])
 
     def test_review_shows_a_decision_card_for_the_open_flag(self):
@@ -2137,7 +2137,7 @@ class TestHomeRail(HomeTestCase):
         labels = {b.key: b.label for b in self.app.button if b.key.startswith("rail_")}
         self.assertEqual(labels, {"rail_open_flags": "Open flags **1**", "rail_deals_to_review": "Deals to review **1**",
                                   "rail_documents_not_read_yet": "Documents not read yet **1**",
-                                  "rail_new_emails": "New emails **3**"})
+                                  "rail_oms_to_finish": "OMs to finish **3**", "rail_new_emails": "New emails **3**"})
         self.app.button(key="rail_new_emails").click().run()
         self.assertFalse(self.app.exception)
         self.assertEqual(self.app.session_state["feed_filter"], "Email")

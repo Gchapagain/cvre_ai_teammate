@@ -4,7 +4,7 @@ from html import escape
 
 import streamlit as st
 
-from app import nav, queries, style
+from app import nav, om_status, queries, style
 from app.views import new_deal
 
 # Stat cards that filter the deal list: key -> (name shown above the list, which deals match).
@@ -78,7 +78,7 @@ def _deal_card(deal):
         style.html(
             f'<div class="deal-meta">{escape(deal["property_type"] or "")} · '
             f'{escape(deal["submarket"] or "")} · {units}</div>'
-            f'{style.pill(deal["status"])}{flag_pill}'
+            f'{style.pill(deal["status"])}{flag_pill}{om_status.badge_html(om_status.state(deal["id"]))}'
         )
 
 

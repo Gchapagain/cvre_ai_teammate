@@ -26,6 +26,13 @@ Source reliability tiers: Tier 1 official/government, Tier 2 brokerage and resea
 
 Services live in `/services`: extraction, validation, drafting, qa, research, plus deals (the only writes the screens make), new_deal (uploads and AI drafts) and transcribe (audio to text). `gemini.py` is the shared Gemini access (client, retries, quota handling, timing log) used by every service. `pipeline.process_deal` runs extraction then validation and returns a short summary (units saved, flags raised, which rules).
 
+## OM Builder (in progress: Stage 1 of 4 built)
+- Template: `templates/om_v1.json` (sections, slides, slots; our own design). Fixed legal text: `config/om_boilerplate.json` (the AI never writes it). Loader: `services/om_template.py`.
+- Every number is calculated in code in `services/om_calc.py` (formulas written at the top), with "How is this calculated?" steps. The cash flow uses approved assumptions only; the price comes only from the broker.
+- `services/om_engine.py` works out each slot's status live (empty / auto-filled / ai-draft / broker-provided / approved) and completion = approved required slots / required slots, overall and per section. A calculated value's approval holds only while the number is unchanged. Viewing never writes.
+- Writes (`services/om_slots.py`) only on a person's click: values are validated per slot, every action is logged in `om_events`.
+- "OM xx%" badges on deal cards, Home project cards and the deal header; the feed shows "OM for <deal> is xx% complete - n items missing"; the deal's OM tab shows the bar, the missing list and values waiting for approval.
+
 ## Home feed
 Built live from the database every time it is shown (`services/feed.py`), so it is never stale. Only what a person did with an item is stored, in `notification_state` (item key such as `flag:12`, read_at, snoozed_until, dismissed_at). Item types and where they come from:
 - **Flag** (red, "Needs you now"): every open flag, e.g. "Unit 110 rent/SF is 2.37x the average - Fallowmere Industrial Park" (the ratio comes from the flag's own value and limit). "Review flag" opens the deal's Review tab and scrolls to that flag's decision card. Flags can be marked read but never snoozed or dismissed: flag, never hide. A resolved flag leaves the feed by itself and stays in the deal's history.
@@ -92,6 +99,7 @@ Responsive: below 760px wide the top bar becomes two rows, the login panel stack
 Schema version: `db.SCHEMA_VERSION`, stored in the database as `PRAGMA user_version`. **Every schema change (new table, new column, changed constraint) bumps it by one**, adds a line to the list above it in `db.py`, updates `seed.py` if the sample data needs it, and rebuilds `sample_data/demo.db`. `init_db` migrates without touching rows; the app runs it on start only when the database's version is behind.
 - 1: `deals.photo_path`
 - 2: `meetings`, `emails`, `notification_state` (the Home feed)
+- 3: OM Builder tables (`om_slots`, `om_assets`, `om_questions`, `om_assumptions`, `om_exports`, `om_events`), `rent_roll_totals`, `users.title` / `users.phone`
 
 Tables:
 - deals (photo_path: a person's own photo, NULL shows the illustration)
@@ -130,6 +138,7 @@ Tables:
 - Label every AI answer: From this deal / From these deals (all-deals questions) / From the web (Tier 1-3) / Not verified.
 - Research is advisory and labeled "sourced", not "verified".
 - Validation flags rent/SF above 2x the average of the building's other units. Flag, never hide. Flags never change the data or block saving.
+- Validation also flags a unit whose annual rent is not SF x stated rent/SF (allowed gap: $1, or SF x $0.005 for a rate written to the cent, whichever is larger), and unit rents that do not add up to the rent roll's own Total row (within $1; the Total row is read by code into `rent_roll_totals`). Correcting a unit's rent can therefore open a total flag: the document's total is then out of date and a person confirms it.
 - Extraction rejects a whole file (and saves nothing) only when the file is unreadable, a required column is missing, or Gemini's reply is not valid JSON. A bad value in one row is saved exactly as extracted and flagged by validation.
 - Locked PDFs get status "Needs password". Never guess or bypass passwords.
 

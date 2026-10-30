@@ -8,3 +8,9 @@ screenshots/
 .pytest_cache/
 uploads/
 .streamlit/secrets.toml
+
+# OM Builder: photos, exported files, the uploaded logo, and any reference OM are never committed
+om_assets/
+om_exports/
+branding/
+*reference*.pdf

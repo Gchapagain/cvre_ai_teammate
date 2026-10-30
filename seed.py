@@ -15,7 +15,7 @@ from pathlib import Path
 from openpyxl import load_workbook
 
 import db
-from services import validation
+from services import rent_totals, validation
 
 SAMPLE_DIR = Path(__file__).resolve().parent / "sample_data"
 RENT_ROLL_FILE = SAMPLE_DIR / "rent_roll.xlsx"
@@ -35,6 +35,8 @@ T12_SECTIONS = {"INCOME": "Income", "EXPENSES": "Expense"}
 DEMO_USERS = [
     ("demo.broker@example.com", "Avery Sample", "Broker"),
 ]
+# Made-up title and phone for the OM contacts page (555-01xx numbers are reserved for fiction).
+DEMO_PROFILE = ("Senior Vice President (sample)", "(555) 010-0142")
 
 # A second, clean rent roll for the Approved deal: unit, tenant, SF, annual rent per SF, start, end.
 BRINDLEWICK_UNITS = [
@@ -191,12 +193,14 @@ def seed(db_path=None):
     conn = db.get_connection(path)
     try:
         with conn:
-            conn.executemany("INSERT INTO users (email, full_name, role) VALUES (?, ?, ?)", DEMO_USERS)
+            conn.executemany("INSERT INTO users (email, full_name, role, title, phone) VALUES (?, ?, ?, ?, ?)",
+                             [user + DEMO_PROFILE for user in DEMO_USERS])
 
             fallowmere = add_deal(conn, "Fallowmere Industrial Park (SAMPLE - fictional)",
                                   "Industrial", FALLOWMERE_MARKET, "Needs Review")
             doc = add_document(conn, fallowmere, RENT_ROLL_FILE.name, "Rent roll", "Read", "Rent roll", RENT_ROLL_FILE)
             add_units(conn, fallowmere, doc, read_rent_roll(RENT_ROLL_FILE))
+            rent_totals.save(conn, fallowmere, doc, rent_totals.read_stated_totals(RENT_ROLL_FILE))
             doc = add_document(conn, fallowmere, T12_FILE.name, "T-12", "Read", "T-12", T12_FILE)
             add_t12(conn, fallowmere, doc, read_t12(T12_FILE))
 
