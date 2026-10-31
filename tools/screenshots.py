@@ -57,9 +57,22 @@ def start_app(log_path):
                         "staggered leases and NNN terms that keep operating costs with the tenants.",
             "upside": ["SIMULATED: leases end in different years", "SIMULATED: NNN leases pass costs through"],
             "location_building": ["SIMULATED: three buildings on one site", "SIMULATED: small-bay units"],
-            "rare": ["SIMULATED: fully leased small-bay industrial is hard to find"], "location": None}}]))
+            "rare": ["SIMULATED: fully leased small-bay industrial is hard to find"], "location": None}},
+        # The AI Teammate's own steps. Email 4 is the sample "Quillhaven property details" email.
+        {"when": "PROPERTY FACTS FROM EMAILS", "reply": {"facts": [
+            {"slot_id": "property.address", "value": "220 Fictional Commerce Drive", "quote": "220 Fictional Commerce Drive", "email_id": 4},
+            {"slot_id": "property.city_state", "value": "Eastwick Bend, OH", "quote": "Eastwick Bend, OH", "email_id": 4},
+            {"slot_id": "property.buildings", "value": "2", "quote": "2 buildings", "email_id": 4},
+            {"slot_id": "property.land_size", "value": "3.4 acres", "quote": "3.4 acres", "email_id": 4},
+            {"slot_id": "property.year_built", "value": "2001 / 2018",
+             "quote": "built in 2001 and the roofs were replaced in 2018", "email_id": 4}]}},
+        {"when": "CASH FLOW ASSUMPTIONS", "reply": {"assumptions": [
+            {"key": "market_rent_psf", "value": 9.25, "why": "Simulated: near the in-place average."},
+            {"key": "escalation_pct", "value": 3, "why": "Simulated."}]}}]))
     env = dict(os.environ, CBRE_DB_PATH=str(work / "screenshots.db"), CBRE_UPLOAD_DIR=str(work / "uploads"),
                CBRE_SIMULATED_GEMINI=str(replies),
+               # The AI Teammate runs on its own, with canned replies; research would call real web services.
+               OM_AUTOPILOT="on", OM_AUTOPILOT_STEPS="record,emails,text,assumptions,photos,approve",
                # The checks send many simulated AI requests quickly; the app's rate limits would stop them.
                AI_DAILY_LIMIT="100000", AI_SESSION_HOURLY_LIMIT="100000")
     subprocess.run([sys.executable, "seed.py", "--reset"], cwd=ROOT, env=env, check=True, stdout=subprocess.DEVNULL)
@@ -311,7 +324,17 @@ def open_om_tab(page, deal_name):
     page.locator(".deal-title").wait_for()
     page.get_by_role("tab", name="OM", exact=True).click()
     page.locator(".om-head").wait_for()
-    page.wait_for_timeout(1000)
+    wait_for_teammate(page)
+
+
+def wait_for_teammate(page, timeout=90):
+    """Wait until the AI Teammate and the slide redraw are done (the page reloads itself when they finish)."""
+    import time
+    end = time.time() + timeout
+    page.wait_for_timeout(2500)
+    while time.time() < end and page.locator(".om-live.working").count():
+        page.wait_for_timeout(1000)
+    page.wait_for_timeout(2500)
 
 
 def om_view(page, view):
@@ -325,7 +348,13 @@ def check_om(page, suffix):
     check("Home cards show an OM badge", page.locator('[class*="st-key-proj_card_"] .om-badge').count() == 3)
     open_om_tab(page, "Quillhaven")
     no_error_box(page, "on the OM tab")
-    check("a barely started OM is under 15%", int(page.locator(".om-percent").inner_text().strip().rstrip("%")) < 15)
+    check("the AI Teammate filled the address from an email on its own",
+          "Street address from an email" in page.locator(".om-live").inner_text(), page.locator(".om-live").inner_text()[:120])
+    check("Slides is the first view and shows the deck", page.locator('[data-testid="stImage"] img').count() >= 18,
+          page.locator('[data-testid="stImage"] img').count())
+    tall_shot(page, f"o0_om_slides_live{suffix}", height=2400)
+    check("a barely started OM is still under 30%", int(page.locator(".om-percent").inner_text().strip().rstrip("%")) < 30)
+    om_view(page, "Checklist")
     check("the deal header shows the OM badge", page.locator(".deal-pills .om-badge").count() == 1)
     check("the interview asks one question at a time", page.locator(".om-q-count").inner_text().lower().startswith("question 1 of"))
     tall_shot(page, f"o1_om_checklist{suffix}", height=2400)
@@ -335,7 +364,7 @@ def check_om(page, suffix):
         page.wait_for_timeout(700)
     box_ = page.locator('[class*="st-key-om_answer_"] textarea').first
     key = page.locator('[class*="st-key-om_answer_"]').first.get_attribute("class")
-    answer = "Springfield, IL" if "city_state" in key else "7 Example Court (sample)" if "address" in key else "Sample answer for the check"
+    answer = "Springfield, IL" if "city_state" in key else "7 Example Court (sample)" if "address" in key else "Sample answer for the screenshot check, written long enough to pass the length rules that some OM items have."
     before = page.locator(".om-percent").inner_text().strip()
     box_.fill(answer)
     box_.press("Tab")
@@ -356,6 +385,8 @@ def check_om(page, suffix):
     check("the Photos view lists what is still needed", page.get_by_text("Still needed").count() == 1)
 
     open_om_tab(page, "Fallowmere")
+    om_view(page, "Checklist")
+    check("the AI Teammate drafted the text on its own", page.get_by_text("AI draft · check it").count() >= 1)
     check("Fallowmere is about half done", 50 <= int(page.locator(".om-percent").inner_text().strip().rstrip("%")) <= 60)
     page.get_by_role("button", name="Draft all text").click()
     page.get_by_text("Drafted:").wait_for(timeout=30000)
@@ -370,13 +401,10 @@ def check_om(page, suffix):
     check("the broker's price is saved", page.get_by_text("$15,460,000").count() >= 1)
     tall_shot(page, f"o4_om_pricing{suffix}", height=1800)
     om_view(page, "Slides")
-    check("the navigator lists 18 slides", page.locator('[class*="st-key-om_slide_"] button').count() == 18)
-    page.locator(".st-key-om_slide_cover button").click()
-    page.wait_for_timeout(600)
-    if page.get_by_role("button", name="Show preview").count():  # not there when this exact OM was drawn before
-        page.get_by_role("button", name="Show preview").click()
-    page.locator('[data-testid="stImage"] img').first.wait_for(timeout=120000)
-    check("the slide preview shows the page", page.locator('[data-testid="stImage"] img').count() >= 1)
+    wait_for_teammate(page)
+    check("the deck redraws itself with the new price", page.get_by_text("Up to date with every change").count() == 1
+          and page.locator('[data-testid="stImage"] img').count() >= 18)
+    check("every update is listed", page.get_by_text("Every update").count() == 1)
     page.screenshot(path=str(OUT / f"o5_om_slides{suffix}.png"))
 
     open_om_tab(page, "Brindlewick")

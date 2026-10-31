@@ -8,3 +8,6 @@ import os
 
 os.environ.setdefault("AI_DAILY_LIMIT", "100000")
 os.environ.setdefault("AI_SESSION_HOURLY_LIMIT", "100000")
+
+# The OM autopilot calls Gemini and web search on its own in the running app; never in tests.
+os.environ["OM_AUTOPILOT"] = "off"

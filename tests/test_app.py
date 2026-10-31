@@ -449,8 +449,8 @@ class TestDataTabDownloads(AppTestCase):
         self.sign_in()
 
     def downloads(self):
-        """Every download button on the page as {key: element}."""
-        return {element.key: element for element in self.app.get("download_button")}
+        """Every download button on the page as {key: element}, leaving out the OM tab's own (tested in test_om_app)."""
+        return {element.key: element for element in self.app.get("download_button") if not element.key.startswith("om_")}
 
     def test_fallowmere_offers_rent_roll_and_t12_as_csv_and_excel(self):
         self.open_deal("fallowmere")

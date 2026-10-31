@@ -6,6 +6,7 @@ Propose assumptions, Make it friendlier, Read the reply, Read the document; Sort
 8 photos. Everything else (questions, the client message, numbers, placing photos, exports) is code only.
 """
 
+import json
 import logging
 from html import escape
 from pathlib import Path
@@ -14,7 +15,7 @@ import streamlit as st
 
 from app import nav, om_status, queries, style
 from app.views import om_work
-from services import gemini, om_engine, om_export, om_interview, om_slots
+from services import gemini, om_autopilot, om_calc, om_engine, om_export, om_interview, om_slots
 
 log = logging.getLogger(__name__)
 
@@ -25,8 +26,8 @@ STATUS_PILLS = {"empty": "flag", "auto-filled": "needs-review", "ai-draft": "nee
 PPTX_MIME = "application/vnd.openxmlformats-officedocument.presentationml.presentation"
 SOURCE_LABELS = {"document_field": "From the deal's documents", "calculated": "Calculated", "broker_input": "Broker input",
                  "broker_photo": "Broker photo", "ai_text": "AI draft", "research": "Research", "fixed": "Fixed wording",
-                 "client_reply": "Client reply", "client_document": "Client document"}
-VIEWS = ["Checklist", "Slides", "Photos", "Pricing", "Client", "Export"]
+                 "client_reply": "Client reply", "client_document": "Client document", "sourced": "Sourced fact"}
+VIEWS = ["Slides", "Checklist", "Photos", "Pricing", "Client", "Export"]
 DOT = {"green": "🟢", "amber": "🟠", "red": "🔴"}
 
 
@@ -243,11 +244,16 @@ def _draft_text(deal, state):
 def _interview(state, deal):
     """'Help me finish the OM': one question at a time, from the template (no AI unless asked)."""
     skipped = {q["slot_id"] for q in queries.om_questions(deal["id"]) if q["audience"] == "broker" and q["status"] == "skipped"}
-    questions = om_interview.questions(state, skipped)
+    working = om_autopilot.status(deal["id"]).get("running")
+    questions = [q for q in om_interview.questions(state, skipped) if q.slot.required
+                 and not (working and q.slot.id in om_autopilot.HANDLED)]
     with st.container(key="om_interview"):
-        style.section_title("Help me finish the OM")
+        style.section_title("Questions for you")
+        st.caption("Only what the AI Teammate could not find in the deal's documents, emails and research, "
+                   "or cannot decide for you (the price, your photos, approvals)."
+                   + (" It is still working, so some items may fill in on their own." if working else ""))
         if not questions:
-            st.success("Every item has a value. Approve what is waiting, then export.")
+            st.success("Nothing to ask you. Check what is waiting for approval, then export.")
             return
         index = min(st.session_state.get("om_q_index", 0), len(questions) - 1)
         question = questions[index]
@@ -353,52 +359,87 @@ def _checklist(state, deal):
         _approved(state, deal["id"])
 
 
-# ---------- slides ----------
+# ---------- slides: the deck as it is right now ----------
+
+EVENT_WORDS = {"set": "saved", "approve": "approved", "unapprove": "took back the approval of", "clear": "cleared",
+               "skip": "skipped", "export": "exported", "photos_added": "added", "photo_placed": "placed photo",
+               "photo_kind": "sorted photo", "photo_removed": "removed photo", "assumption_approved": "approved assumption",
+               "assumption_proposed": "proposed assumption", "client_questions": "prepared client questions:",
+               "research_accepted": "accepted research", "autopilot": "worked on the OM"}
+
+
+def _event_line(event, state):
+    detail = event.get("detail") or ""
+    if event["action"] == "autopilot":
+        try:
+            lines = json.loads(detail).get("lines") or []
+        except ValueError:
+            lines = []
+        detail = "; ".join(lines[:6]) or "nothing new"
+    elif detail in state.slots:
+        detail = state.slots[detail].slot.label
+    elif detail in om_calc.ASSUMPTIONS:
+        detail = om_calc.ASSUMPTIONS[detail][0]
+    who = event.get("user") or "Someone"
+    return f"**{escape(str(event['created_at']))} UTC · {escape(who)}** {EVENT_WORDS.get(event['action'], event['action'])} {escape(detail[:300])}"
+
+
+def _updates(deal_id, state):
+    events = list(reversed(queries.om_events(deal_id)))
+    with st.expander(f"Every update ({len(events)})", expanded=False):
+        if not events:
+            st.caption("Nothing has changed yet.")
+        for event in events[:80]:
+            st.markdown(_event_line(event, state))
+
 
 def _slides(state, deal):
     facts = queries.om_facts(deal["id"], _email())
-    left, right = st.columns([0.9, 2], gap="large")
-    selected = st.session_state.get("om_slide", state.slides[0][1].id)
-    with left:
-        style.section_title(f"Slides ({len(state.slides)})")
-        st.caption("🟢 approved · 🟠 filled, waiting for approval · 🔴 something required is missing")
+    pdf, fresh, error = om_export.live_preview(deal["id"], state, facts)
+    pages = om_export.page_images(pdf, zoom=1.0) if pdf else []
+    head, buttons = st.columns([2, 1.2], vertical_alignment="center")
+    with head:
+        style.section_title(f"The OM so far ({len(pages) or len(state.slides)} pages)")
+        if error:
+            st.caption(error)
+        elif fresh:
+            st.caption("Up to date with every change. Draft pages show the DRAFT mark and a red box for anything missing.")
+        else:
+            st.caption("Updating to include the latest changes..." if pages else "Drawing the slides for the first time...")
+    with buttons, st.container(horizontal=True, horizontal_alignment="right"):
+        if pdf:
+            _download(pdf.with_suffix(".pptx"), "PowerPoint", PPTX_MIME, "om_live_pptx")
+            _download(pdf, "PDF", "application/pdf", "om_live_pdf")
+    _updates(deal["id"], state)
+    if not pages:
         for number, slide in state.slides:
-            colour = state.slide_status(slide)
-            st.button(f"{DOT[colour]} {number}. {slide.title}", key=f"om_slide_{slide.id}", type="tertiary",
-                      on_click=st.session_state.update, kwargs={"om_slide": slide.id})
-    slide = next((s for _, s in state.slides if s.id == selected), state.slides[0][1])
-    with right:
-        style.section_title(slide.title)
-        _preview(state, facts, slide)
-        for slot_id in slide.slots:
-            item = state.slots[slot_id]
-            if item.slot.fixed:
-                continue
-            style.html(f'<div class="om-approved"><b>{escape(item.slot.label)}</b> '
-                       f'{style.pill(STATUS_LABELS[item.status], STATUS_PILLS[item.status])} '
-                       f'{escape((item.display or "; ".join(item.needs))[:200])}</div>')
+            st.markdown(f"{DOT[state.slide_status(slide)]} {number}. {escape(slide.title)}")
+        return
+    titles = {}
+    for index, (slide_def, _) in enumerate(om_export._pages(state)):
+        titles[index] = f"{DOT[state.slide_status(slide_def)]} {index + 1}. {slide_def.title}"
+    columns = st.columns(2, gap="medium")
+    for index, image in enumerate(pages):
+        with columns[index % 2]:
+            st.image(str(image), caption=titles.get(index, f"Page {index + 1}"))
 
 
-def _preview(state, facts, slide):
-    if not om_export.soffice_path():
-        st.info("The slide preview needs LibreOffice, which is not installed here. The list below shows what is on the slide.")
-        return
-    pdf = om_export.cached_preview(state, facts)
-    if pdf is None:
-        if st.button("Show preview", key="om_preview_make", icon=":material/visibility:",
-                     help="Draws the OM as a draft PDF (a few seconds). No AI is used."):
-            with st.spinner("Drawing the slides..."):
-                try:
-                    om_export.preview_pdf(state, facts)
-                except om_export.ExportError as error:
-                    st.warning(str(error))
-            st.rerun()
-        st.caption("Draft preview: it shows the DRAFT mark and a red box for anything missing.")
-        return
-    pages = om_export.page_images(pdf, zoom=1.4)
-    page = om_export.page_of(state, slide.id)
-    if page < len(pages):
-        st.image(str(pages[page]), caption=f"Draft preview of page {page + 1}")
+@st.fragment(run_every=3)
+def _live_status(deal_id):
+    """What the AI Teammate is doing, refreshed every few seconds; the whole page reloads when work finishes."""
+    run = om_autopilot.status(deal_id)
+    drawing = om_export.live_running(deal_id)
+    token = (run.get("finished"), drawing)
+    last = st.session_state.get(f"om_live_token_{deal_id}")
+    st.session_state[f"om_live_token_{deal_id}"] = token
+    if last is not None and last != token and not run.get("running") and not drawing:
+        st.rerun(scope="app")
+    if run.get("running"):
+        style.html(f'<div class="om-live working"><span class="dot"></span>AI Teammate is working: {escape(run.get("step") or "")}...</div>')
+    elif drawing:
+        style.html('<div class="om-live working"><span class="dot"></span>Updating the slides with the latest changes...</div>')
+    elif run.get("lines"):
+        style.html(f'<div class="om-live done">AI Teammate: {escape("; ".join(run["lines"][:4]))}</div>')
 
 
 # ---------- export ----------
@@ -462,16 +503,20 @@ def _history(deal_id):
 # ---------- the tab ----------
 
 def render(deal):
+    om_autopilot.start(deal["id"], _email())  # does nothing when switched off or nothing is new
     state = om_status.state(deal["id"])
     style.html(completion_bar_html(state))
     count, (low, high) = len(state.slides), state.template.slide_limits
     if not low <= count <= high:
         st.warning(f"The OM would have {count} slides, outside the usual {low}-{high}.")
     st.caption(time_line(deal["id"]))
-    view = st.segmented_control("OM view", VIEWS, key="om_view", label_visibility="collapsed") or "Checklist"
+    _live_status(deal["id"])
+    if "om_view" not in st.session_state:
+        st.session_state.om_view = "Slides"
+    view = st.segmented_control("OM view", VIEWS, key="om_view", label_visibility="collapsed") or "Slides"
     _show_flash()
-    if view == "Slides":
-        _slides(state, deal)
+    if view == "Checklist":
+        _checklist(state, deal)
     elif view == "Photos":
         om_work.photos(state, deal, _user())
     elif view == "Pricing":
@@ -481,6 +526,7 @@ def render(deal):
     elif view == "Export":
         _export(state, deal)
     else:
-        _checklist(state, deal)
+        _slides(state, deal)
     st.caption(f"{count} slides from the template '{state.template.name}'. Numbers are calculated in code from this deal's "
-               "data; the AI never writes them. Nothing counts as complete until a person approves it.")
+               "data; the AI never writes them. Sourced facts are approved automatically by the AI Teammate; "
+               "AI-written text, photos, the price and assumptions wait for you.")

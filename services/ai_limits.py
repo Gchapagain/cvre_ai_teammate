@@ -13,6 +13,8 @@ scripts and tests run outside it are not limited and are not counted.
 import math
 import os
 import sqlite3
+import threading
+from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 
@@ -53,8 +55,25 @@ def limits():
     return Limits(_setting("AI_DAILY_LIMIT"), _setting("AI_SESSION_HOURLY_LIMIT"))
 
 
+_worker = threading.local()
+
+
+@contextmanager
+def as_session(name):
+    """Count requests made inside this block (in this thread) as session `name`, so background work such as
+    the AI Teammate's autopilot is held to the same daily limit and its own hourly limit."""
+    previous = getattr(_worker, "session", None)
+    _worker.session = name
+    try:
+        yield
+    finally:
+        _worker.session = previous
+
+
 def current_session():
-    """The browser session making this request, or None outside the running app."""
+    """The browser session (or named background worker) making this request, or None outside the running app."""
+    if getattr(_worker, "session", None):
+        return _worker.session
     try:
         from streamlit.runtime.scriptrunner import get_script_run_ctx
     except ImportError:

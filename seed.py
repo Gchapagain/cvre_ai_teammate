@@ -184,6 +184,14 @@ def add_sample_inbox(conn, deals):
            VALUES (?, ?, ?, ?, ?, ?, 'Sample')""",
         [(deal, sender, subject, preview, received, json.dumps(files))
          for deal, sender, subject, preview, received, files in emails])
+    # Already added to its deal (so not in the feed): property details the AI Teammate can read for the OM.
+    conn.execute(
+        """INSERT INTO emails (deal_id, sender, subject, preview, received_at, attachment_names, status, source)
+           VALUES (?, ?, ?, ?, ?, '[]', 'added', 'Sample')""",
+        (deals["quillhaven"], "Marcus Bell", "Quillhaven property details",
+         "SAMPLE email, made up for the demo. The property is at 220 Fictional Commerce Drive, Eastwick Bend, OH. "
+         "There are 2 buildings on 3.4 acres. They were built in 2001 and the roofs were replaced in 2018.",
+         _anchor(-2, "10:20")))
 
 
 def seed(db_path=None):

@@ -16,6 +16,7 @@ import re
 import shutil
 import subprocess
 import tempfile
+import threading
 from pathlib import Path
 
 from PIL import Image
@@ -563,3 +564,44 @@ def page_of(state, slide_id):
         if slide_def.id == slide_id:
             return index
     return 0
+
+
+# ---------- the live deck: redrawn in the background whenever the OM changes ----------
+
+_live_lock = threading.Lock()
+_live = {}   # deal_id -> {"key", "running", "latest": Path, "error"}
+
+
+def _build_live(deal_id, key, state, facts):
+    try:
+        pdf = preview_pdf(state, facts)
+        page_images(pdf, zoom=1.0)
+        with _live_lock:
+            _live[deal_id].update(running=False, latest=pdf, error=None, built=key)
+    except Exception as error:  # e.g. LibreOffice missing: the page says so
+        with _live_lock:
+            _live[deal_id].update(running=False, error=str(error) if isinstance(error, ExportError) else
+                                  "The preview could not be drawn just now.")
+
+
+def live_preview(deal_id, state, facts):
+    """(pdf or None, up_to_date, error). Starts a background redraw when the OM changed; never blocks."""
+    key = _state_key(state, facts)
+    pdf = cached_preview(state, facts)
+    with _live_lock:
+        job = _live.setdefault(deal_id, {})
+        if pdf is not None:
+            job.update(latest=pdf, key=key)
+            return pdf, True, None
+        if not soffice_path():
+            return job.get("latest"), False, "The live preview needs LibreOffice, which is not installed here."
+        if not (job.get("running") and job.get("key") == key):
+            job.update(running=True, key=key)
+            threading.Thread(target=_build_live, args=(deal_id, key, state, facts), daemon=True,
+                             name=f"om-preview-{deal_id}").start()
+        return job.get("latest"), False, job.get("error")
+
+
+def live_running(deal_id):
+    with _live_lock:
+        return bool((_live.get(deal_id) or {}).get("running"))

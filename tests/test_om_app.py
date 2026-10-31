@@ -38,14 +38,21 @@ class TestOmViews(OmTabCase):
                 with self.subTest(deal=deal, view=view):
                     self.open_view(deal, view)
 
-    def test_the_slide_navigator_lists_every_slide_with_its_colour(self):
-        self.open_view("fallowmere", "Slides")
-        labels = [b.label for b in self.app.button if b.key and b.key.startswith("om_slide_")]
-        self.assertEqual(len(labels), 18)
-        self.assertTrue(labels[0].startswith("🔴 1. Cover") or labels[0].startswith("🟢 1. Cover"))
-        self.assertTrue(any(label.startswith("🔴") for label in labels))
-        self.app.button(key="om_slide_rent_roll").click().run()
-        self.assertEqual(self.app.session_state["om_slide"], "rent_roll")
+    def test_the_slides_view_shows_the_deck_with_each_slides_colour(self):
+        with mock.patch.object(om_export, "soffice_path", return_value=None), \
+                mock.patch.object(om_export, "cached_preview", return_value=None), mock.patch.dict(om_export._live, clear=True):
+            self.open_view("fallowmere", "Slides")
+        text = self.page_text()
+        self.assertIn("The OM so far", text)
+        self.assertIn("The live preview needs LibreOffice", text)
+        lines = [m.value for m in self.app.markdown if m.value[:2] in ("🟢 ", "🟠 ", "🔴 ")]
+        self.assertEqual(len(lines), 18)
+        self.assertTrue(any(line.startswith("🔴") for line in lines))
+        self.assertIn("Every update", [e.label.split(" (")[0] for e in self.app.expander])
+
+    def test_slides_is_the_first_view(self):
+        self.open_deal("fallowmere")
+        self.assertEqual(self.app.session_state["om_view"], "Slides")
 
     def test_client_ready_export_is_locked_until_100_percent(self):
         self.open_view("quillhaven", "Export")
@@ -57,7 +64,7 @@ class TestOmViews(OmTabCase):
 class TestOmInterview(OmTabCase):
     def test_typing_an_answer_saves_it_waiting_for_approval_then_approve_section(self):
         self.open_view("quillhaven", "Checklist")
-        self.assertIn("Help me finish the OM", self.page_text())
+        self.assertIn("Questions for you", self.page_text())
         boxes = self.keys("om_answer_", "text_area")
         while not boxes:  # move to the first question you can type an answer to
             self.app.button(key="om_q_next").click().run()
