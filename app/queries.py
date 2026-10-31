@@ -241,37 +241,38 @@ def _om_table(sql, params):
 
 def profile(email=None):
     """The broker's profile for the OM contacts page: the signed-in broker, or the first broker."""
+    from services import om_facts as facts
+    conn = _connect()
     try:
-        if email:
-            row = _one("SELECT email, full_name, role, title, phone FROM users WHERE email = ?", (email,))
-            if row:
-                return row
-        return _one("SELECT email, full_name, role, title, phone FROM users WHERE role = 'Broker' ORDER BY id")
-    except sqlite3.OperationalError:
-        return demo_user("Broker")
+        return facts.profile(conn, email)
+    finally:
+        conn.close()
 
 
 def om_facts(deal_id, email=None):
     """Everything the OM engine (services/om_engine.py) works from for one deal, read-only."""
-    rows = {}
-    for row in _om_table("SELECT * FROM om_slots WHERE deal_id = ?", (deal_id,)):
-        row["value"] = json.loads(row["value"]) if row["value"] else None
-        row["source"] = json.loads(row["source"] or "{}")
-        rows[row["slot_id"]] = row
-    assumptions = {}
-    for row in _om_table("SELECT * FROM om_assumptions WHERE deal_id = ?", (deal_id,)):
-        row["value"] = json.loads(row["value"])
-        row["source"] = json.loads(row["source"] or "{}")
-        assumptions[row["key"]] = row
-    price = rows.get("financial.sale_price", {}).get("value")
-    return {
-        "deal": get_deal(deal_id) or {},
-        "units": deal_units(deal_id),
-        "t12": deal_t12(deal_id),
-        "documents": deal_documents(deal_id),
-        "rows": rows,
-        "assets": _om_table("SELECT * FROM om_assets WHERE deal_id = ? ORDER BY slot_id, position, id", (deal_id,)),
-        "assumptions": assumptions,
-        "price": price if isinstance(price, (int, float)) else None,
-        "profile": profile(email),
-    }
+    from services import om_facts as facts
+    conn = _connect()
+    try:
+        return facts.load(conn, deal_id, email)
+    finally:
+        conn.close()
+
+
+def om_exports(deal_id):
+    """Every OM file made for a deal, newest first."""
+    return _om_table("SELECT * FROM om_exports WHERE deal_id = ? ORDER BY version DESC, format DESC", (deal_id,))
+
+
+def om_events(deal_id):
+    return _om_table("SELECT * FROM om_events WHERE deal_id = ? ORDER BY id", (deal_id,))
+
+
+def om_questions(deal_id):
+    return _om_table("SELECT * FROM om_questions WHERE deal_id = ? ORDER BY id", (deal_id,))
+
+
+def bov_values(deal_id):
+    """Values from a BOV, if any were saved, shown only as a suggestion for the price."""
+    return _om_table("SELECT metric, value, unit, created_at FROM valuation_outputs WHERE deal_id = ? "
+                     "AND (metric LIKE '%BOV%' OR metric LIKE '%value%') AND value IS NOT NULL ORDER BY id DESC", (deal_id,))

@@ -246,6 +246,7 @@ class TestDashboard(AppTestCase):
             "nav_all_deals": "All deals",
             "nav_connections": "Connections",
             "new_deal": "New deal",
+            "nav_settings": "Avery Sample",
             "sign_out": "Sign out",
             "open_assistant": "Ask the AI Teammate",
             f"open_deal_{self.deals['fallowmere']}": "Fallowmere Industrial Park (SAMPLE - fictional)",
@@ -269,10 +270,23 @@ class TestDashboard(AppTestCase):
 
     def test_header_shows_the_name_once_with_a_role_badge(self):
         text = self.page_text()
-        self.assertEqual(text.count("Avery Sample"), 1)
+        self.assertEqual(self.app.button(key="nav_settings").label, "Avery Sample")
+        self.assertNotIn("Avery Sample", text)
         self.assertEqual(text.count("Broker"), 1)
-        self.assertIn('<span class="user-name">Avery Sample</span><span class="role-badge">Broker</span>', text)
+        self.assertIn('<span class="role-badge">Broker</span>', text)
         self.assertEqual(self.app.button(key="nav_home").label, "CBRE AI Teammate")
+
+    def test_the_user_name_opens_settings_with_the_profile(self):
+        self.app.button(key="nav_settings").click().run()
+        self.assertEqual(self.app.session_state["page"], "settings")
+        self.assertEqual(self.app.text_input(key="settings_title").value, "Senior Vice President (sample)")
+        self.addCleanup(lambda: __import__("services.om_slots", fromlist=["x"]).save_profile(
+            "demo.broker@example.com", "Senior Vice President (sample)", "(555) 010-0142", self.db_path))
+        self.app.text_input(key="settings_phone").set_value("(555) 010-0199")
+        self.app.button(key="settings_save").click().run()
+        from app import queries
+        self.assertEqual(queries.profile("demo.broker@example.com")["phone"], "(555) 010-0199")
+        self.assertFalse(self.app.exception)
 
     def test_clicking_a_deal_name_opens_that_deal(self):
         self.open_deal("brindlewick")
@@ -347,7 +361,23 @@ class TestDealWorkspace(AppTestCase):
         self.assertNotIn('<div class="k">Occupancy', text)
         self.assertNotIn('<div class="k">Cap rate', text)
 
+    def drop_brindlewick_t12(self):
+        """The sample gives Brindlewick a T-12 for its OM; these tests need a deal without one. Put back afterwards."""
+        conn = db.get_connection(self.db_path)
+        rows = [tuple(r) for r in conn.execute("SELECT * FROM t12_line_items WHERE deal_id = ?", (self.deals["brindlewick"],))]
+        with conn:
+            conn.execute("DELETE FROM t12_line_items WHERE deal_id = ?", (self.deals["brindlewick"],))
+        conn.close()
+
+        def restore():
+            conn = db.get_connection(self.db_path)
+            with conn:
+                conn.executemany(f"INSERT INTO t12_line_items VALUES ({', '.join('?' * len(rows[0]))})", rows)
+            conn.close()
+        self.addCleanup(restore)
+
     def test_deal_without_a_t12_says_needs_t12(self):
+        self.drop_brindlewick_t12()
         self.open_deal("brindlewick")
         self.assertIn('<div class="v muted">Needs T-12</div>', self.page_text())
 
@@ -434,7 +464,23 @@ class TestDataTabDownloads(AppTestCase):
         self.assertIn("fallowmere_industrial_park_t12.xlsx", text)
         self.assertIn("Draft narrative: none yet", text)
 
+    def drop_brindlewick_t12(self):
+        """The sample gives Brindlewick a T-12 for its OM; these tests need a deal without one. Put back afterwards."""
+        conn = db.get_connection(self.db_path)
+        rows = [tuple(r) for r in conn.execute("SELECT * FROM t12_line_items WHERE deal_id = ?", (self.deals["brindlewick"],))]
+        with conn:
+            conn.execute("DELETE FROM t12_line_items WHERE deal_id = ?", (self.deals["brindlewick"],))
+        conn.close()
+
+        def restore():
+            conn = db.get_connection(self.db_path)
+            with conn:
+                conn.executemany(f"INSERT INTO t12_line_items VALUES ({', '.join('?' * len(rows[0]))})", rows)
+            conn.close()
+        self.addCleanup(restore)
+
     def test_deal_without_a_t12_only_offers_the_rent_roll(self):
+        self.drop_brindlewick_t12()
         self.open_deal("brindlewick")  # its sample draft can be downloaded too
         self.assertEqual(set(self.downloads()), {"download_rent_roll_csv", "download_rent_roll_xlsx", "download_draft",
                                                  "review_download"})
@@ -1915,7 +1961,7 @@ class TestHome(HomeTestCase):
 
     def test_top_bar_order_is_home_all_deals_connections(self):
         keys = [b.key for b in self.app.button if b.key.startswith("nav_")]
-        self.assertEqual(keys, ["nav_home", "nav_home_link", "nav_all_deals", "nav_connections", "nav_bell"])
+        self.assertEqual(keys, ["nav_home", "nav_home_link", "nav_all_deals", "nav_connections", "nav_bell", "nav_settings"])
 
     def test_one_card_per_deal_with_progress_from_the_database(self):
         text = self.page_text()
@@ -2137,7 +2183,7 @@ class TestHomeRail(HomeTestCase):
         labels = {b.key: b.label for b in self.app.button if b.key.startswith("rail_")}
         self.assertEqual(labels, {"rail_open_flags": "Open flags **1**", "rail_deals_to_review": "Deals to review **1**",
                                   "rail_documents_not_read_yet": "Documents not read yet **1**",
-                                  "rail_oms_to_finish": "OMs to finish **3**", "rail_new_emails": "New emails **3**"})
+                                  "rail_oms_to_finish": "OMs to finish **2**", "rail_new_emails": "New emails **3**"})
         self.app.button(key="rail_new_emails").click().run()
         self.assertFalse(self.app.exception)
         self.assertEqual(self.app.session_state["feed_filter"], "Email")

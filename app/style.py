@@ -288,6 +288,11 @@ h1, h2, h3, h4, .stat-value { font-family: 'Fraunces', Georgia, serif !important
 .st-key-nav_connections button p { color: #dfe7e2; font-weight: 500; }
 .st-key-nav_connections button:hover { background: rgba(255, 255, 255, 0.12); }
 .st-key-nav_connections button:hover p { color: #ffffff; }
+/* The user name opens Settings. */
+.st-key-nav_settings button { min-height: var(--control-h); border: none; background: none; box-shadow: none; padding: 0 8px; }
+.st-key-nav_settings button p, .st-key-nav_settings button span { color: #ffffff; font-weight: 500; white-space: nowrap; }
+.st-key-nav_settings button:hover { background: rgba(255, 255, 255, 0.12); }
+.st-key-nav_settings button:focus-visible { box-shadow: var(--focus); }
 
 /* ---- Recommendations ---- */
 .banner.ai { background: var(--gold-tint); border-color: var(--gold); color: var(--gold-ink); }
@@ -593,6 +598,19 @@ table.preview tr.derived td { background: var(--gold-tint); }
 .om-source { font-size: 0.78rem; color: var(--ink-soft); margin-top: 2px; }
 .om-empty { color: var(--ink-soft); font-size: 0.9rem; }
 .om-approved { padding: 6px 0; border-top: 1px solid #eee9f0; font-size: 0.9rem; }
+/* The guided interview and the AI boxes on the OM tab */
+.st-key-om_interview { background: var(--surface); border: 1px solid var(--line); border-left: 4px solid var(--green-mid);
+  border-radius: var(--radius); padding: var(--s3); margin-bottom: var(--s3); }
+.om-q-count { font-size: 0.78rem; color: var(--ink-soft); font-weight: 600; letter-spacing: 0.03em; text-transform: uppercase; }
+.om-q-label { font-family: 'Fraunces', Georgia, serif; font-size: 1.2rem; font-weight: 600; color: var(--green); margin-top: 4px; }
+.om-q-text { font-size: 0.98rem; margin: 6px 0 4px; }
+.st-key-om_draft_box, .st-key-om_ai_answer_box, .st-key-om_sort_box { background: var(--gold-tint); border: 1px solid var(--gold);
+  border-radius: var(--radius-sm); padding: var(--s2); margin-bottom: var(--s2); }
+[class*="st-key-om_wait_"], [class*="st-key-om_assumption_"], [class*="st-key-om_reply_card_"], [class*="st-key-om_doc_card_"] {
+  background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius-sm); padding: 12px var(--s2); }
+[class*="st-key-om_slide_"] button { justify-content: flex-start; min-height: 32px; padding: 0 4px; }
+[class*="st-key-om_slide_"] button p { text-align: left; }
+[class*="st-key-om_photo_"] img { border-radius: var(--radius-sm); }
 [class*="st-key-om_wait_"] { background: var(--surface); border: 1px solid var(--line); border-left: 4px solid var(--amber);
   border-radius: var(--radius-sm); padding: 12px 14px !important; gap: 6px !important; margin-bottom: var(--s1); }
 [class*="st-key-om_wait_"] [data-testid="stMarkdownContainer"] { margin-bottom: 0; }
@@ -616,9 +634,12 @@ table.preview tr.derived td { background: var(--gold-tint); }
   .st-key-nav_home button::before { width: 22px; height: 22px; }
   .st-key-nav_all_deals button, .st-key-nav_connections button { padding: 0 8px; }
   .st-key-nav_all_deals button p, .st-key-nav_connections button p { font-size: 0.9rem; }
-  .st-key-topbar_user { width: 100% !important; justify-content: space-between; gap: 8px !important; }
+  .st-key-topbar_user { width: 100% !important; justify-content: space-between; gap: 4px !important; }
   .who { gap: 8px; font-size: 0.9rem; }
   .who .user-name { display: none; }  /* room for the bell and Sign out; the badge stays */
+  /* Only the person icon shows on a phone; the name stays for screen readers. */
+  .st-key-nav_settings button { padding: 0; width: 36px; min-width: 36px; justify-content: center; }
+  .st-key-nav_settings button p { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
   .st-key-topbar .pill.simulated { font-size: 0.7rem; padding: 2px 8px; }
   .st-key-sign_out button { min-height: 40px; padding: 0 12px; }
   /* Breadcrumb on one line; a long deal name is cut with an ellipsis. */

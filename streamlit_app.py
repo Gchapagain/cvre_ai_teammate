@@ -29,7 +29,7 @@ fresh.ensure()  # must run before the imports below: see app/fresh.py
 from app import nav, queries, style  # noqa: E402
 from services import gemini  # noqa: E402
 import db  # noqa: E402
-from app.views import assistant, connections_page, dashboard, deal, home, login, new_deal  # noqa: E402
+from app.views import assistant, connections_page, dashboard, deal, home, login, new_deal, settings  # noqa: E402
 
 st.set_page_config(page_title="CBRE AI Teammate", layout="wide")
 style.apply()
@@ -54,8 +54,9 @@ def _top_bar(user):
                       help=f"{unread} unread on Home" if unread else "Nothing unread on Home")
             if gemini.simulated():
                 st.markdown('<span class="pill simulated">SIMULATED AI</span>', unsafe_allow_html=True, width="content")
-            st.markdown(f'<div class="who"><span class="user-name">{escape(user["full_name"])}</span>'
-                        f'<span class="role-badge">{escape(user["role"])}</span></div>',
+            st.button(user["full_name"], key="nav_settings", type="tertiary", on_click=nav.open_settings, icon=":material/person:",
+                      help="Settings: your title, phone and logo for the OM")
+            st.markdown(f'<div class="who"><span class="role-badge">{escape(user["role"])}</span></div>',
                         unsafe_allow_html=True, width="content")
             st.button("Sign out", key="sign_out", on_click=_sign_out)
 
@@ -75,6 +76,8 @@ else:
     _top_bar(user)
     if st.session_state.get("page") == "deal":
         deal.render()
+    elif st.session_state.get("page") == "settings":
+        settings.render()
     elif st.session_state.get("page") == "connections":
         connections_page.render()
     elif st.session_state.get("page") == "dashboard":

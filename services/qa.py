@@ -27,6 +27,7 @@ NO_NUMBERS_YET = "This deal's documents have not been read yet, so there is noth
 UNMATCHED_NOTE = ("Treat this as not verified: it includes a figure or a source "
                   "I could not match to this deal's data.")
 FLAGS_SOURCE = "Validation flags"
+OM_SOURCE = "OM checklist"
 HISTORY_TURNS = 6
 
 UNIT_FIELDS = ["unit_number", "tenant_name", "square_feet", "lease_start", "lease_end",
@@ -113,9 +114,24 @@ def load_deal_data(deal_id, db_path=None):
             "units": _rows(conn, "SELECT * FROM rent_roll_units WHERE deal_id = ? ORDER BY id", deal_id),
             "t12": _rows(conn, "SELECT category, line_item, period, amount FROM t12_line_items WHERE deal_id = ? ORDER BY id", deal_id),
             "flags": _rows(conn, "SELECT unit_number, rule, message, status FROM flags WHERE deal_id = ? ORDER BY id", deal_id),
+            "om": om_lines(conn, deal_id),
         }
     finally:
         conn.close()
+
+
+def om_lines(conn, deal_id):
+    """The OM checklist as plain lines, so the chat can answer OM questions. Read-only: the chat never changes slots."""
+    from services import om_engine, om_facts
+    try:
+        state = om_engine.build(om_facts.load(conn, deal_id))
+    except Exception:  # a database from before the OM Builder
+        return []
+    approved, _, done, filled, total = state.completion()
+    lines = [f"OM completion: {approved}% approved ({done} of {total} required items approved, {filled} filled and waiting)"]
+    lines += [f"Missing: {s.slot.label}" + (f" (needs {'; '.join(s.needs)})" if s.needs else "") for s in state.required_missing()]
+    lines += [f"Waiting for approval: {s.slot.label} = {s.display[:120]}" for s in state.waiting() if s.slot.required]
+    return lines
 
 
 def _numeric(values):
@@ -139,6 +155,8 @@ def _rent_roll_totals(units):
 
 def allowed_sources(data):
     names = [doc["filename"] for doc in data["documents"]]
+    if data.get("om"):
+        names.append(OM_SOURCE)
     return names + [FLAGS_SOURCE] if data["flags"] else names
 
 
@@ -160,6 +178,9 @@ def build_context(data):
         lines += [f"{t['category']} | {t['line_item']} | {t['period']} | {t['amount']}" for t in data["t12"]]
     lines.append("\nValidation flags (unit | rule | message | status: open, confirmed by a person, or corrected):")
     lines += [f"{f['unit_number']} | {f['rule']} | {f['message']} | {f.get('status', 'open')}" for f in data["flags"]] or ["None"]
+    if data.get("om"):
+        lines.append(f"\n{OM_SOURCE} (the offering memorandum being prepared; answer OM questions from it):")
+        lines += data["om"]
     lines.append("\nSources you may cite: " + "; ".join(allowed_sources(data)))
     return "\n".join(lines)
 

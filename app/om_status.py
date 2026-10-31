@@ -3,11 +3,13 @@
 from html import escape
 
 from app import queries
-from services import om_engine
+from services import om_assets, om_engine
 
 
-def state(deal_id):
-    return om_engine.build(queries.om_facts(deal_id))
+def state(deal_id, email=None):
+    facts = queries.om_facts(deal_id, email)
+    om_assets.ensure_sample_files(facts["assets"])  # sample drawings are not in git: draw any that are missing
+    return om_engine.build(facts)
 
 
 def badge_html(om_state):

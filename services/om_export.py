@@ -225,6 +225,12 @@ def _cover(slide, ctx, slide_def):
             _text(slide, 0.6, top, 3.6, 0.5, _show(s[slot_id]), size=14, color=WHITE)
         else:
             _missing(slide, 0.6, top, 3.6, 0.5, s[slot_id])
+    logo = ctx["facts"].get("logo")
+    if logo and Path(logo).exists():
+        with Image.open(logo) as image:
+            ratio = image.width / image.height
+        width = min(2.4, 0.8 * ratio)
+        slide.shapes.add_picture(str(logo), Inches(0.6), Inches(H - 2.3), Inches(width), Inches(width / ratio))
     broker = (ctx["facts"].get("profile") or {}).get("full_name")
     if broker:
         _text(slide, 0.6, H - 1.3, 3.6, 0.6, [("Offered by", {"size": 9, "color": GOLD, "bold": True}), broker],
@@ -524,3 +530,36 @@ def export(deal_id, facts, kind, user, want_pdf=True, db_path=None, out_dir=None
         conn.close()
     return {"version": version, "kind_label": "client-ready" if kind == "final" else "draft", "pptx": pptx_path,
             "pdf": pdf_path, "pdf_error": pdf_error, "slides": slides, "completion": state.percent}
+
+
+# ---------- live preview (not an export: nothing is logged) ----------
+
+def _state_key(state, facts):
+    parts = [(slot_id, s.status, s.value) for slot_id, s in sorted(state.slots.items())]
+    parts.append([(a.get("id"), a.get("file_path"), a.get("slot_id")) for a in facts.get("assets", [])])
+    parts.append([str(facts.get("logo")), facts.get("profile"), [n for n, _ in state.slides]])
+    return hashlib.sha256(json.dumps(parts, sort_keys=True, default=str).encode()).hexdigest()[:16]
+
+
+def cached_preview(state, facts):
+    """The preview PDF for exactly this OM state, if it was already made."""
+    pdf = EXPORT_DIR / "previews" / f"live_{_state_key(state, facts)}" / "preview.pdf"
+    return pdf if pdf.exists() else None
+
+
+def preview_pdf(state, facts):
+    """A draft PDF of the OM as it is right now, for the slide preview. Cached by the OM's content."""
+    folder = EXPORT_DIR / "previews" / f"live_{_state_key(state, facts)}"
+    pdf = folder / "preview.pdf"
+    if not pdf.exists():
+        build_pptx(state, facts, "draft", folder / "preview.pptx")
+        to_pdf(folder / "preview.pptx")
+    return pdf
+
+
+def page_of(state, slide_id):
+    """The 0-based page a slide starts on (a long rent roll takes several pages)."""
+    for index, (slide_def, _) in enumerate(_pages(state)):
+        if slide_def.id == slide_id:
+            return index
+    return 0

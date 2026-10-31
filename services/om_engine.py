@@ -121,7 +121,8 @@ def slot_state(slot, facts, template, numbers):
     stored_is_override = stored and row["source"].get("kind") not in ("calculated", "document_field")
     if stored_is_override:
         state.value, state.status, state.source = row["value"], row["status"], row["source"]
-        state.display = display(row["value"])
+        currency = (slot.validation or {}).get("kind") == "currency" and isinstance(row["value"], (int, float))
+        state.display = om_calc.money(row["value"]) if currency else display(row["value"])
         return state
     if calc is not None and calc.ready:
         state.value, state.display, state.source = calc.value, calc.display, auto_source
@@ -228,3 +229,22 @@ def summary_line(state, deal_name):
     else:
         rest = "ready for a client-ready export"
     return f"OM for {deal_name} is {state.percent}% complete - {rest}"
+
+
+def time_spent(events, gap_minutes=15):
+    """(minutes, sessions) of OM work from the action log: clicks less than gap_minutes apart are one session.
+
+    This is time spent working on the OM in the app, not a claim about time saved.
+    """
+    from datetime import datetime, timedelta
+    times = sorted(datetime.fromisoformat(str(e["created_at"])) for e in events if e.get("created_at"))
+    if not times:
+        return 0, 0
+    minutes, sessions, start, last = 0.0, 1, times[0], times[0]
+    for moment in times[1:]:
+        if moment - last > timedelta(minutes=gap_minutes):
+            minutes += max(1.0, (last - start).total_seconds() / 60)
+            sessions, start = sessions + 1, moment
+        last = moment
+    minutes += max(1.0, (last - start).total_seconds() / 60)
+    return round(minutes), sessions

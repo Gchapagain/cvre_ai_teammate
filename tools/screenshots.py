@@ -51,7 +51,13 @@ def start_app(log_path):
         {"when": "MEETING PREP BRIEF", "reply": {"brief": (
             "- 12 units, 154,600 SF, average rent $8.84 per SF.\n"
             "- Unit 110 is flagged: rent/SF $20.33 is more than 2x the average of the other units. Confirm it first.\n"
-            "- Net operating income is $1,244,311.44 as stated in the T-12.")}}]))
+            "- Net operating income is $1,244,311.44 as stated in the T-12.")}},
+        {"when": "OFFERING MEMORANDUM TEXT", "reply": {
+            "offering": "Simulated draft for the screenshots. A fully leased industrial park of 12 units and 154,600 SF, offered with "
+                        "staggered leases and NNN terms that keep operating costs with the tenants.",
+            "upside": ["SIMULATED: leases end in different years", "SIMULATED: NNN leases pass costs through"],
+            "location_building": ["SIMULATED: three buildings on one site", "SIMULATED: small-bay units"],
+            "rare": ["SIMULATED: fully leased small-bay industrial is hard to find"], "location": None}}]))
     env = dict(os.environ, CBRE_DB_PATH=str(work / "screenshots.db"), CBRE_UPLOAD_DIR=str(work / "uploads"),
                CBRE_SIMULATED_GEMINI=str(replies),
                # The checks send many simulated AI requests quickly; the app's rate limits would stop them.
@@ -308,41 +314,87 @@ def open_om_tab(page, deal_name):
     page.wait_for_timeout(1000)
 
 
+def om_view(page, view):
+    page.locator(".st-key-om_view button", has_text=view).first.click()
+    page.wait_for_timeout(1200)
+    no_error_box(page, f"on the OM {view} view")
+
+
 def check_om(page, suffix):
-    print("OM Builder (Stage 1)")
+    print("OM Builder")
     check("Home cards show an OM badge", page.locator('[class*="st-key-proj_card_"] .om-badge').count() == 3)
     open_om_tab(page, "Quillhaven")
     no_error_box(page, "on the OM tab")
-    check("a deal with almost nothing is at 0%", page.locator(".om-percent").inner_text().strip() == "0%")
-    check("the missing list is long and required first", page.locator(".om-item.required").count() > 15
-          and "required" in page.locator(".om-item").first.get_attribute("class"))
+    check("a barely started OM is under 15%", int(page.locator(".om-percent").inner_text().strip().rstrip("%")) < 15)
     check("the deal header shows the OM badge", page.locator(".deal-pills .om-badge").count() == 1)
-    tall_shot(page, f"o1_om_tab_0pct{suffix}", height=2400)
-    open_om_tab(page, "Fallowmere")
-    check("deal cards show an OM badge", True)
+    check("the interview asks one question at a time", page.locator(".om-q-count").inner_text().lower().startswith("question 1 of"))
+    tall_shot(page, f"o1_om_checklist{suffix}", height=2400)
+    # Answer a question in the interview, then approve its section.
+    while page.locator('[class*="st-key-om_answer_"] textarea').count() == 0:
+        page.locator(".st-key-om_q_next button").click()
+        page.wait_for_timeout(700)
+    box_ = page.locator('[class*="st-key-om_answer_"] textarea').first
+    key = page.locator('[class*="st-key-om_answer_"]').first.get_attribute("class")
+    answer = "Springfield, IL" if "city_state" in key else "7 Example Court (sample)" if "address" in key else "Sample answer for the check"
     before = page.locator(".om-percent").inner_text().strip()
-    page.locator('[class*="st-key-om_wait_property_total_sf"]').get_by_text("How is this calculated?").click()
+    box_.fill(answer)
+    box_.press("Tab")
     page.wait_for_timeout(500)
-    check("How is this calculated? shows the sum", "154,600 SF" in page.locator('[class*="st-key-om_wait_property_total_sf"]').inner_text())
-    page.locator('[class*="st-key-om_wait_property_total_sf"]').scroll_into_view_if_needed()
-    page.screenshot(path=str(OUT / f"o2_om_how_calculated{suffix}.png"))
-    for slot in ("property_name", "property_type", "property_total_sf"):
-        page.locator(f'.st-key-om_approve_{slot} button').click()
-        page.wait_for_timeout(1200)
+    page.locator(".st-key-om_q_save button").click()
+    page.wait_for_timeout(1500)
+    check("a typed answer waits for approval", page.locator('[class*="st-key-om_wait_"]').count() >= 1)
+    page.locator('[class*="st-key-om_wait_"] button', has_text="Approve").first.click()
+    page.wait_for_timeout(1500)
     after = page.locator(".om-percent").inner_text().strip()
-    check("approving items raises the OM %", after != before and after != "0%", (before, after))
-    page.mouse.wheel(0, -5000)
+    check("approving raises the OM %", after != before, (before, after))
+    no_error_box(page, "after answering and approving")
+    om_view(page, "Client")
+    message = page.locator('[data-testid="stCode"]').inner_text()
+    check("Ask the client builds one grouped message", message.startswith("Hi there,") and "Photos" in message, message[:80])
+    page.screenshot(path=str(OUT / f"o2_om_client{suffix}.png"), full_page=False)
+    om_view(page, "Photos")
+    check("the Photos view lists what is still needed", page.get_by_text("Still needed").count() == 1)
+
+    open_om_tab(page, "Fallowmere")
+    check("Fallowmere is about half done", 50 <= int(page.locator(".om-percent").inner_text().strip().rstrip("%")) <= 60)
+    page.get_by_role("button", name="Draft all text").click()
+    page.get_by_text("Drafted:").wait_for(timeout=30000)
+    check("Draft all text saves AI drafts that wait for approval", page.get_by_text("AI draft · check it").count() >= 1)
+    tall_shot(page, f"o3_om_after_draft{suffix}", height=2400)
+    om_view(page, "Pricing")
+    page.locator(".st-key-om_price_text input").fill("15,460,000")
+    page.locator(".st-key-om_price_text input").press("Tab")
     page.wait_for_timeout(500)
-    tall_shot(page, f"o3_om_tab_partial{suffix}", height=2400)
-    no_error_box(page, "after approving OM items")
-    check("client-ready export is locked below 100%", page.locator(".st-key-om_export_final button").is_disabled())
-    page.locator(".st-key-om_export_draft button").click()
+    page.locator(".st-key-om_price_save button").click()
+    page.wait_for_timeout(1500)
+    check("the broker's price is saved", page.get_by_text("$15,460,000").count() >= 1)
+    tall_shot(page, f"o4_om_pricing{suffix}", height=1800)
+    om_view(page, "Slides")
+    check("the navigator lists 18 slides", page.locator('[class*="st-key-om_slide_"] button').count() == 18)
+    page.locator(".st-key-om_slide_cover button").click()
+    page.wait_for_timeout(600)
+    if page.get_by_role("button", name="Show preview").count():  # not there when this exact OM was drawn before
+        page.get_by_role("button", name="Show preview").click()
+    page.locator('[data-testid="stImage"] img').first.wait_for(timeout=120000)
+    check("the slide preview shows the page", page.locator('[data-testid="stImage"] img').count() >= 1)
+    page.screenshot(path=str(OUT / f"o5_om_slides{suffix}.png"))
+
+    open_om_tab(page, "Brindlewick")
+    check("the finished sample OM is 100%", page.locator(".om-percent").inner_text().strip() == "100%")
+    om_view(page, "Export")
+    check("client-ready export is unlocked at 100%", page.locator(".st-key-om_export_final button").is_enabled())
+    page.locator(".st-key-om_export_final button").click()
     page.locator(".st-key-om_dl_pdf button").wait_for(timeout=120000)
-    check("a draft export offers the PowerPoint and the PDF",
+    check("a client-ready export offers the PowerPoint and the PDF",
           page.locator(".st-key-om_dl_pptx button").count() == 1 and page.locator(".st-key-om_dl_pdf button").count() == 1)
-    no_error_box(page, "after exporting a draft")
-    page.locator(".st-key-om_dl_pdf").scroll_into_view_if_needed()
-    page.screenshot(path=str(OUT / f"o4_om_export{suffix}.png"))
+    no_error_box(page, "after exporting")
+    page.screenshot(path=str(OUT / f"o6_om_export{suffix}.png"))
+
+    page.get_by_role("button", name="Avery Sample").first.click()
+    page.get_by_text("Your profile").wait_for()
+    no_error_box(page, "on Settings")
+    check("Settings shows the profile title", page.locator(".st-key-settings_title input").input_value() == "Senior Vice President (sample)")
+    page.screenshot(path=str(OUT / f"o7_settings{suffix}.png"))
     page.locator(".st-key-nav_home button").click()
     page.get_by_text("Your projects").wait_for()
     page.wait_for_timeout(800)
@@ -470,9 +522,9 @@ def run(page, suffix):
     check("dark green background", css(page, ".st-key-topbar", "backgroundColor") == "rgb(19, 39, 30)",
           css(page, ".st-key-topbar", "backgroundColor"))
     check("spans the full width at the very top", bar["x"] == 0 and bar["y"] == 0 and abs(bar["width"] - width) < 2, bar)
-    sign_out, badge, name = box(page, ".st-key-sign_out button"), box(page, ".role-badge"), box(page, ".user-name")
+    sign_out, badge, name = box(page, ".st-key-sign_out button"), box(page, ".role-badge"), box(page, ".st-key-nav_settings button")
     check("the role badge says BROKER", page.locator(".role-badge").inner_text().strip() == "BROKER"
-          and page.locator(".user-name").inner_text().strip() == "Avery Sample")
+          and page.locator(".st-key-nav_settings button").first.inner_text().strip().endswith("Avery Sample"))
     page.screenshot(path=str(OUT / f"1b_top_bar{suffix}.png"), clip={"x": 0, "y": 0, "width": width, "height": 90})
     check("sign out is inside the bar", sign_out["y"] > 0 and sign_out["y"] + sign_out["height"] < bar["height"], sign_out)
     check("space between name and badge", badge["x"] - (name["x"] + name["width"]) >= 8)
@@ -825,7 +877,7 @@ def run(page, suffix):
     page.get_by_text("Reopened for changes. The reason is in the Activity timeline.").wait_for()
     check("reopening needs a reason and is logged", "Reopened for changes" in page.locator(".st-key-card_timeline").inner_text())
     check("Generate draft button is offered and nothing has been drafted", page.get_by_role("button", name="Generate draft").count() == 1
-          and page.locator(".ai-label").count() == 0)
+          and page.get_by_role("tabpanel").first.locator(".ai-label").count() == 0)
     # Show what a draft looks like without calling Gemini: put two made-up drafts straight into the
     # throwaway database, exactly as the drafting service would save them.
     add_sample_drafts()
@@ -1094,7 +1146,7 @@ def run_mobile(page):
     bar = box(page, ".st-key-topbar")
     check("the top bar fits the screen", bar["width"] <= 391 and css(page, ".st-key-topbar", "position") == "fixed", bar)
     links = [box(page, f".st-key-{key} button:visible") for key in ("nav_home", "nav_home_link", "nav_all_deals",
-                                                                     "nav_connections", "nav_bell", "sign_out")]
+                                                                     "nav_connections", "nav_bell", "nav_settings", "sign_out")]
     check("every top-bar link is fully on screen", all(l["x"] >= 0 and l["x"] + l["width"] <= 390 for l in links),
           [round(l["x"] + l["width"]) for l in links])
     print("  info small tap targets on the dashboard:", small_targets(page))

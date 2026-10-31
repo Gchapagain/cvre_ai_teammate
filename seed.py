@@ -15,6 +15,7 @@ from pathlib import Path
 from openpyxl import load_workbook
 
 import db
+import sample_om
 from services import rent_totals, validation
 
 SAMPLE_DIR = Path(__file__).resolve().parent / "sample_data"
@@ -229,6 +230,7 @@ def seed(db_path=None):
         conn.close()
     for deal_id in deal_ids.values():
         validation.validate_deal(deal_id, path)
+    sample_om.seed_om(path, deal_ids)
     return deal_ids
 
 

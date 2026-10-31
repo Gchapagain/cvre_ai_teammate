@@ -289,7 +289,8 @@ class TestSlotWrites(DbTestCase):
         self.assertEqual(self.state().slots["property.city_state"].status, "broker-provided")
 
     def test_approving_a_calculated_value_then_unapproving_it(self):
-        deal = self.deals["fallowmere"]
+        deal = self.deals["fallowmere"]  # the sample approves total SF; take it back first
+        om_slots.unapprove(deal, "property.total_sf", USER, self.db_path)
         total = self.state().slots["property.total_sf"]
         self.assertEqual((total.status, total.value), ("auto-filled", 154600.0))
         om_slots.approve(deal, [total], USER, self.db_path)
@@ -299,9 +300,9 @@ class TestSlotWrites(DbTestCase):
 
     def test_empty_and_fixed_slots_are_never_approved(self):
         state = self.state()
-        skipped = om_slots.approve(self.deals["fallowmere"], [state.slots["photo.hero"], state.slots["disclosures.text"]],
+        skipped = om_slots.approve(self.deals["fallowmere"], [state.slots["photo.site_plan"], state.slots["disclosures.text"]],
                                    USER, self.db_path)
-        self.assertEqual(skipped, ["photo.hero", "disclosures.text"])
+        self.assertEqual(skipped, ["photo.site_plan", "disclosures.text"])
 
     def test_invalid_values_are_refused_with_a_reason(self):
         cases = {"property.city_state": "Fort Worth Texas", "financial.sale_price": "about twelve million",
@@ -340,11 +341,12 @@ class TestSlotWrites(DbTestCase):
             om_slots.set_assumption(deal, "occupancy_by_year", "90, 95", USER, db_path=self.db_path)
 
     def test_every_action_is_logged_for_om_time(self):
-        om_slots.set_value(self.deals["fallowmere"], "property.buildings", "2", USER, db_path=self.db_path)
         conn = db.get_connection(self.db_path)
-        events = [tuple(r) for r in conn.execute("SELECT action, detail, user FROM om_events")]
+        before = conn.execute("SELECT MAX(id) FROM om_events").fetchone()[0] or 0
+        om_slots.set_value(self.deals["fallowmere"], "property.buildings", "2", "Someone (test)", db_path=self.db_path)
+        events = [tuple(r) for r in conn.execute("SELECT action, detail, user FROM om_events WHERE id > ?", (before,))]
         conn.close()
-        self.assertEqual(events, [("set", "property.buildings", USER)])
+        self.assertEqual(events, [("set", "property.buildings", "Someone (test)")])
 
 
 class TestViewingNeverWrites(DbTestCase):
@@ -364,6 +366,21 @@ class TestSampleDeals(DbTestCase):
         self.assertEqual(fallowmere.slots["property.leased_pct"].display, "100.0%")
         self.assertEqual(quillhaven.slots["property.total_sf"].status, "empty")
         self.assertGreater(len(quillhaven.required_missing()), len(fallowmere.required_missing()))
+
+    def test_sample_oms_are_complete_half_done_and_barely_started(self):
+        self.assertEqual(self.state("brindlewick").percent, 100)
+        self.assertTrue(50 <= self.state("fallowmere").percent <= 60, self.state("fallowmere").percent)
+        self.assertLess(self.state("quillhaven").percent, 15)
+
+    def test_sample_answers_and_photos_say_they_are_made_up(self):
+        state = self.state("brindlewick")
+        typed = [s for s in state.slots.values() if s.source.get("kind") == "broker_input"]
+        self.assertTrue(typed and all("made up" in s.source["detail"] for s in typed))
+        photos = [s for s in state.slots.values() if s.slot.type == "photo" and s.photos]
+        self.assertTrue(photos and all(a["sample"] for s in photos for a in s.photos))
+        self.assertIn("Sample illustration", photos[0].source["detail"])
+        for slot_id in ("offering.narrative", "location.narrative"):
+            self.assertTrue(state.slots[slot_id].value.startswith("SAMPLE"))
 
     def test_stated_totals_are_saved_for_the_sample_rent_roll(self):
         conn = db.get_connection(self.db_path)

@@ -338,5 +338,5 @@ class TestRail(FeedTestCase):
     def test_waiting_summary_counts_each_kind_and_skips_empty_ones(self):
         summary = feed.waiting_summary(self.items())
         self.assertEqual(summary, [("Open flags", 1, "Flags"), ("Deals to review", 1, "Waiting"),
-                                   ("Documents not read yet", 1, "Waiting"), ("OMs to finish", 3, "Waiting"),
+                                   ("Documents not read yet", 1, "Waiting"), ("OMs to finish", 2, "Waiting"),
                                    ("New emails", 3, "Email")])
