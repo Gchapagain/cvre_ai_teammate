@@ -152,11 +152,20 @@ class TestRunningOnItsOwn(AutopilotCase):
             self.assertEqual(ai_limits.current_session(), "ai-teammate")
         self.assertIsNone(ai_limits.current_session())
 
-    def test_it_is_off_in_tests_and_can_be_switched_off(self):
+    def test_it_stays_off_in_tests_even_when_the_environment_is_replaced(self):
         self.assertFalse(om_autopilot.enabled())
         self.assertFalse(om_autopilot.start(self.deals["fallowmere"]))
-        with mock.patch.dict(os.environ, {"OM_AUTOPILOT": "on"}):
-            self.assertTrue(om_autopilot.enabled())
+        # Some tests swap the whole environment for made-up keys; that must never switch the autopilot back on.
+        with mock.patch.dict(os.environ, {"GEMINI_API_KEY": "made-up"}, clear=True):
+            self.assertFalse(om_autopilot.enabled())
+            self.assertFalse(om_autopilot.start(self.deals["fallowmere"]))
+
+    def test_the_setting_switches_it_on_and_off_in_the_app(self):
+        with mock.patch.object(om_autopilot, "_switched_off", False):
+            with mock.patch.dict(os.environ, {"OM_AUTOPILOT": "on"}):
+                self.assertTrue(om_autopilot.enabled())
+            with mock.patch.dict(os.environ, {"OM_AUTOPILOT": "off"}):
+                self.assertFalse(om_autopilot.enabled())
 
     def test_every_run_is_logged_as_the_ai_teammate(self):
         self.run_autopilot("fallowmere", FakeGemini({"facts": []}, DRAFT, ASSUMPTIONS))

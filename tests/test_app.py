@@ -311,7 +311,10 @@ class TestDealWorkspace(AppTestCase):
         self.assertFalse(self.app.exception)
         self.assertEqual([tab.label for tab in self.app.tabs],
                          ["Review", "Documents :gray-badge[2]", "Data", "Recommendations", "OM", ":material/auto_awesome: Ask AI"])
-        self.assertIn("Documents: coming in a later step.", [message.value for message in self.app.info])
+        # The Documents tab is a real page now: its badge matches the cards it lists.
+        cards = [key for key in {b.key for b in self.app.get("download_button")} if key.startswith("doc_dl_")]
+        self.assertEqual(len(cards), 2)
+        self.assertIn('<div class="docs-summary">2 documents: 2 read</div>', self.page_text())
 
     def test_review_shows_a_decision_card_for_the_open_flag(self):
         self.open_deal("fallowmere")
@@ -456,8 +459,10 @@ class TestDataTabDownloads(AppTestCase):
         self.sign_in()
 
     def downloads(self):
-        """Every download button on the page as {key: element}, leaving out the OM tab's own (tested in test_om_app)."""
-        return {element.key: element for element in self.app.get("download_button") if not element.key.startswith("om_")}
+        """The Data tab's download buttons as {key: element}. Every tab renders at once, so the OM tab's buttons
+        (tested in test_om_app) and the Documents tab's "Download original" buttons (test_documents) are left out."""
+        return {element.key: element for element in self.app.get("download_button")
+                if not element.key.startswith(("om_", "doc_"))}
 
     def test_fallowmere_offers_rent_roll_and_t12_as_csv_and_excel(self):
         self.open_deal("fallowmere")
@@ -1127,6 +1132,15 @@ class TestMarketResearch(NewDealAppTestCase):
     def test_opening_the_review_tab_calls_nothing(self):
         self.use(results=AssertionError("must not search"), reply=AssertionError("must not be called"))
         self.open_fallowmere()
+        self.assertEqual((self.queries, self.calls, self.fetches), ([], [], []))
+
+    def test_opening_a_deal_starts_no_background_ai_in_tests(self):
+        import threading
+        from services import om_autopilot
+        self.use(results=AssertionError("must not search"), reply=AssertionError("must not be called"))
+        self.open_fallowmere()
+        self.assertFalse([t.name for t in threading.enumerate() if t.name.startswith("om-autopilot")])
+        self.assertEqual(om_autopilot.status(self.deals["fallowmere"]), {})
         self.assertEqual((self.queries, self.calls, self.fetches), ([], [], []))
         page = self.page()
         self.assertIn("Not run yet", page)

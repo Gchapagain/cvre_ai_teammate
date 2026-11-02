@@ -83,6 +83,10 @@ def deal_t12(deal_id):
     )
 
 
+def deal_t12_with_documents(deal_id):
+    return _all("SELECT document_id, category, line_item FROM t12_line_items WHERE deal_id = ?", (deal_id,))
+
+
 def latest_draft(deal_id):
     """The newest draft narrative, or None. A database from before drafts were reshaped has none."""
     try:

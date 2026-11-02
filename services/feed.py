@@ -171,7 +171,7 @@ def _waiting_items(rows, now, today):
                 else "has arrived and has not been read yet")
         items.append(Item(f"doc:{doc['id']}:{doc['status']}", WAITING_KIND, WAITING, f"{doc['filename']} {what}",
                           from_utc(doc["received_at"], now), doc["deal_id"], doc["deal_name"],
-                          (("Open deal", "open_deal"),), extra={"source": doc["source"]}))
+                          (("Open document", "open_doc"),), extra={"source": doc["source"], "document_id": doc["id"]}))
     for draft in rows["drafts"]:
         items.append(Item(f"draft:{draft['id']}", WAITING_KIND, WAITING,
                           f"An AI-drafted narrative for {short_name(draft['deal_name'])} is waiting for your approval",

@@ -9,5 +9,10 @@ import os
 os.environ.setdefault("AI_DAILY_LIMIT", "100000")
 os.environ.setdefault("AI_SESSION_HOURLY_LIMIT", "100000")
 
-# The OM autopilot calls Gemini and web search on its own in the running app; never in tests.
+# The OM autopilot calls Gemini and web search on its own in the running app; never in tests. The setting is
+# also switched off in code, because some tests replace the whole environment (tests/test_connections.with_keys).
 os.environ["OM_AUTOPILOT"] = "off"
+
+from services import om_autopilot  # noqa: E402
+
+om_autopilot.switch_off()

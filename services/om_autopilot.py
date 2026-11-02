@@ -53,9 +53,18 @@ STEP_NAMES = {"record": "Reading the deal record", "emails": "Reading the deal's
 
 _lock = threading.Lock()
 _runs = {}          # deal_id -> {"running", "step", "started", "finished", "lines"}
+_switched_off = False  # set by tests/conftest.py, so no change to the environment can switch it back on
+
+
+def switch_off():
+    """Turn the autopilot off for this whole process (tests). Stronger than OM_AUTOPILOT=off."""
+    global _switched_off
+    _switched_off = True
 
 
 def enabled():
+    if _switched_off:
+        return False
     return os.getenv("OM_AUTOPILOT", "on").lower() not in ("off", "0", "false", "no")
 
 

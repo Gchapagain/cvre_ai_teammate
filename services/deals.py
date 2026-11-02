@@ -40,7 +40,7 @@ def set_status(deal_id, status, db_path=None):
 
 def _safe_name(filename):
     """The file's own name with anything that is not a plain file-name character removed."""
-    name = re.sub(r"[^A-Za-z0-9._ -]", "_", Path(filename).name).strip(" .")
+    name = re.sub(r"[^A-Za-z0-9._ ()-]", "_", Path(filename).name).strip(" .")
     return name or "upload"
 
 

@@ -91,7 +91,14 @@ Every source of market data is an adapter in `services/connections/`, behind one
 2. **Deals dashboard**: stat cards (active deals, needs review, time saved, anomalies) and deal cards with status pills. The stat cards are filters: clicking one shows only the matching deals, with "Showing: ..." above the list and a small Clear button. Time saved opens a note explaining it is not measured yet. Deals needing attention (Needs Review or an anomaly) come first with a coloured left border. Clicking a card opens the deal.
 3. **Deal workspace**, opened by clicking a deal, with four tabs:
    - **Review**: a deal header card, then two columns. Left: anomaly banner, extracted fields ("12 of 12 units read"), draft pricing narrative with Flag for producer / Edit / Approve / Download, market research, Notes. Right: deal snapshot, key takeaways, where this came from. Snapshot and takeaways are calculated in `services/metrics.py` from saved rows, never by the AI. No occupancy, cap rate or accuracy figures are shown, because none can be calculated or has been measured; anything unavailable says "Not available", "Needs T-12" or "Not measured yet".
-   - **Documents**: all files for the deal with status (Received / Read / Reference only / Needs password), source, an add-document box, and an expected-documents checklist. Locked PDFs get "Needs password": the user enters the password (used once, not stored) or requests an unlocked copy. Scanned PDFs go to OCR.
+   - **Documents** (`app/views/documents_tab.py`, `services/documents.py`): one card per file (cards at every width) with name, type, source (Upload / Sample data / Email), date added, size and a status chip, and a summary line ("6 documents: 2 read, 2 not read yet, 1 reference only, 1 needs a password"). The tab badge is the same count.
+     - Statuses: Received (arrived, not read yet; every new upload starts here), Read (its numbers were extracted), Reference only (kept, not used for numbers; photos land here because they go to the OM photo sorter), Needs password (locked).
+     - Types: Rent roll, T-12, BOV, OM, Appraisal, Photo, Other. Detected without AI from the name and the content (a spreadsheet's headings via `new_deal.classify`, a PDF's first-page words); the broker can change it ("Change type", which also offers "Keep as reference only").
+     - "What we read" comes only from saved rows: "12 units extracted, 1 flagged", "12 T-12 lines saved", "Not read yet", the reason a type is not read for numbers, "Used as an OM photo". "Used in OM: n items" counts OM slots whose source names the file. Never invented.
+     - Actions: Download original (only when the file is on the server), "Read it now" for a Received rent roll with a file (pipeline.process_deal, **1 Gemini request**; quota and limit problems are plain messages and the file stays Received), "See the data" (Data tab), "Open the OM".
+     - Upload: drag and drop or tap to choose, several files at once (xlsx, csv, pdf, docx, png, jpg, webp), at most 25 MB each (`documents.MAX_BYTES`, also the upload box's own limit). Saved under `uploads/<deal_id>/` (git-ignored, `CBRE_UPLOAD_DIR` overrides it); a file is never overwritten. A bad or too-large file gets a friendly message and never stops the others.
+     - **Locked files**: a password-protected PDF (or an encrypted Excel/Word file) gets "Needs password" with a password box and Unlock. **The password is used once, in memory only: never saved, logged or shown again** (the box is cleared after each try). A wrong password gets "That password did not open the file. Check it with the sender and try again." The right one saves an unlocked copy next to the original and sets the file to Received. Only PDFs can be unlocked here; for Excel/Word the card says to ask the sender for an unlocked copy. Passwords are never guessed or bypassed.
+     - Home feed "waiting" items for a file (not read yet, needs a password) have "Open document", which opens this tab and brings that file's card into view (`nav.open_document`). Scanned PDFs (no text layer) are not read: OCR is not built.
    - **Resolving flags** (on Review): one decision card per open flag. "This is wrong - fix it" opens a form (required reason, before/after preview listing every recomputed field) and a "Tell me what is wrong" box: one Gemini request turns plain words into proposed changes, code checks each (unit in this deal, editable field, valid value, every number from the person's words), and nothing is saved until the person clicks Apply (saved as "AI-assisted" with their words as the reason). "This is correct - confirm it" needs a reason chip and a note and never changes data. Clicking a cell in Extracted fields edits it the same way; edited cells are gold and show the original value. Every change is in the `edits` audit table and the Activity timeline, with Undo (blocked once approved). Validation keeps decisions: flags are matched by unit, rule and field; confirmed stays confirmed if the value is unchanged; a fixed one becomes corrected (kept); a new problem opens a new flag. Dashboard counts open flags only.
    - **Approval** (top right of Review): a checklist (flags resolved X of Y, edits made, draft status) and "Review and approve", locked until every flag is confirmed or corrected. The dialog lists confirmed and corrected flags and every change (old to new, who, why). Approving sets status Approved with approved_by / approved_at and logs it; values, flags and undo are then locked. "Reopen for changes" needs a reason and is logged. "Flag for producer" on the draft stays a separate action.
    - **Recommendations**: banner "AI suggestions. A person decides." Two kinds of card. "From the deal's data": rules in `services/recommendations.py`, calculated in code, no AI (flagged unit, leases ending in 12 / 24 months, tenant concentration at 25%+ of SF, missing values, no T-12); each shows the rule and the exact numbers. "From market research": one Gemini request on "Generate recommendations", from the deal's facts and real (never simulated) findings; each must cite a finding ID that exists and every number must be in the deal data or a cited finding, otherwise it is dropped and counted. Priority comes from the rules (for AI cards: the strongest cited source's tier). Accept / Dismiss / Add to deal notes; accepted ones show on the Review tab and feed the draft narrative.
@@ -131,7 +138,7 @@ Tables:
 - recommendations (deal_id, kind rule / ai, rule_key, title, priority, why, next_step, evidence JSON, status, created_at)
 - connections (id, enabled, last_used_at)
 - users (email, name, role: Broker is the only role)
-- documents (deal_id, filename, source, received_at, status, used_for). Status is one of Received (arrived, not read yet), Read, Reference only, Needs password.
+- documents (deal_id, filename, doc_type, file_path, source, received_at, status, used_for). Status is one of Received (arrived, not read yet), Read, Reference only, Needs password. Size is read from the file on disk, not stored.
 - research_jobs
 - research_sources (url, published date, retrieved date, reliability tier)
 - research_briefs
@@ -153,7 +160,7 @@ Tables:
 - Validation flags rent/SF above 2x the average of the building's other units. Flag, never hide. Flags never change the data or block saving.
 - Validation also flags a unit whose annual rent is not SF x stated rent/SF (allowed gap: $1, or SF x $0.005 for a rate written to the cent, whichever is larger), and unit rents that do not add up to the rent roll's own Total row (within $1; the Total row is read by code into `rent_roll_totals`). Correcting a unit's rent can therefore open a total flag: the document's total is then out of date and a person confirms it.
 - Extraction rejects a whole file (and saves nothing) only when the file is unreadable, a required column is missing, or Gemini's reply is not valid JSON. A bad value in one row is saved exactly as extracted and flagged by validation.
-- Locked PDFs get status "Needs password". Never guess or bypass passwords.
+- Locked PDFs get status "Needs password". Never guess or bypass passwords. A password a person types to unlock a file is used once in memory and never saved or logged.
 
 ## Design
 - Background: #faf8fb
@@ -179,7 +186,7 @@ Tables:
 - Load sample data (deletes and rebuilds the local database, so it needs the flag): `.venv/bin/python seed.py --reset`
 - Start the app: `.venv/bin/streamlit run streamlit_app.py`
 - Viewing only reads the database (read-only connection in `app/queries.py`). The only writes come from explicit actions through `services/deals.py`: creating a deal, saving an upload, saving a note, and from the OM autopilot in the background when a deal page is opened. The app never runs seed.py and never deletes data.
-- Uploaded files are stored in `uploads/` (git-ignored). Sample data only: no real client files.
+- Uploaded files are stored in `uploads/<deal_id>/` (git-ignored). Sample data only: no real client files.
 - Login is a demo login for now (no real OAuth), and the UI says so.
 - "Time saved" shows "Not measured yet" until the accuracy report. No assumed numbers anywhere.
 
@@ -202,7 +209,7 @@ Tables:
 - Step 2: validation service + T-12 extraction + tests.
 - Step 3: drafting service.
 - Step 4: Streamlit shell: login with role gate, dashboard, deal workspace tabs. (Part A done: seed.py, theme, demo login, dashboard, Review tab.)
-- Step 5: Documents tab and locked-file flow.
+- Step 5 (done): Documents tab and locked-file flow.
 - Step 6 (done): Ask AI chat, deal-only.
 - Step 7: web research with source tiers.
 - Step 8: Gmail connection to a demo inbox.

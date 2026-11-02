@@ -34,6 +34,12 @@ def open_deal_at(deal_id, tab="Review", flag_id=None):
     st.session_state.focus_flag = flag_id
 
 
+def open_document(deal_id, document_id=None):
+    """Open a deal's Documents tab and bring one file's card into view."""
+    open_deal_at(deal_id, "Documents")
+    st.session_state.focus_document = document_id
+
+
 def open_dialog(name):
     """Only one dialog can be open at a time, so opening one closes any other."""
     st.session_state.open_dialog = name

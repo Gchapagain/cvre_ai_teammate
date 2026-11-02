@@ -1034,7 +1034,8 @@ def run(page, suffix):
     page.wait_for_timeout(300)
     tabs = page.get_by_role("tab")
     page.locator(".st-key-go_documents button").click()
-    page.get_by_text("Documents: coming in a later step.").wait_for()
+    page.locator(".docs-summary").first.wait_for()
+    page.wait_for_timeout(800)
     check("link jumps to the Documents tab", tabs.nth(1).get_attribute("aria-selected") == "true")
     tabs.first.click()
     page.get_by_text("Deal snapshot").wait_for()
@@ -1126,6 +1127,7 @@ def run(page, suffix):
     page.locator(".st-key-back_to_deals button").click()
     page.get_by_text("Needs your attention").wait_for()
     check("the breadcrumb link goes to the dashboard", page.get_by_role("heading", name="All deals").count() == 1)
+    check_documents(page, "", "desktop")
     check_home_scrolling(page, suffix)
     check_empty_feed(page, suffix)
 
@@ -1154,6 +1156,125 @@ def small_text(page, limit=16):
           && !e.closest('[data-testid="stWidgetLabel"]') && !e.closest('button')
           && parseFloat(getComputedStyle(e).fontSize) < limit; })
       .map(e => e.innerText.trim().slice(0, 30))""", limit)
+
+
+def add_sample_documents():
+    """In the script's own database only: made-up files in every document status for Fallowmere."""
+    import io
+    import sqlite3
+    from PIL import Image
+    from pypdf import PdfWriter
+    if str(ROOT) not in sys.path:
+        sys.path.insert(0, str(ROOT))
+    from services import documents
+    db_path, uploads = OUT / "tmp" / "screenshots.db", OUT / "tmp" / "uploads"
+    conn = sqlite3.connect(db_path)
+    fallowmere = conn.execute("SELECT id FROM deals WHERE name LIKE 'Fallowmere%'").fetchone()[0]
+    conn.close()
+
+    def pdf(password=None):
+        writer = PdfWriter()
+        writer.add_blank_page(width=300, height=300)
+        if password:
+            writer.encrypt(password)
+        out = io.BytesIO()
+        writer.write(out)
+        return out.getvalue()
+    photo = io.BytesIO()
+    Image.new("RGB", (800, 500), (120, 150, 170)).save(photo, "PNG")
+    rent_roll = (ROOT / "sample_data" / "rent_roll.xlsx").read_bytes()
+    documents.add_documents(fallowmere, [("Fallowmere BOV (sample).pdf", pdf()),
+                                         ("Fallowmere appraisal - locked (sample).pdf", pdf("made-up-password")),
+                                         ("Front of building (sample).png", photo.getvalue()),
+                                         ("fallowmere_rent_roll_v2 (sample).xlsx", rent_roll)],
+                            db_path=db_path, upload_dir=uploads)
+    return fallowmere
+
+
+def add_empty_deal():
+    import sqlite3
+    conn = sqlite3.connect(OUT / "tmp" / "screenshots.db")
+    with conn:
+        conn.execute("INSERT INTO deals (name, property_type, submarket, status) VALUES "
+                     "('Larkspur Yard (SAMPLE - fictional)', 'Industrial', 'Nowhere Flats (fictional)', 'New')")
+    conn.close()
+
+
+def open_documents_tab(page, deal_name, deals_button):
+    page.locator(deals_button).click()
+    page.get_by_text("Needs your attention").wait_for()
+    page.locator('[class*="st-key-deal_card_"]', has_text=deal_name).locator("button").first.click()
+    page.locator(".deal-title").wait_for()
+    tab = page.get_by_role("tab", name="Documents")
+    tab.scroll_into_view_if_needed()
+    tab.click()
+    page.locator(".st-key-docs_upload").first.wait_for()
+    page.wait_for_timeout(1500)
+
+
+def check_documents(page, prefix, size="desktop"):
+    """The Documents tab: every status chip, the locked-file box, the upload area, the empty state, and a
+    Home feed card that opens one document."""
+    print(f"Documents tab ({size})")
+    phone = size == "phone"
+    width = page.viewport_size["width"]
+    add_sample_documents()
+    home = ".st-key-bnav_home button" if phone else ".st-key-nav_home_link button"
+    deals_button = ".st-key-bnav_deals button" if phone else ".st-key-nav_all_deals button"
+    page.locator(home).click()
+    page.get_by_text("Your projects").wait_for()
+    page.wait_for_timeout(1500)
+    card = page.locator('[class*="st-key-feeditem_"]', has_text="needs a password before it can be read").first
+    card.scroll_into_view_if_needed()
+    page.screenshot(path=str(OUT / f"{prefix}d0_feed_document_item.png"))
+    card.get_by_role("button", name="Open document").click()
+    page.locator(".docs-summary").first.wait_for()
+    page.wait_for_timeout(2500)
+    check("a feed card opens the deal's Documents tab", page.get_by_role("tab", name="Documents").get_attribute("aria-selected") == "true")
+    locked = page.locator('[class*="st-key-doc_card_"]', has_text="appraisal - locked")
+    check("the feed card's document is brought into view", locked.is_visible() and locked.bounding_box()["y"] < page.viewport_size["height"],
+          locked.bounding_box())
+    no_error_box(page, "on the Documents tab")
+    check(f"no sideways scrolling on the Documents tab ({size})", overflow(page) <= 1, f"{overflow(page)}px")
+    summary = page.locator(".docs-summary").first.inner_text()
+    check("the summary counts every status", summary.startswith("6 documents:") and "needs a password" in summary
+          and "reference only" in summary and "not read yet" in summary and "2 read" in summary, summary)
+    chips = set(page.locator('[class*="st-key-doc_card_"] .pill').all_inner_texts())
+    check("every status chip is shown", chips >= {"Read", "Received", "Reference only", "Needs password"}, chips)
+    check("the locked file has a password box and Unlock", page.locator('[class*="st-key-doc_lock_"] input[type="password"]').count() == 1
+          and page.locator('[class*="st-key-doc_unlock_"] button').count() == 1)
+    check("Read it now is offered for the unread rent roll", page.get_by_role("button", name="Read it now").count() == 1)
+    if phone:
+        small = small_targets(page)
+        check("every tap target is at least 44px tall on the Documents tab", not small, small[:8])
+        cards = page.locator('[class*="st-key-doc_card_"]')
+        boxes = [cards.nth(i).bounding_box() for i in range(cards.count())]
+        check("document cards fit the screen", all(b["x"] >= 0 and b["x"] + b["width"] <= width + 1 for b in boxes))
+    tall_shot(page, f"{prefix}d1_documents", height=4200 if phone else 3000)
+    locked.scroll_into_view_if_needed()
+    page.screenshot(path=str(OUT / f"{prefix}d2_locked_file.png"))
+    password = page.locator('[class*="st-key-doc_password_"] input').first
+    password.fill("wrong-password")
+    password.press("Enter")  # Streamlit keeps a typed value on Enter; the deal page then reloads every tab
+    page.wait_for_timeout(4000)
+    page.locator('[class*="st-key-doc_unlock_"] button').first.click()
+    page.get_by_text("That password did not open the file").wait_for(timeout=30000)
+    page.wait_for_timeout(800)
+    check("a wrong password gets a friendly message", page.get_by_text("Check it with the sender").count() == 1)
+    upload = page.locator(".st-key-docs_upload")
+    upload.scroll_into_view_if_needed()
+    page.screenshot(path=str(OUT / f"{prefix}d3_upload_area.png"))
+    check("the upload area takes several files", page.locator('.st-key-docs_upload input[type="file"]').get_attribute("multiple") is not None)
+    add_empty_deal()
+    page.reload()  # a reload starts a new session, so sign in again
+    page.get_by_text("Welcome back").wait_for()
+    page.get_by_role("button", name="Continue with Google").click()
+    page.get_by_text("Your projects").wait_for()
+    page.wait_for_timeout(1500)
+    open_documents_tab(page, "Larkspur Yard", deals_button)
+    check("an empty deal says there are no documents yet", page.get_by_text("No documents yet.").count() >= 1)
+    no_error_box(page, "on an empty Documents tab")
+    page.screenshot(path=str(OUT / f"{prefix}d4_documents_empty.png"))
 
 
 def run_small(page, size):
@@ -1194,6 +1315,8 @@ def run_small(page, size):
     check("the top bar fits the screen and stays fixed", bar["width"] <= width + 1 and css(page, ".st-key-topbar", "position") == "fixed", bar)
     if phone:
         visible = lambda key: page.locator(f".st-key-{key}").first.is_visible()
+        bell = page.locator(".st-key-nav_bell button").first.inner_text()
+        check("the bell shows its whole count", "…" not in bell and bell.strip()[-1:].isdigit(), bell)
         check("phone top bar: logo, bell and menu only", visible("nav_home") and visible("nav_bell") and visible("nav_menu")
               and not visible("nav_all_deals") and not visible("sign_out"))
         nav_box = box(page, ".st-key-bottom_nav")
@@ -1300,6 +1423,9 @@ def run_small(page, size):
     page.wait_for_timeout(1000)
     page_ok("with the New deal dialog open")
     shot("7_new_deal")
+    page.keyboard.press("Escape")
+    page.wait_for_timeout(800)
+    check_documents(page, f"{prefix}_", size)
 
 
 def main():

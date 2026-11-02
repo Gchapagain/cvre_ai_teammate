@@ -5,7 +5,7 @@ from html import escape
 import streamlit as st
 
 from app import images, nav, om_status, queries, style
-from app.views import ask_ai, data_tab, om_tab, recommendations_tab, review
+from app.views import ask_ai, data_tab, documents_tab, om_tab, recommendations_tab, review
 from services import deals, metrics
 
 # The last tab is styled as the gold AI tab in app/style.py.
@@ -79,12 +79,14 @@ def render():
 
     labels = tab_labels(len(documents))
     st.session_state.documents_tab_label = labels[1]
+    if st.session_state.get("deal_tabs") == "Documents":  # a link that does not know the count badge
+        st.session_state.deal_tabs = labels[1]
     # on_change="rerun" makes the tabs keep their state, which lets a link switch tabs.
-    review_tab, documents_tab, data, recommendations, om, ask_ai_tab = st.tabs(labels, key="deal_tabs", on_change="rerun")
+    review_tab, docs_tab, data, recommendations, om, ask_ai_tab = st.tabs(labels, key="deal_tabs", on_change="rerun")
     with review_tab:
         review.render(deal)
-    with documents_tab:
-        st.info("Documents: coming in a later step.")
+    with docs_tab:
+        documents_tab.render(deal)
     with data:
         data_tab.render(deal)
     with recommendations:

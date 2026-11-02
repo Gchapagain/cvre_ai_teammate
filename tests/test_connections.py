@@ -25,7 +25,8 @@ FALLOWMERE = {"id": 1, "property_type": "Industrial", "submarket": "Alliance, Fo
 def with_keys(test_case, keys=None):
     """Use made-up keys instead of the real .env, so no test can ever use a real key."""
     keys = dict(keys if keys is not None else connection_fakes.TEST_KEYS)
-    keys.update({name: value for name, value in os.environ.items() if name.startswith("AI_")})  # tests/conftest.py
+    # Keep the test settings from tests/conftest.py (AI limits, autopilot off).
+    keys.update({name: value for name, value in os.environ.items() if name.startswith(("AI_", "OM_AUTOPILOT"))})
     for patcher in (mock.patch.object(base, "load_dotenv"),
                     mock.patch.dict("os.environ", keys, clear=True)):
         patcher.start()

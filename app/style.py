@@ -626,6 +626,23 @@ table.preview tr.derived td { background: var(--gold-tint); }
 /* A flag card opened from Home is outlined for a moment. */
 [class*="st-key-flagcard_open_"].flag-focus { box-shadow: 0 0 0 3px var(--gold), var(--shadow-hover); transition: box-shadow 0.3s; }
 
+/* ---- Documents tab ---- */
+.docs-summary { font-weight: 600; color: var(--green); margin-bottom: var(--s2); }
+.docs-empty { background: var(--surface); border: 1px dashed var(--line); border-radius: var(--radius); padding: var(--s3);
+  color: var(--ink-soft); margin-bottom: var(--s2); }
+[class*="st-key-doc_card_"] { background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius);
+  padding: var(--s2) var(--s3); margin-bottom: var(--s1); }
+[class*="st-key-doc_card_"].flag-focus { box-shadow: 0 0 0 3px var(--gold), var(--shadow-hover); transition: box-shadow 0.3s; }
+.doc-head { display: flex; align-items: center; gap: var(--s1); flex-wrap: wrap; }
+.doc-name { font-weight: 700; color: var(--ink); word-break: break-word; }
+.doc-meta { font-size: 0.85rem; color: var(--ink-soft); margin-top: 2px; }
+.doc-read { margin-top: 6px; }
+.doc-used { font-size: 0.85rem; color: var(--green-mid); font-weight: 600; margin-top: 2px; }
+[class*="st-key-doc_lock_"] { background: var(--red-tint); border: 1px solid #f0b7b1; border-radius: var(--radius-sm);
+  padding: 12px var(--s2); margin: var(--s1) 0; }
+.st-key-docs_upload { background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); padding: var(--s2) var(--s3);
+  margin-top: var(--s2); }
+
 /* ---- Phone-only and desktop-only pieces ---- */
 .st-key-nav_menu, .st-key-bottom_nav { display: none !important; }
 .menu-who { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-bottom: 4px; }
@@ -699,12 +716,14 @@ table.preview tr.derived td { background: var(--gold-tint); }
   .st-key-fab { right: 16px; bottom: calc(var(--bottomnav-h) + 16px + env(safe-area-inset-bottom)); }
   /* Readable text and comfortable taps. */
   .om-item-why, .om-value, .feed-message, .rec-why, .rec-next, .finding-summary, .takeaways li, .banner, .kv .k, .kv .v,
-  .om-q-text, .deal-meta, .om-head-note, .stMarkdown p, .stMarkdown li { font-size: 1rem; }
+  .om-q-text, .deal-meta, .om-head-note, .stMarkdown p, .stMarkdown li, .doc-read { font-size: 1rem; }
+  [class*="st-key-doc_card_"], .st-key-docs_upload { padding: 14px 16px; }
   .stButton button, .stDownloadButton button, .stFormSubmitButton button, [data-testid="stPopover"] > div > button,
   [data-testid="stExpander"] summary, [data-testid="stButtonGroup"] button, [data-testid="stFileUploader"] button,
   [data-testid="stChatInputSubmitButton"], [data-testid="stAudioInputActionButton"] { min-height: 44px; }
   [data-testid="stChatInputSubmitButton"], [data-testid="stAudioInputActionButton"] { min-width: 44px; }
   [data-baseweb="select"] > div { min-height: 44px; }
+  .stTextInput button { min-width: 44px; min-height: 44px; }  /* e.g. show / hide a password */
   [class*="st-key-more_"] button, [class*="st-key-rail_"] .stButton button { min-height: 44px; min-width: 44px; }
   [data-baseweb="tag"] { min-height: 36px; }
   [data-baseweb="tag"] button, button[aria-label="Clear all"] { min-width: 44px; min-height: 44px; }
@@ -721,6 +740,10 @@ table.preview tr.derived td { background: var(--gold-tint); }
     > [data-testid="stPopover"]),
   section[role="dialog"] [data-testid="stElementContainer"]:has(> .stButton, > .stDownloadButton, > .stFormSubmitButton) {
     width: 100% !important; flex: 1 1 100% !important; }
+  .block-container [data-testid="stElementContainer"]:has([data-testid="stPopover"]),
+  .block-container [data-testid="stLayoutWrapper"]:has(> [data-testid="stPopover"]),
+  .block-container [data-testid="stPopover"], .block-container [data-testid="stPopover"] > div,
+  .block-container [data-testid="stPopover"] button { width: 100% !important; flex: 1 1 100% !important; }
   .block-container .stButton [data-testid="stTooltipIcon"], .block-container .stButton [data-testid="stTooltipHoverTarget"],
   section[role="dialog"] .stButton [data-testid="stTooltipIcon"], section[role="dialog"] .stButton [data-testid="stTooltipHoverTarget"] {
     width: 100%; }
@@ -732,6 +755,11 @@ table.preview tr.derived td { background: var(--gold-tint); }
   .block-container [data-testid="stElementContainer"]:is(.st-key-back_to_deals, .st-key-clear_filter, [class*="st-key-more_"]),
   .st-key-fab { width: auto !important; }
   .st-key-fab button { width: 56px !important; min-width: 56px; }
+  .block-container .st-key-topbar [data-testid="stLayoutWrapper"], .block-container .st-key-topbar [data-testid="stPopover"],
+  .block-container .st-key-topbar [data-testid="stPopover"] > div, .block-container .st-key-topbar [data-testid="stPopover"] button,
+  .block-container [data-testid="stLayoutWrapper"][class*="st-key-more_"], .block-container [class*="st-key-more_"] [data-testid="stPopover"],
+  .block-container [class*="st-key-more_"] [data-testid="stPopover"] > div,
+  .block-container [class*="st-key-more_"] [data-testid="stPopover"] button { width: auto !important; flex: none !important; }
   /* Breadcrumb on one line; a long deal name is cut with an ellipsis. */
   .st-key-breadcrumb { flex-wrap: nowrap !important; }
   .st-key-breadcrumb [data-testid="stElementContainer"]:last-child { min-width: 0; }
