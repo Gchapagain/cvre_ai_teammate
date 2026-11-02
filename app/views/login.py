@@ -38,10 +38,11 @@ PAGE_CSS = f"""
 .login-note {{ font-size: 0.8rem; color: var(--ink-soft); text-align: center; margin-top: var(--s1);
   padding-top: var(--s2); border-top: 1px solid var(--line); }}
 
-/* Phones: the brand panel sits on top and the card below it, both full width. */
-@media (max-width: 760px) {{
+/* Phones: the brand panel becomes a short header band above the card, both full width. */
+@media (max-width: {style.PHONE_MAX}px) {{
   .block-container {{ padding: 0 16px 32px !important; }}
-  .login-left {{ position: static; inset: auto; margin: 0 -16px; padding: 40px 24px 32px; }}
+  .login-left {{ position: static; inset: auto; margin: 0 -16px; padding: 24px 20px 20px; }}
+  .login-left .point {{ display: none; }}  /* a short band: the logo and one line are enough on a phone */
   .login-left .logo span {{ font-size: 1.8rem; }}
   .login-left .logo svg {{ width: 30px; height: 30px; }}
   .login-left .tagline {{ font-size: 1rem; margin: 16px 0 24px; }}

@@ -59,6 +59,27 @@ def _top_bar(user):
             st.markdown(f'<div class="who"><span class="role-badge">{escape(user["role"])}</span></div>',
                         unsafe_allow_html=True, width="content")
             st.button("Sign out", key="sign_out", on_click=_sign_out)
+            # Phones only (CSS hides it elsewhere): name, Settings and Sign out behind one menu button.
+            with st.popover("Menu", icon=":material/menu:", key="nav_menu"):
+                st.markdown(f'<div class="menu-who"><b>{escape(user["full_name"])}</b>'
+                            f'<span class="role-badge">{escape(user["role"])}</span></div>', unsafe_allow_html=True)
+                st.button("Settings", key="menu_settings", icon=":material/person:", on_click=nav.open_settings, width="stretch")
+                st.button("Sign out", key="menu_sign_out", icon=":material/logout:", on_click=_sign_out, width="stretch")
+
+
+BOTTOM_NAV = (("bnav_home", "Home", ":material/home:", nav.go_home, ("home", None)),
+              ("bnav_deals", "Deals", ":material/work:", nav.go_all_deals, ("dashboard", "deal")),
+              ("bnav_connections", "Connections", ":material/hub:", nav.open_connections, ("connections",)))
+
+
+def _bottom_nav():
+    """Phones only (CSS hides it elsewhere): Home, Deals and Connections pinned to the bottom of the screen.
+
+    A bottom bar is always in view and needs one tap, unlike a menu that has to be opened first."""
+    page = st.session_state.get("page")
+    with st.container(key="bottom_nav", horizontal=True, horizontal_alignment="distribute"):
+        for key, label, icon, action, pages in BOTTOM_NAV:
+            st.button(label, key=key, icon=icon, type="primary" if page in pages else "tertiary", on_click=action)
 
 
 if not queries.database_ready():
@@ -74,6 +95,7 @@ if user is None:
     login.render()
 else:
     _top_bar(user)
+    _bottom_nav()
     if st.session_state.get("page") == "deal":
         deal.render()
     elif st.session_state.get("page") == "settings":

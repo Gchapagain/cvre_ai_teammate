@@ -94,6 +94,24 @@ def render():
     with ask_ai_tab:
         ask_ai.render(deal)
     _scroll_to_flag(st.session_state.pop("focus_flag", None))
+    _keep_active_tab_in_view()
+
+
+def _keep_active_tab_in_view():
+    """On a phone or tablet the tab bar scrolls sideways: bring the selected tab into view after each load or tap."""
+    st.html("""<script>
+    (function () {
+      const doc = window.parent.document || document;
+      function show() {
+        const tab = doc.querySelector('.stTabs [role="tab"][aria-selected="true"]');
+        const list = tab && tab.closest('[role="tablist"]');
+        if (!tab || !list || list.scrollWidth <= list.clientWidth) return;
+        list.scrollTo({left: tab.offsetLeft - (list.clientWidth - tab.offsetWidth) / 2, behavior: "smooth"});
+      }
+      setTimeout(show, 300);
+      doc.querySelectorAll('.stTabs [role="tab"]').forEach(t => t.addEventListener("click", () => setTimeout(show, 150)));
+    })();
+    </script>""", unsafe_allow_javascript=True)
 
 
 def _scroll_to_flag(flag_id):

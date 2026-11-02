@@ -228,7 +228,8 @@ def render(now_fn):
     now = now_fn()
     rows = queries.feed_rows()
     items = feed.build(rows, now)
-    main, rail = st.columns([2.1, 1], gap="large")
+    with st.container(key="home_columns"):  # on tablets and phones the rail stacks under the feed (app/style.py)
+        main, rail = st.columns([2.1, 1], gap="large")
     with main:
         _feed(items, now)
     with rail, st.container(key="home_rail"):

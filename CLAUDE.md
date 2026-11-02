@@ -11,7 +11,7 @@ Priority 1 is **Research & Value**: the AI Teammate does the document-heavy prep
 - No producer interaction longer than 5 minutes.
 
 ### Scope
-Scope additions (email ingestion, proactive research, locked-file handling) must be flagged to the PM. The layout is desktop first and adapts to phones (checked at 390px wide); there is no separate mobile app or bottom navigation. Keep scope tight and say so when something feels like scope creep.
+Scope additions (email ingestion, proactive research, locked-file handling) must be flagged to the PM. The app works on desktop, tablet and phone browsers (see Responsive below); there is no separate mobile app. Keep scope tight and say so when something feels like scope creep.
 
 ## How it works end to end
 1. **Capture**: a deal starts from an uploaded document (OM, BOV, rent roll, T-12) or an email captured from a connected inbox (Gmail API / Microsoft Graph, pointed at a safe demo inbox). Built so far: the "+ New deal" button on the dashboard, with two ways in. Upload files (xlsx or csv): the deal is created, files are saved as Received, and the first rent roll is read; T-12 files are saved but not read, because T-12 extraction is not built yet. Describe it to the AI: the AI returns a draft, anything it was not told is left blank, and nothing is saved until the person presses Create deal.
@@ -80,7 +80,7 @@ Every source of market data is an adapter in `services/connections/`, behind one
 - One user type: **Broker**. There are no other roles.
 - Google or Microsoft OAuth proves identity only. For the prototype, both sign-in buttons log in as the made-up demo broker (Avery Sample) and the UI says it is a demo login.
 
-## Screens (Streamlit, desktop first, responsive down to phone width)
+## Screens (Streamlit; desktop, tablet and phone)
 0. **Home** (`app/views/home.py`, `app/views/feed_view.py`): the first page after sign-in. Top to bottom:
    - **Greeting and summary**: "Good evening, Avery" by the time of day in the person's browser timezone, and "N things need you today" = the feed's "Needs you now" group (open flags and meetings in the next 24 hours).
    - **Your projects**: one card per deal in a row that scrolls sideways (trackpad, swipe, or the ‹ › buttons, which grey out at the ends) and snaps to cards. Each card: picture, name, type · location, status pill, progress bar with "x%" and "x of 7 steps", and the next step ("Next: resolve 1 flag"). Clicking a card opens the deal. Progress is calculated in `services/progress.py` from saved rows only, over seven steps: documents received, fields extracted, validation run (counted once units are saved, because validation always runs right after extraction), flags resolved, draft narrative, research reviewed (real findings only), approved. Colour by share of steps done, thresholds in `config/progress.json`: red under 25%, orange 25-69%, yellow 70-99%, green only at 100%. A legend sits under the strip. Pictures: drawn SVG illustrations per type in `static/property/` (Industrial, Flex, Retail, and one for anything else), labelled "Illustration"; "Change photo" on the deal header saves a person's own PNG / JPEG / WebP (checked, up to 5 MB) to `uploads/` and `deals.photo_path`.
@@ -101,7 +101,12 @@ Every source of market data is an adapter in `services/connections/`, behind one
 5. **All Data**: master table across every deal, compare two deals, export everything.
 6. **AI Teammate assistant**: a round floating button fixed to the bottom-right of every page after login. It opens a chat where the user picks one deal or "All deals". One deal uses the same logic as the Ask AI tab. "All deals" answers only from the database, is labeled "From these deals" and lists the deals used.
 
-Responsive: below 760px wide the top bar becomes two rows, the login panel stacks above the sign-in card, stat cards go two per row, columns stack, and tabs scroll sideways. Tables scroll sideways inside their card. No bottom navigation or tables-as-cards. Check phones with `.venv/bin/python tools/screenshots.py mobile`.
+**Responsive** (replaces the old "desktop first" rule). Breakpoints are set once in `app/style.py` (`PHONE_MAX = 640`, `TABLET_MAX = 1024`; the CSS uses them through placeholders): phone up to 640px, tablet 641-1024px, desktop above.
+- Everywhere: no sideways page scrolling at any width; tables scroll inside their card (first column pinned); nothing essential depends on hover (heading anchor links and tab arrows are hidden on touch screens, the AI button's hover label too).
+- Phones: tap targets at least 44px tall, body text at least 16px. Top bar shows the sparkle, the bell with its count and a ☰ menu (name, role, Settings, Sign out). A fixed bottom bar holds Home, Deals and Connections (icon and label, the current page in gold): chosen over a menu because it is always in view and one tap, and it is a plain Streamlit button row pinned with CSS. The floating AI button sits above the bottom bar. Dialogs (New deal, approval, AI chat) are full screen with a 44px close button and the chat box kept at the bottom; the top bar, bottom bar and AI button hide while one is open. Buttons are full width (rows of buttons stack), except the breadcrumb link, Clear filter and the ⋯ menus. Login: the brand panel is a short band above the card. Deal header: photo above the title. Stat cards two by two. Project cards 82% of the screen and snap.
+- Tablets: the sparkle stands for the app name and the user name is a person icon; tabs, the OM view switch and the feed's filter chips scroll sideways (the selected tab is kept in view by a small script on the deal page); Home's rail stacks under the feed.
+- Photo uploads use the file uploader, which on phones offers the camera or the photo library; no separate camera widget. Recording needs https on phones (the hosted app has it); the voice panel says what to do if the microphone is blocked.
+- Check with `.venv/bin/python tools/screenshots.py mobile` (390x844), `tablet` (820x1180) and the default desktop run (1440x900): each fails on sideways scrolling, an error box, and on phones on any tap target under 44px or body text under 16px.
 
 ## Data (SQLite)
 Schema version: `db.SCHEMA_VERSION`, stored in the database as `PRAGMA user_version`. **Every schema change (new table, new column, changed constraint) bumps it by one**, adds a line to the list above it in `db.py`, updates `seed.py` if the sample data needs it, and rebuilds `sample_data/demo.db`. `init_db` migrates without touching rows; the app runs it on start only when the database's version is behind.
@@ -159,7 +164,7 @@ Tables:
 - Amber for warnings, red for flags
 - Fonts: Fraunces (headings), Public Sans (body)
 - Streamlit theme goes in `.streamlit/config.toml`. The design system lives in `app/style.py`: 8px spacing grid, 24px card padding, 12px radius, 40px buttons, 48px tabs. Use its tokens and classes instead of one-off styles.
-- A full-width dark green top bar sits across every signed-in page: sparkle and app name (goes to Home), then Home | All deals | Connections on the left (All deals clears any filter); on a phone only the sparkle shows; user name, role badge and Sign out on the right.
+- A full-width dark green top bar sits across every signed-in page: sparkle and app name (goes to Home), then Home | All deals | Connections on the left (All deals clears any filter); user name (opens Settings), role badge and Sign out on the right. On a phone it shows the sparkle, the bell and a ☰ menu, and navigation moves to the bottom bar (see Responsive).
 - Deal pages show a breadcrumb: All deals > Deal name.
 - The Ask AI tab (a gold oval pill) and the assistant button use the gold accent with a sparkle icon so AI features are recognisable.
 

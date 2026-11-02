@@ -626,75 +626,165 @@ table.preview tr.derived td { background: var(--gold-tint); }
 /* A flag card opened from Home is outlined for a moment. */
 [class*="st-key-flagcard_open_"].flag-focus { box-shadow: 0 0 0 3px var(--gold), var(--shadow-hover); transition: box-shadow 0.3s; }
 
-/* ---- Phones and narrow windows ---- */
-@media (max-width: 760px) {
-  :root { --topbar-h: 104px; --card-pad: 16px; }
-  .block-container { padding: calc(var(--topbar-h) + 16px) 16px 96px !important; }
-  /* Top bar: two rows. Brand and Sign out on top; All deals, Connections and the role badge below. */
-  .st-key-topbar { height: auto; min-height: var(--topbar-h); padding: 8px 16px; flex-wrap: wrap !important;
-    row-gap: 4px !important; align-content: center; }
-  .st-key-topbar_nav { width: 100% !important; gap: 4px !important; flex-wrap: nowrap !important; }
-  .st-key-nav_home { margin-right: auto; }
-  /* Only the sparkle shows on a phone, so Home, All deals and Connections fit; the name stays for screen readers. */
-  .st-key-nav_home button p { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
-  .st-key-nav_home button { gap: 0; width: 40px; justify-content: center; }
-  .st-key-nav_home button::before { width: 22px; height: 22px; }
-  .st-key-nav_all_deals button, .st-key-nav_connections button { padding: 0 8px; }
-  .st-key-nav_all_deals button p, .st-key-nav_connections button p { font-size: 0.9rem; }
-  .st-key-topbar_user { width: 100% !important; justify-content: space-between; gap: 4px !important; }
-  .who { gap: 8px; font-size: 0.9rem; }
-  .who .user-name { display: none; }  /* room for the bell and Sign out; the badge stays */
-  /* Only the person icon shows on a phone; the name stays for screen readers. */
-  .st-key-nav_settings button { padding: 0; width: 36px; min-width: 36px; justify-content: center; }
-  .st-key-nav_settings button p { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
-  .st-key-topbar .pill.simulated { font-size: 0.7rem; padding: 2px 8px; }
-  .st-key-sign_out button { min-height: 40px; padding: 0 12px; }
+/* ---- Phone-only and desktop-only pieces ---- */
+.st-key-nav_menu, .st-key-bottom_nav { display: none !important; }
+.menu-who { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-bottom: 4px; }
+
+/* ================= Tablets and phones (up to __TABLET__px) ================= */
+@media (max-width: __TABLET__px) {
+  :root { --card-pad: 20px; }
+  .block-container { padding: calc(var(--topbar-h) + var(--s3)) var(--s3) 96px !important; }
+  /* Top bar: the sparkle stands for the app name; the user name shows as a person icon. */
+  .st-key-nav_home button p, .st-key-nav_settings button p { position: absolute; width: 1px; height: 1px; overflow: hidden;
+    clip: rect(0 0 0 0); }
+  .st-key-nav_home button { gap: 0; width: 44px; justify-content: center; }
+  .st-key-nav_settings button { width: 44px; min-width: 44px; padding: 0; justify-content: center; }
+  .st-key-topbar_user, .st-key-topbar_nav { gap: 4px !important; }
+  .st-key-topbar { padding-left: 12px; padding-right: 12px; }
+  .st-key-nav_home_link button, .st-key-nav_all_deals button, .st-key-nav_connections button { padding: 0 10px; }
+  .st-key-sign_out button { padding: 0 12px; }
+  .st-key-topbar .pill.simulated { font-size: 0.68rem; padding: 2px 8px; }
+  /* Tabs, the OM view switch and filter chips scroll sideways instead of wrapping or overflowing. */
+  .stTabs [role="tablist"] { overflow-x: auto; flex-wrap: nowrap; scrollbar-width: none; padding-right: 8px; }
+  .stTabs [role="tablist"]::-webkit-scrollbar { display: none; }
+  .stTabs [role="tab"] { padding: 0 14px; flex: none; }
+  .stTabs [role="tab"]:last-of-type { margin-left: 8px; }
+  .st-key-om_view [data-testid="stButtonGroup"] > div, .st-key-feed_filter [data-testid="stButtonGroup"] > div {
+    flex-wrap: nowrap !important; overflow-x: auto; scrollbar-width: none; padding-bottom: 2px; }
+  .st-key-om_view button, .st-key-feed_filter button { flex: none; }
+  .om-bar { grid-template-columns: repeat(3, minmax(0, 1fr)); row-gap: 10px; }
+  [data-testid="stLayoutWrapper"]:has(> .st-key-home_rail) { position: static; }
+  /* Home: the rail ("Today", "Waiting on you") moves under the feed, full width. */
+  .st-key-home_columns [data-testid="stHorizontalBlock"] { flex-wrap: wrap !important; row-gap: var(--s3) !important; }
+  .st-key-home_columns [data-testid="stHorizontalBlock"] > [data-testid="stColumn"] { flex: 1 1 100% !important;
+    width: 100% !important; min-width: 100% !important; }
+  .kv .v { white-space: normal; }
+  table.preview { display: block; overflow-x: auto; }
+  .st-key-fab::before { display: none; }  /* no hover label on touch screens */
+  /* Hover-only extras are hidden on touch screens: heading anchor links, and the tab arrows (swipe instead). */
+  [data-testid="stHeaderActionElements"], [data-testid="stTabsScrollLeft"], [data-testid="stTabsScrollRight"] { display: none !important; }
+}
+
+/* ================= Phones (up to __PHONE__px) ================= */
+@media (max-width: __PHONE__px) {
+  :root { --topbar-h: 56px; --card-pad: 16px; --control-h: 44px; --bottomnav-h: 64px; }
+  .block-container { padding: calc(var(--topbar-h) + 16px) 16px calc(var(--bottomnav-h) + 104px) !important; }
+  /* Top bar: one row with the sparkle, the bell and the menu. Navigation moves to the bottom bar. */
+  .st-key-topbar { padding: 0 8px 0 4px; flex-wrap: nowrap !important; }
+  .st-key-nav_home_link, .st-key-nav_all_deals, .st-key-nav_connections, .st-key-nav_settings, .st-key-sign_out,
+  .st-key-topbar_user .who { display: none !important; }
+  .st-key-nav_menu { display: block !important; }
+  .st-key-nav_menu button { min-height: 44px; min-width: 44px; padding: 0 10px; border: none; background: none; color: #ffffff; }
+  .st-key-nav_menu button p { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
+  .st-key-nav_menu button [data-testid="stIconMaterial"] { color: #ffffff; font-size: 26px; }
+  .st-key-nav_menu button:hover { background: rgba(255, 255, 255, 0.12); }
+  .st-key-nav_bell button { min-height: 44px; padding: 0 8px; }
+  .st-key-topbar .pill.simulated { font-size: 0.65rem; padding: 2px 6px; }
+  /* Bottom navigation: always in view, one tap, icon and label. */
+  .st-key-bottom_nav { display: flex !important; position: fixed; left: 0; right: 0; bottom: 0; z-index: 1001;
+    height: calc(var(--bottomnav-h) + env(safe-area-inset-bottom)); padding: 0 8px env(safe-area-inset-bottom);
+    background: var(--green-dark); border-top: 3px solid var(--gold); gap: 0 !important; flex-wrap: nowrap !important;
+    align-items: stretch; box-shadow: 0 -2px 8px rgba(19, 39, 30, 0.25); }
+  .st-key-bottom_nav > div { flex: 1 1 0 !important; width: auto !important; }
+  .st-key-bottom_nav button { width: 100%; height: var(--bottomnav-h); min-height: 0; flex-direction: column; gap: 2px;
+    border: none !important; background: none !important; box-shadow: none !important; border-radius: 0; padding: 6px 0 4px; }
+  .st-key-bottom_nav button p { font-size: 0.78rem; color: #dfe7e2; font-weight: 500; white-space: nowrap;
+    overflow: visible; text-overflow: clip; }
+  .st-key-bottom_nav button > div, .st-key-bottom_nav button [data-testid="stMarkdownContainer"] { overflow: visible; max-width: none; }
+  .st-key-bottom_nav button [data-testid="stIconMaterial"] { color: #dfe7e2; font-size: 24px; margin: 0; }
+  .st-key-bottom_nav button[kind="primary"] p, .st-key-bottom_nav button[data-testid="stBaseButton-primary"] p,
+  .st-key-bottom_nav button[kind="primary"] [data-testid="stIconMaterial"],
+  .st-key-bottom_nav button[data-testid="stBaseButton-primary"] [data-testid="stIconMaterial"] { color: var(--gold); font-weight: 700; }
+  /* The AI button sits above the bottom bar, never over it. */
+  .st-key-fab { right: 16px; bottom: calc(var(--bottomnav-h) + 16px + env(safe-area-inset-bottom)); }
+  /* Readable text and comfortable taps. */
+  .om-item-why, .om-value, .feed-message, .rec-why, .rec-next, .finding-summary, .takeaways li, .banner, .kv .k, .kv .v,
+  .om-q-text, .deal-meta, .om-head-note, .stMarkdown p, .stMarkdown li { font-size: 1rem; }
+  .stButton button, .stDownloadButton button, .stFormSubmitButton button, [data-testid="stPopover"] > div > button,
+  [data-testid="stExpander"] summary, [data-testid="stButtonGroup"] button, [data-testid="stFileUploader"] button,
+  [data-testid="stChatInputSubmitButton"], [data-testid="stAudioInputActionButton"] { min-height: 44px; }
+  [data-testid="stChatInputSubmitButton"], [data-testid="stAudioInputActionButton"] { min-width: 44px; }
+  [data-baseweb="select"] > div { min-height: 44px; }
+  [class*="st-key-more_"] button, [class*="st-key-rail_"] .stButton button { min-height: 44px; min-width: 44px; }
+  [data-baseweb="tag"] { min-height: 36px; }
+  [data-baseweb="tag"] button, button[aria-label="Clear all"] { min-width: 44px; min-height: 44px; }
+  [data-baseweb="tag"] [role="presentation"] { min-width: 44px; min-height: 44px; display: inline-flex; align-items: center;
+    justify-content: center; margin: -4px -8px -4px 0; }
+  /* Buttons fill the width so they are easy to hit one-handed; rows of buttons stack. */
+  .block-container .stButton, .block-container .stDownloadButton, .block-container .stFormSubmitButton,
+  .block-container [data-testid="stPopover"], section[role="dialog"] .stButton, section[role="dialog"] .stDownloadButton,
+  section[role="dialog"] .stFormSubmitButton { width: 100% !important; }
+  .block-container .stButton button, .block-container .stDownloadButton button, .block-container .stFormSubmitButton button,
+  .block-container [data-testid="stPopover"] > div > button, section[role="dialog"] .stButton button,
+  section[role="dialog"] .stDownloadButton button, section[role="dialog"] .stFormSubmitButton button { width: 100%; justify-content: center; }
+  .block-container [data-testid="stElementContainer"]:has(> .stButton, > .stDownloadButton, > .stFormSubmitButton,
+    > [data-testid="stPopover"]),
+  section[role="dialog"] [data-testid="stElementContainer"]:has(> .stButton, > .stDownloadButton, > .stFormSubmitButton) {
+    width: 100% !important; flex: 1 1 100% !important; }
+  .block-container .stButton [data-testid="stTooltipIcon"], .block-container .stButton [data-testid="stTooltipHoverTarget"],
+  section[role="dialog"] .stButton [data-testid="stTooltipIcon"], section[role="dialog"] .stButton [data-testid="stTooltipHoverTarget"] {
+    width: 100%; }
+  /* ...except the small controls that belong on one line. */
+  .st-key-back_to_deals, .st-key-back_to_deals button, .st-key-clear_filter, .st-key-clear_filter button,
+  [class*="st-key-more_"], [class*="st-key-more_"] [data-testid="stPopover"], [class*="st-key-more_"] button,
+  .block-container [data-testid="stElementContainer"]:is(.st-key-back_to_deals, .st-key-clear_filter, [class*="st-key-more_"]) {
+    width: auto !important; flex: none !important; }
+  .block-container [data-testid="stElementContainer"]:is(.st-key-back_to_deals, .st-key-clear_filter, [class*="st-key-more_"]),
+  .st-key-fab { width: auto !important; }
+  .st-key-fab button { width: 56px !important; min-width: 56px; }
   /* Breadcrumb on one line; a long deal name is cut with an ellipsis. */
   .st-key-breadcrumb { flex-wrap: nowrap !important; }
   .st-key-breadcrumb [data-testid="stElementContainer"]:last-child { min-width: 0; }
   .crumb { min-width: 0; }
   .crumb .here { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  /* Headings and page title row */
+  /* Headings, deal header (photo above the title) */
   h2 { font-size: 1.6rem !important; }
   .st-key-page_head h2 { font-size: 1.6rem !important; }
   .deal-title { font-size: 1.3rem; }
-  .deal-top { flex-direction: column; gap: 8px; }
-  .deal-thumb { width: 72px; height: 48px; }
-  /* Stat cards: two per row instead of one. */
+  .deal-top, .deal-id { flex-direction: column; align-items: flex-start; gap: 8px; }
+  .deal-thumb { width: 100%; max-width: 240px; height: auto; aspect-ratio: 16 / 9; }
+  .deal-pills { flex-wrap: wrap; }
+  /* Stat cards: two by two. */
   .st-key-stat_row [data-testid="stHorizontalBlock"] { flex-wrap: wrap !important; gap: 12px !important; }
   .st-key-stat_row [data-testid="stColumn"] { flex: 1 1 calc(50% - 6px) !important; min-width: calc(50% - 6px) !important;
     width: calc(50% - 6px) !important; }
   .stat-value { font-size: 1.5rem; }
   .stat-value.text { font-size: 1rem; line-height: 1.4; }
   [class*="st-key-statcard_"] { padding: 12px 14px !important; }
-  /* Tabs: scroll sideways instead of overflowing the page. */
-  .stTabs [role="tablist"] { overflow-x: auto; flex-wrap: nowrap; scrollbar-width: none; padding-right: 8px; }
-  .stTabs [role="tab"] { padding: 0 14px; flex: none; }
-  .stTabs [role="tab"]:last-of-type { margin-left: 8px; }
+  .pill { white-space: normal; }
   /* Cards and rows */
   .source { grid-template-columns: 56px minmax(0, 1fr); row-gap: 2px; }
   .source .when { grid-column: 2; }
   .source .figure { grid-column: 2; text-align: left; }
   .unchecked { margin-left: 0; }
-  .kv .v { white-space: normal; }
-  table.preview { display: block; overflow-x: auto; }
-  /* Comfortable tap targets for link-style buttons */
-  .st-key-back_to_deals button, .st-key-go_documents button, .st-key-clear_filter button { min-height: 40px; }
-  .st-key-fab { right: 16px; bottom: 16px; }
+  .om-bar { grid-template-columns: 1fr; }
   .home-greeting { font-size: 1.6rem; }
-  .st-key-project_strip > div { flex-basis: 78vw !important; width: 78vw !important; }
+  .st-key-project_strip > div { flex-basis: 82vw !important; width: 82vw !important; scroll-snap-align: start; }
   .strip-arrows { display: none; }  /* swipe instead */
-  .st-key-nav_home_link button { padding: 0 8px; }
   [class*="st-key-feeditem_"] { padding: 12px 14px !important; }
   .feed-when { margin-left: 0; width: 100%; order: 10; }
-  .om-bar { grid-template-columns: 1fr; }
-  [data-testid="stLayoutWrapper"]:has(> .st-key-home_rail) { position: static; }
-  .st-key-nav_bell button { padding: 0 6px; }
-  .st-key-nav_home_link button p { font-size: 0.9rem; }
-  .st-key-fab::before { display: none; }  /* no hover on a phone */
+  /* Dialogs (New deal, approval, the AI Teammate chat): full screen, the close button easy to reach,
+     and the chat box kept at the bottom above the keyboard. */
+  section[role="dialog"] { position: fixed !important; inset: 0 !important; width: 100vw !important; max-width: 100vw !important;
+    height: 100dvh !important; max-height: 100dvh !important; margin: 0 !important; transform: none !important;
+    border-radius: 0 !important; overflow-y: auto; padding-bottom: env(safe-area-inset-bottom);
+    background: var(--surface) !important; z-index: 1002; }
+  body:has(section[role="dialog"]) .st-key-topbar, body:has(section[role="dialog"]) .st-key-bottom_nav,
+  body:has(section[role="dialog"]) .st-key-fab { display: none !important; }
+  section[role="dialog"] button[aria-label="Close"] { width: 44px; height: 44px; }
+  section[role="dialog"] button[aria-label="Close"] svg { width: 22px; height: 22px; }
+  section[role="dialog"] [data-testid="stChatInput"] { position: sticky; bottom: 0; z-index: 2; background: var(--surface);
+    padding: 8px 0 calc(8px + env(safe-area-inset-bottom)); }
+  /* Tables scroll inside their card, never the page. */
+  [data-testid="stDataFrame"], [data-testid="stTable"] { max-width: 100%; overflow-x: auto; }
 }
 </style>
 """
+
+# Breakpoints, the one place they are set: phones up to PHONE_MAX px, tablets up to TABLET_MAX px, desktops above.
+PHONE_MAX = 640
+TABLET_MAX = 1024
+CSS = CSS.replace("__PHONE__", str(PHONE_MAX)).replace("__TABLET__", str(TABLET_MAX))
 
 PILL_CLASSES = {"Needs Review": "needs-review", "Extracting": "extracting", "Approved": "approved", "New": "new"}
 

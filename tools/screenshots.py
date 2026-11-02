@@ -1,7 +1,8 @@
 """Open the real app in a headless browser, click through it, and save screenshots.
 
 Run:  .venv/bin/python tools/screenshots.py            (uses the installed Google Chrome)
-      .venv/bin/python tools/screenshots.py mobile     (phone width, 390 x 844, saved as m_*.png)
+      .venv/bin/python tools/screenshots.py mobile     (phone, 390 x 844, saved as m_*.png)
+      .venv/bin/python tools/screenshots.py tablet     (tablet, 820 x 1180, saved as t_*.png)
       .venv/bin/python tools/screenshots.py webkit     (Safari's engine, if Playwright has it installed)
 
 It starts its own copy of the app on port 8765 with its own freshly seeded database and
@@ -1134,71 +1135,140 @@ def overflow(page):
     return page.evaluate("Math.max(document.documentElement.scrollWidth, document.body.scrollWidth) - window.innerWidth")
 
 
-def small_targets(page):
-    """Visible buttons shorter than 40px (too small to tap comfortably), by label."""
-    return page.evaluate("""[...document.querySelectorAll('button')].filter(b => {
-        const r = b.getBoundingClientRect(); return r.width > 0 && r.height > 0 && r.height < 40
-          && getComputedStyle(b).visibility !== 'hidden' && !b.closest('[data-testid="stDataFrame"]')
-          && !b.closest('[data-baseweb="tab-list"]') && !b.closest('[role="tablist"]');
-      }).map(b => (b.innerText || b.getAttribute('aria-label') || '?').trim().slice(0, 30))""")
+def small_targets(page, limit=44):
+    """Visible things to tap (buttons, links, tabs, chips) shorter than `limit` px, by label."""
+    return page.evaluate("""(limit) => [...document.querySelectorAll('button, a[href], [role="tab"], summary')].filter(b => {
+        const r = b.getBoundingClientRect(); const style = getComputedStyle(b);
+        return r.width > 2 && r.height > 2 && r.height < limit && style.visibility !== 'hidden' && style.display !== 'none'
+          && r.bottom > 0 && !b.closest('[data-testid="stDataFrame"]') && !b.closest('[data-testid="stTooltipIcon"]')
+          && !b.closest('[data-testid="stTooltipHoverTarget"]') && b.getAttribute('tabindex') !== '-1';
+      }).map(b => (b.innerText || b.getAttribute('aria-label') || b.tagName).trim().replace(/\\s+/g, ' ').slice(0, 30))""", limit)
 
 
-def run_mobile(page):
-    """Phone-width checks (390 x 844): nothing wider than the screen, and screenshots of each screen."""
-    shot = lambda name: page.screenshot(path=str(OUT / f"m_{name}.png"))
+def small_text(page, limit=16):
+    """Visible body-text paragraphs smaller than `limit` px (captions, labels and pills are left out)."""
+    return page.evaluate("""(limit) => [...document.querySelectorAll(
+        '.stMarkdown p, .stMarkdown li, .om-item-why, .feed-message, .rec-why, .finding-summary, .om-value, .om-q-text')]
+      .filter(e => { const r = e.getBoundingClientRect(); return r.width > 0 && r.height > 0
+          && !e.closest('[data-testid="stCaptionContainer"]') && !e.closest('.st-key-bottom_nav') && !e.closest('.st-key-topbar')
+          && !e.closest('[data-testid="stWidgetLabel"]') && !e.closest('button')
+          && parseFloat(getComputedStyle(e).fontSize) < limit; })
+      .map(e => e.innerText.trim().slice(0, 30))""", limit)
+
+
+def run_small(page, size):
+    """Phone or tablet checks: nothing wider than the screen, tap targets, text size and a screenshot of each screen."""
+    phone = size == "phone"
+    prefix = "m" if phone else "t"
+    width = page.viewport_size["width"]
+    shot = lambda name: page.screenshot(path=str(OUT / f"{prefix}_{name}.png"))
+    full = lambda name, height: tall_shot(page, f"{prefix}_{name}", height=height)
 
     def page_ok(where):
         no_error_box(page, where)
         check(f"no sideways scrolling {where}", overflow(page) <= 1, f"{overflow(page)}px")
+        if phone:
+            small = small_targets(page)
+            check(f"every tap target is at least 44px tall {where}", not small, small[:8])
+            tiny = small_text(page)
+            check(f"body text is at least 16px {where}", not tiny, tiny[:6])
 
     page.goto(URL)
     page.get_by_text("Welcome back").wait_for()
     page.wait_for_timeout(1200)
     page_ok("on the login page")
-    check("both sign-in buttons are on screen", page.get_by_role("button", name="Continue with Google").is_visible()
-          and page.get_by_role("button", name="Continue with Microsoft").bounding_box()["y"] < 2000)
-    tall_shot(page, "m_0_login", height=1300)
-    page.get_by_role("button", name="Continue with Google").click()
+    google = page.get_by_role("button", name="Continue with Google")
+    if phone:
+        card = box(page, ".st-key-login_card")
+        check("login stacks: the brand band is above the card", box(page, ".login-left")["y"] < card["y"])
+        check("sign-in buttons are full width", google.bounding_box()["width"] >= card["width"] - 60, google.bounding_box())
+    full("0_login", 1300)
+    google.click()
     page.get_by_text("Your projects").wait_for()
     page.wait_for_timeout(1500)
     page_ok("on Home")
     card = box(page, '[class*="st-key-proj_card_"]')
-    check("a project card fits the phone screen", card["x"] >= 0 and card["x"] + card["width"] <= 391, card)
-    print("  info small tap targets on Home:", small_targets(page))
+    check("a project card fits the screen", card["x"] >= 0 and card["x"] + card["width"] <= width + 1, card)
+    check("the project strip snaps", css(page, ".st-key-project_strip", "scrollSnapType").startswith("x"))
+    bar = box(page, ".st-key-topbar")
+    check("the top bar fits the screen and stays fixed", bar["width"] <= width + 1 and css(page, ".st-key-topbar", "position") == "fixed", bar)
+    if phone:
+        visible = lambda key: page.locator(f".st-key-{key}").first.is_visible()
+        check("phone top bar: logo, bell and menu only", visible("nav_home") and visible("nav_bell") and visible("nav_menu")
+              and not visible("nav_all_deals") and not visible("sign_out"))
+        nav_box = box(page, ".st-key-bottom_nav")
+        check("the bottom bar sits at the bottom of the screen", abs(nav_box["y"] + nav_box["height"] - page.viewport_size["height"]) <= 2
+              and css(page, ".st-key-bottom_nav", "position") == "fixed", nav_box)
+        fab = box(page, ".st-key-fab button")
+        check("the AI button sits above the bottom bar", fab["y"] + fab["height"] <= nav_box["y"] - 4, (fab, nav_box))
+        check("the bottom bar has Home, Deals and Connections",
+              page.locator(".st-key-bottom_nav button").all_inner_texts() and
+              [t.split("\n")[-1].strip() for t in page.locator(".st-key-bottom_nav button").all_inner_texts()] == ["Home", "Deals", "Connections"],
+              page.locator(".st-key-bottom_nav button").all_inner_texts())
+        page.locator(".st-key-nav_menu button").first.click()
+        page.get_by_role("button", name="Sign out").last.wait_for()
+        page.wait_for_timeout(600)
+        shot("8_menu_open")
+        check("the menu offers Settings and Sign out", page.locator(".st-key-menu_settings button").is_visible()
+              and page.locator(".st-key-menu_sign_out button").is_visible())
+        page.keyboard.press("Escape")
+        page.wait_for_timeout(500)
+    else:
+        links = [box(page, f".st-key-{key} button:visible") for key in ("nav_home", "nav_home_link", "nav_all_deals",
+                                                                         "nav_connections", "nav_bell", "nav_settings", "sign_out")]
+        check("every top-bar link is fully on screen", all(l["x"] >= 0 and l["x"] + l["width"] <= width for l in links),
+              [round(l["x"] + l["width"]) for l in links])
     shot("h_home")
-    tall_shot(page, "m_h_home_full", height=5200)
-    page.locator(".st-key-nav_all_deals button").click()
+    full("h_home_full", 5200)
+
+    deals_button = ".st-key-bnav_deals button" if phone else ".st-key-nav_all_deals button"
+    page.locator(deals_button).click()
     page.get_by_text("Needs your attention").wait_for()
     page.wait_for_timeout(1200)
-    page_ok("on the dashboard")
-    bar = box(page, ".st-key-topbar")
-    check("the top bar fits the screen", bar["width"] <= 391 and css(page, ".st-key-topbar", "position") == "fixed", bar)
-    links = [box(page, f".st-key-{key} button:visible") for key in ("nav_home", "nav_home_link", "nav_all_deals",
-                                                                     "nav_connections", "nav_bell", "nav_settings", "sign_out")]
-    check("every top-bar link is fully on screen", all(l["x"] >= 0 and l["x"] + l["width"] <= 390 for l in links),
-          [round(l["x"] + l["width"]) for l in links])
-    print("  info small tap targets on the dashboard:", small_targets(page))
+    page_ok("on All deals")
+    stats = [box(page, f'[class*="st-key-statcard_"] >> nth={i}') for i in range(4)]
+    if phone:
+        check("stat cards sit two by two", abs(stats[0]["y"] - stats[1]["y"]) < 2 and stats[2]["y"] > stats[0]["y"] + 10,
+              [round(s["y"]) for s in stats])
     shot("1_dashboard")
-    tall_shot(page, "m_1b_dashboard_full", height=2600)
+    full("1b_dashboard_full", 2600)
 
-    page.locator('[class*="st-key-deal_card_"]').first.click()
+    page.locator('[class*="st-key-deal_card_"]', has_text="Fallowmere").locator("button").first.click()
     page.get_by_text("Extracted fields").wait_for()
     page.wait_for_timeout(1500)
-    page_ok("on the deal page")
-    print("  info small tap targets on the deal page:", small_targets(page))
+    page_ok("on the deal's Review tab")
+    if phone:
+        thumb, title = box(page, ".deal-thumb"), box(page, ".deal-title")
+        check("the deal header stacks: photo above title", thumb["y"] + thumb["height"] <= title["y"] + 1, (thumb, title))
+        grid = box(page, '[data-testid="stDataFrame"]')
+        check("the Extracted fields table stays inside the screen", grid["x"] >= 0 and grid["x"] + grid["width"] <= width + 1, grid)
     shot("2_deal_top")
-    tall_shot(page, "m_2b_deal_review_full", height=7000)
+    full("2b_deal_review_full", 7000)
     tabs = page.get_by_role("tab")
     check("all six tabs can be reached", tabs.count() == 6)
-    tabs.nth(3).scroll_into_view_if_needed()
-    tabs.nth(3).click()
-    page.get_by_text("AI suggestions. A person decides.").wait_for()
-    page.wait_for_timeout(1000)
-    page_ok("on the Recommendations tab")
-    tall_shot(page, "m_3_recommendations", height=2600)
-    page.mouse.wheel(0, -8000)
-    tabs.last.scroll_into_view_if_needed()
-    tabs.last.click()
+    om_tab = page.get_by_role("tab", name="OM", exact=True)
+    om_tab.scroll_into_view_if_needed()
+    om_tab.click()
+    page.locator(".om-head").wait_for()
+    wait_for_teammate(page)
+    page_ok("on the OM tab")
+    tab_box, list_box = box(page, '[role="tab"][aria-selected="true"]'), box(page, '[role="tablist"]')
+    check("the selected tab is kept in view", tab_box["x"] >= list_box["x"] - 1 and tab_box["x"] + tab_box["width"] <= list_box["x"] + list_box["width"] + 1,
+          (tab_box, list_box))
+    full("3_om_slides", 3000)
+    page.locator(".st-key-om_view button", has_text="Checklist").first.click()
+    page.wait_for_timeout(1500)
+    page_ok("on the OM checklist")
+    full("3b_om_checklist", 4200)
+    for view, name in (("Pricing", "3c_om_pricing"), ("Client", "3d_om_client"), ("Photos", "3e_om_photos"), ("Export", "3f_om_export")):
+        page.locator(".st-key-om_view button", has_text=view).first.click()
+        page.wait_for_timeout(1500)
+        page_ok(f"on the OM {view} view")
+        full(name, 2600)
+
+    ask = page.get_by_role("tab", name="Ask AI")
+    ask.scroll_into_view_if_needed()
+    ask.click()
     page.get_by_text("Web search: coming in a later step.").first.wait_for()
     page.wait_for_timeout(800)
     page_ok("on the Ask AI tab")
@@ -1207,18 +1277,23 @@ def run_mobile(page):
     page.locator(".st-key-fab button").click()
     page.get_by_role("dialog").get_by_text("Ask about", exact=True).wait_for()
     page.wait_for_timeout(1000)
-    page_ok("with the AI dialog open")
-    shot("5_ai_dialog")
+    page_ok("with the AI chat open")
+    if phone:
+        dialog = box(page, 'section[role="dialog"]')
+        check("the AI chat is full screen", dialog["width"] >= width - 2 and dialog["height"] >= page.viewport_size["height"] - 2, dialog)
+        close = page.get_by_role("dialog").get_by_role("button", name="Close")
+        check("the chat has a clear close button", close.is_visible() and close.bounding_box()["height"] >= 44)
+    shot("5_ai_chat")
     page.keyboard.press("Escape")
     page.wait_for_timeout(1000)
 
-    page.locator(".st-key-nav_connections button").click()
+    page.locator(".st-key-bnav_connections button" if phone else ".st-key-nav_connections button").click()
     page.get_by_role("heading", name="Connections").wait_for()
     page.wait_for_timeout(1000)
     page_ok("on the Connections page")
     shot("6_connections")
 
-    page.locator(".st-key-nav_all_deals button").click()
+    page.locator(deals_button).click()
     page.get_by_text("Needs your attention").wait_for()
     page.locator(".st-key-new_deal button").click()
     page.get_by_role("dialog").get_by_text("How do you want to start?").wait_for()
@@ -1236,11 +1311,13 @@ def main():
     app = start_app(log_path)
     try:
         with sync_playwright() as p:
-            if engine == "mobile":
+            if engine in ("mobile", "phone", "tablet"):
+                size = "tablet" if engine == "tablet" else "phone"
+                viewport = {"width": 820, "height": 1180} if size == "tablet" else {"width": 390, "height": 844}
                 browser = p.chromium.launch(channel="chrome")
-                page = browser.new_page(viewport={"width": 390, "height": 844}, is_mobile=True, has_touch=True)
+                page = browser.new_page(viewport=viewport, is_mobile=True, has_touch=True)
                 page.set_default_timeout(15000)
-                run_mobile(page)
+                run_small(page, size)
                 browser.close()
                 return finish(log_path, app)
             if engine == "webkit":

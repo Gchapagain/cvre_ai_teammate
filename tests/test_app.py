@@ -248,6 +248,11 @@ class TestDashboard(AppTestCase):
             "new_deal": "New deal",
             "nav_settings": "Avery Sample",
             "sign_out": "Sign out",
+            "menu_settings": "Settings",
+            "menu_sign_out": "Sign out",
+            "bnav_home": "Home",
+            "bnav_deals": "Deals",
+            "bnav_connections": "Connections",
             "open_assistant": "Ask the AI Teammate",
             f"open_deal_{self.deals['fallowmere']}": "Fallowmere Industrial Park (SAMPLE - fictional)",
             f"open_deal_{self.deals['quillhaven']}": "Quillhaven Flex Center (SAMPLE - fictional)",
@@ -271,9 +276,11 @@ class TestDashboard(AppTestCase):
     def test_header_shows_the_name_once_with_a_role_badge(self):
         text = self.page_text()
         self.assertEqual(self.app.button(key="nav_settings").label, "Avery Sample")
-        self.assertNotIn("Avery Sample", text)
-        self.assertEqual(text.count("Broker"), 1)
-        self.assertIn('<span class="role-badge">Broker</span>', text)
+        # Once in the top bar; once more inside the phone menu, which only phones show (app/style.py).
+        self.assertEqual(text.count("Avery Sample"), 1)
+        self.assertIn('<div class="menu-who"><b>Avery Sample</b><span class="role-badge">Broker</span></div>', text)
+        self.assertEqual(text.count("Broker"), 2)
+        self.assertIn('<div class="who"><span class="role-badge">Broker</span></div>', text)
         self.assertEqual(self.app.button(key="nav_home").label, "CBRE AI Teammate")
 
     def test_the_user_name_opens_settings_with_the_profile(self):

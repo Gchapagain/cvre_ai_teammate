@@ -156,8 +156,8 @@ def pricing(state, deal, user, email):
         header = ["In-place"] + [f"Year {n}" for n in range(1, om_calc.YEARS + 1)]
         table = {label: [f"{v:.1f}%" if label.endswith("%") else om_calc.money(v) for v in values]
                  for label, values in flow.calc.value}
-        st.dataframe({"": list(table)} | {h: [row[i] for row in table.values()] for i, h in enumerate(header)},
-                     hide_index=True, width="stretch")
+        st.dataframe({"Line": list(table)} | {h: [row[i] for row in table.values()] for i, h in enumerate(header)},
+                     hide_index=True, width="stretch", column_config={"Line": st.column_config.TextColumn(pinned=True)})
     elif flow is not None:
         st.caption("Cash flow: still needs " + "; ".join(flow.needs))
 

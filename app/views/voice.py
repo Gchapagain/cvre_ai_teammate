@@ -13,8 +13,9 @@ from services import deals, gemini, transcribe
 log = logging.getLogger(__name__)
 
 NOTICE = "Audio is sent to Gemini for transcription and is not saved."
-MIC_HELP = ("If the microphone is blocked, allow it for this site in your browser's settings, "
-            "or upload a file instead. Each transcription uses one AI request.")
+MIC_HELP = ("If the microphone is blocked, allow it for this site in your browser's settings "
+            "(on a phone: Settings > your browser > Microphone), or upload a recording instead. Phone browsers allow the "
+            "microphone only on a secure (https) address, which the hosted app has. Each transcription uses one AI request.")
 TRANSCRIPT_LABEL = "AI transcript - please check it"
 MAX_UPLOAD_MB = transcribe.MAX_AUDIO_BYTES // 1024 // 1024  # what the upload box itself allows
 QUOTA_MESSAGE = "The AI's daily quota is used up, so this can't be transcribed right now. {detail} You can type instead."

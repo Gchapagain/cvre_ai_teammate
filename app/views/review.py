@@ -130,7 +130,8 @@ def _extracted_fields(deal, units, flags, documents, locked):
         if not complete:
             st.warning("The number of units read does not match the rows in the source file. Check the document.")
         event = st.dataframe(_styled(units_table(units, flags, edited), units, edited), hide_index=True, width="stretch",
-                             column_config={"Flag": st.column_config.TextColumn(width=90)},
+                             column_config={"Unit": st.column_config.TextColumn(pinned=True),  # stays in view when swiping on a phone
+                                            "Flag": st.column_config.TextColumn(width=90)},
                              on_select="rerun", selection_mode="single-cell", key="fields_table")
         names = ", ".join(doc["filename"] for doc in rent_roll_documents(documents))
         changed = f" {len(edited)} value{'s' if len(edited) != 1 else ''} changed by a person (gold cells)." if edited else ""
