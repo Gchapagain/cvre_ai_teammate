@@ -146,20 +146,41 @@ def one(value, **style):
 # ---------- fitting text (never shrink: report instead) ----------
 
 WIDTH_FACTOR = {HEAD: 0.52, BODY: 0.53}   # average character width as a share of the point size
+NARROW, WIDE = set("iljtfr.,;:'|!()- "), set("mwMW")
+
+
+def _em(word, font):
+    """A word's width in ems: capitals and digits are wider than lower case, i, l and punctuation narrower."""
+    total = 0.0
+    for ch in word:
+        if ch in WIDE:
+            total += 0.85
+        elif ch in NARROW:
+            total += 0.3
+        elif ch.isupper() or ch.isdigit():
+            total += 0.72 if font == HEAD else 0.68
+        else:
+            total += 0.52 if font == HEAD else 0.53
+    return total
 
 
 def lines_needed(value, width_in, size, font=BODY):
-    per_line = max(1, int(width_in * 72 / (size * WIDTH_FACTOR[font])))
+    """Lines a text needs at this size, wrapping by whole words the way PowerPoint does (a word wider than the
+    line breaks across lines)."""
+    room = width_in * 72 / size  # the line's width in ems
+    space = 0.27
     lines = 0
     for paragraph in str(value).split("\n"):
-        words, line = paragraph.split(), 0
-        current = 0
-        for word in words:  # wrap by whole words, the way PowerPoint does
-            extra = len(word) + (1 if current else 0)
-            if current + extra > per_line:
-                line, current = line + 1, len(word)
-            else:
-                current += extra
+        line, current = 0, 0.0
+        for word in paragraph.split():
+            width = _em(word, font)
+            if current and current + space + width > room:
+                line, current = line + 1, 0.0
+            if not current and width > room:  # one long word: it breaks over several lines
+                extra = int(width // room)
+                line += extra
+                width -= extra * room
+            current += (space if current else 0) + width
         lines += line + 1
     return lines
 
@@ -400,7 +421,8 @@ def _cover(slide, ctx, slide_def):
     _rect(slide, left, 1.12, 0.55, 0.03, fill=GOLD)
     title_top, name = 1.35, s["property.name"]
     if _filled(name):
-        lines = min(lines_needed(_show(name), width, SIZE["cover"], HEAD), COVER_TITLE_LINES)
+        lines = lines_needed(_show(name), width, SIZE["cover"], HEAD)  # a name too long for 5 lines is flagged
+        lines += 1 if lines > COVER_TITLE_LINES else 0  # and gets a spare line, so it never runs into the address
         title_h = lines * SIZE["cover"] * 1.08 / 72
         text(slide, left, title_top, width, title_h + 0.1, one(_show(name), font=HEAD, size=SIZE["cover"], color=WHITE), spacing=1.0)
     else:

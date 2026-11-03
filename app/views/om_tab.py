@@ -438,11 +438,14 @@ def _slides(state, deal):
     head, buttons = st.columns([2, 1.2], vertical_alignment="center")
     with head:
         style.section_title(f"The whole OM so far ({len(pages) or len(state.slides)} pages)")
+        waiting_key = f"om_deck_waiting_{deal['id']}"
+        st.session_state.pop(waiting_key, None)
         if error:
             st.caption(error)
         elif fresh:
-            st.caption("Up to date with every change. Draft pages show the DRAFT mark and a red box for anything missing.")
+            st.caption("Up to date with every change. Draft pages show a small draft tag and a dashed outline for anything missing.")
         else:
+            st.session_state[waiting_key] = True  # the status line reloads the page once the new pages are ready
             st.caption("Updating to include the latest changes..." if pages else "Drawing the slides for the first time...")
     with buttons, st.container(horizontal=True, horizontal_alignment="right"):
         if pdf:
@@ -473,6 +476,11 @@ def _live_status(deal_id):
     st.session_state[f"om_live_token_{deal_id}"] = token
     if last is not None and last != token and not run.get("running") and not drawing:
         st.rerun(scope="app")
+    if st.session_state.get(f"om_deck_waiting_{deal_id}") and not run.get("running") and not drawing:
+        # The redraw may finish between two checks; reload once the pages for the current OM exist.
+        if om_export.cached_preview(om_status.state(deal_id), queries.om_facts(deal_id, _email())):
+            st.session_state.pop(f"om_deck_waiting_{deal_id}", None)
+            st.rerun(scope="app")
     if run.get("running"):
         style.html(f'<div class="om-live working"><span class="dot"></span>AI Teammate is working: {escape(run.get("step") or "")}...</div>')
     elif drawing:

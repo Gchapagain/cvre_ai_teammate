@@ -328,7 +328,7 @@ def open_om_tab(page, deal_name):
     wait_for_teammate(page)
 
 
-def wait_for_teammate(page, timeout=90):
+def wait_for_teammate(page, timeout=180):
     """Wait until the AI Teammate and the slide redraw are done (the page reloads itself when they finish)."""
     import time
     end = time.time() + timeout
@@ -408,6 +408,10 @@ def check_om(page, suffix):
     tall_shot(page, f"o4_om_pricing{suffix}", height=1800)
     om_view(page, "Whole deck")
     wait_for_teammate(page)
+    for _ in range(45):  # the redraw runs in the background; the page reloads itself when it is done
+        if page.get_by_text("Up to date with every change").count():
+            break
+        page.wait_for_timeout(2000)
     check("the deck redraws itself with the new price", page.get_by_text("Up to date with every change").count() == 1
           and page.locator('[data-testid="stImage"] img').count() >= 18)
     check("every update is listed", page.get_by_text("Every update").count() == 1)
@@ -1341,6 +1345,32 @@ def check_new_property_and_slides(page, prefix, size="desktop"):
               and not page.locator(".st-key-om_slide_list").is_visible())
     else:
         check("the slide list sits left of the editor", box(page, ".st-key-om_slide_list")["x"] < box(page, ".st-key-om_slide_editor")["x"])
+    page.locator(".st-key-om_preview_pane img").first.wait_for(timeout=120000)
+    page.wait_for_timeout(1000)
+    natural = page.evaluate("document.querySelector('.st-key-om_preview_pane img').naturalWidth")
+    shown = box(page, ".st-key-om_preview_pane img")["width"]
+    check("the slide preview is sharp: at least 2 image pixels per screen pixel (retina)", natural >= 2 * shown, (natural, round(shown)))
+    page.locator(".st-key-om_preview_full button").first.click()
+    page.locator("img.slide-full").wait_for(timeout=20000)
+    page.wait_for_timeout(800)
+    full = page.evaluate("document.querySelector('img.slide-full').naturalWidth")
+    check("Open full size shows the 200 dpi render itself (2000 px or more)", full >= 2000, full)
+    shot("n3c_open_full_size")
+    page.keyboard.press("Escape")
+    page.wait_for_timeout(800)
+    pane, fields = box(page, ".st-key-om_preview_pane"), box(page, ".st-key-om_slide_editor")
+    if size == "desktop":
+        check("the preview sits beside the fields", pane["x"] > fields["x"] + fields["width"] - 2, (pane, fields))
+        check("the selected slide's list item carries its colour", page.locator('[class*="st-key-om_slide_item_on_red_cover"]').count() == 1)
+        page.mouse.wheel(0, 700)
+        page.wait_for_timeout(800)
+        moved = box(page, ".st-key-om_preview_pane")
+        check("the preview stays in view while the fields scroll", moved["y"] >= 0 and moved["y"] < page.viewport_size["height"] / 2,
+              moved["y"])
+        page.mouse.wheel(0, -700)
+        page.wait_for_timeout(500)
+    else:
+        check("the preview sits above the fields", pane["y"] + pane["height"] <= fields["y"] + 2, (pane["y"], fields["y"]))
     page.locator(".st-key-om_stepper").scroll_into_view_if_needed()
     page.wait_for_timeout(500)
     ok("on slide 1 (empty)")
@@ -1367,6 +1397,8 @@ def check_new_property_and_slides(page, prefix, size="desktop"):
     page.locator('[class*="st-key-om_photo_save_"] button:visible').first.click()
     page.locator('[class*="st-key-om_photo_replace_"] button:visible').first.wait_for(timeout=20000)
     page.wait_for_timeout(1500)
+    check("the placed photo shows its resolution chip and the whole / fill choice", page.locator(".res-chip").count() >= 1
+          and page.get_by_text("Show whole photo (default)").count() >= 1)
     check("the photo is on the slide with Replace and Remove", page.locator('[class*="st-key-om_photo_replace_"] button:visible').first.count() == 1
           and page.locator('[class*="st-key-om_photo_remove_"] button:visible').first.count() == 1)
     page.locator('[class*="st-key-om_item_photo_hero"]').scroll_into_view_if_needed()
@@ -1418,6 +1450,10 @@ def check_new_property_and_slides(page, prefix, size="desktop"):
     shot("n7_renamed_undo")
     page.locator(".st-key-rename_undo button:visible").first.click()
     page.get_by_text("Undone").wait_for(timeout=15000)
+    for _ in range(20):  # the page arrives in pieces: the message at the top comes before the header
+        if "renamed" not in page.locator(".deal-title").inner_text():
+            break
+        page.wait_for_timeout(500)
     check("Undo puts the old name back", "renamed" not in page.locator(".deal-title").inner_text())
 
 

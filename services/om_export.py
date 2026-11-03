@@ -103,22 +103,23 @@ def page_images(pdf_path, zoom=PREVIEW_DPI / 72):
     digest = hashlib.sha256(Path(pdf_path).read_bytes()).hexdigest()[:16]
     folder = EXPORT_DIR / "previews" / f"{digest}_{zoom:g}"
     if folder.exists():
-        cached = sorted(folder.glob("page-*.png"))
+        cached = sorted(folder.glob("page-[0-9][0-9].png"))  # the pages only, never their thumbnails
         if cached:
             return cached
     folder.mkdir(parents=True, exist_ok=True)
     with fitz.open(pdf_path) as pdf:
         for i, page in enumerate(pdf, start=1):
             page.get_pixmap(matrix=fitz.Matrix(zoom, zoom)).save(folder / f"page-{i:02d}.png")
-    return sorted(folder.glob("page-*.png"))
+    return sorted(folder.glob("page-[0-9][0-9].png"))
 
 
 def thumbnails(pages, width=THUMB_WIDTH):
     """Small PNGs of the preview pages for the slide list, downscaled once (Lanczos) and cached beside them."""
     out = []
     for page in pages:
-        thumb = page.with_name(page.stem + f"-thumb{width}.png")
+        thumb = page.parent / f"thumbs_{width}" / page.name  # kept apart, so a thumbnail is never taken for a page
         if not thumb.exists():
+            thumb.parent.mkdir(exist_ok=True)
             with Image.open(page) as image:
                 image.thumbnail((width, width * 2), Image.Resampling.LANCZOS)
                 image.save(thumb, "PNG")
@@ -184,10 +185,18 @@ def export(deal_id, facts, kind, user, want_pdf=True, db_path=None, out_dir=None
 
 # ---------- live preview (not an export: nothing is logged) ----------
 
+def design_fingerprint():
+    """Changes whenever the drawing code, the template or the legal wording changes, so old previews are redrawn."""
+    files = [ROOT / "services" / "om_design.py", ROOT / "templates" / f"{om_design.om_template.DEFAULT}.json",
+             om_design.om_template.BOILERPLATE]
+    return hashlib.sha256(b"".join(f.read_bytes() for f in files if f.exists())).hexdigest()[:12]
+
+
 def _state_key(state, facts):
     parts = [(slot_id, s.status, s.value) for slot_id, s in sorted(state.slots.items())]
-    parts.append([(a.get("id"), a.get("file_path"), a.get("slot_id")) for a in facts.get("assets", [])])
-    parts.append([str(facts.get("logo")), facts.get("profile"), [n for n, _ in state.slides]])
+    parts.append([(a.get("id"), a.get("file_path"), a.get("slot_id"), a.get("fit"), a.get("caption"))
+                  for a in facts.get("assets", [])])
+    parts.append([str(facts.get("logo")), facts.get("profile"), [n for n, _ in state.slides], design_fingerprint()])
     return hashlib.sha256(json.dumps(parts, sort_keys=True, default=str).encode()).hexdigest()[:16]
 
 

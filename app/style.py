@@ -636,6 +636,21 @@ table.preview tr.derived td { background: var(--gold-tint); }
 .st-key-om_slide_editor [data-testid="stImage"], .st-key-om_slide_editor [data-testid="stImageContainer"],
 .st-key-om_slide_editor [data-testid="stImage"] img { max-width: 100% !important; height: auto !important; }
 /* Previous | title | Next on one line at every width. */
+/* Slide list items: a thumbnail, the status colour (left edge) and the label with its badges. */
+[class*="st-key-om_slide_item_"] { gap: 8px !important; padding: 4px 6px 4px 8px !important; border-radius: var(--radius-sm);
+  border-left: 3px solid var(--line); flex-wrap: nowrap !important; }
+[class*="st-key-om_slide_item_red_"], [class*="st-key-om_slide_item_on_red_"] { border-left-color: var(--red); }
+[class*="st-key-om_slide_item_amber_"], [class*="st-key-om_slide_item_on_amber_"] { border-left-color: var(--amber); }
+[class*="st-key-om_slide_item_green_"], [class*="st-key-om_slide_item_on_green_"] { border-left-color: var(--green-mid); }
+[class*="st-key-om_slide_item_on_"] { background: var(--green-tint); }
+[class*="st-key-om_slide_item_"] img { border: 1px solid var(--line); border-radius: 3px; }
+[class*="st-key-om_slide_item_"] [data-testid="stElementContainer"]:has(img) { flex: none !important; }
+/* The editor body: fields beside the preview on desktop; the preview stays in view while the fields scroll. */
+.st-key-om_slide_body [data-testid="stHorizontalBlock"] { align-items: flex-start !important; }
+.st-key-om_slide_body [data-testid="stColumn"]:has(.st-key-om_preview_pane) { position: sticky; top: calc(var(--topbar-h) + var(--s2));
+  align-self: flex-start; }
+.st-key-om_preview_pane { gap: 6px !important; }
+.slide-full { width: 100%; height: auto; display: block; border: 1px solid var(--line); }
 .st-key-om_stepper { display: grid !important; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; }
 .st-key-om_stepper > * { width: auto !important; min-width: 0; }
 .st-key-om_stepper [data-testid="stElementContainer"]:has(.om-step) { justify-self: center; }
@@ -652,7 +667,10 @@ table.preview tr.derived td { background: var(--gold-tint); }
 [class*="st-key-om_photo_upload_"] button [data-testid="stIconMaterial"] { font-size: 24px; }
 [class*="st-key-om_slot_photo_"] img, [class*="st-key-om_item_"] img { border-radius: var(--radius-sm); }
 .res-chip { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; font-size: 0.8rem; color: var(--ink-soft); }
-[class*="st-key-om_slot_photo_"] [data-testid="stImage"] img { max-width: 480px; }
+[class*="st-key-om_slot_photo_"] [data-testid="stImage"] img { max-width: 480px; max-height: 340px; width: auto !important;
+  object-fit: contain; }
+[class*="st-key-om_slide_btn_"] button div, [class*="st-key-om_slide_btn_"] button p { white-space: normal !important;
+  overflow: visible !important; text-overflow: clip !important; }
 .grid-title { font-weight: 700; color: var(--ink); margin-top: 4px; }
 [class*="st-key-om_photo_grid_"] [data-testid="stHorizontalBlock"] { gap: 10px !important; }
 [class*="st-key-om_grid_"] { gap: 4px !important; }
@@ -781,6 +799,16 @@ table.preview tr.derived td { background: var(--gold-tint); }
   .st-key-nav_add button { width: 40px; min-width: 40px; padding: 0; justify-content: center; }
   .st-key-nav_add button p { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
   [data-testid="stLayoutWrapper"]:has(> .st-key-home_rail) { position: static; }
+  /* Tablets and phones: the slide preview sits above the fields. */
+  .st-key-om_slide_body [data-testid="stHorizontalBlock"] { flex-direction: column-reverse !important; flex-wrap: nowrap !important; }
+  .st-key-om_slide_body [data-testid="stColumn"] { width: 100% !important; flex: 1 1 100% !important; min-width: 100% !important; }
+  .st-key-om_slide_body [data-testid="stColumn"]:has(.st-key-om_preview_pane) { position: static; }
+  /* Tablets: the thumbnail sits above its label, so the label and its badges keep their width. */
+  [class*="st-key-om_slide_item_"] { flex-direction: column !important; align-items: stretch !important; }
+  [class*="st-key-om_slide_item_"] img { width: 100% !important; }
+  [class*="st-key-om_slide_item_"] [data-testid="stElementContainer"]:has(img),
+  [class*="st-key-om_slide_item_"] [data-testid="stImage"], [class*="st-key-om_slide_item_"] [data-testid="stImageContainer"] {
+    width: 100% !important; }
   /* Home: the rail ("Today", "Waiting on you") moves under the feed, full width. */
   .st-key-home_columns [data-testid="stHorizontalBlock"] { flex-wrap: wrap !important; row-gap: var(--s3) !important; }
   .st-key-home_columns [data-testid="stHorizontalBlock"] > [data-testid="stColumn"] { flex: 1 1 100% !important;

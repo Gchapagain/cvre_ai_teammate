@@ -242,3 +242,54 @@ class TestViewingNeverWrites(FreshAppCase):
         self.click(f"rename_btn_home_{self.deals['fallowmere']}")
         self.click(f"rename_cancel_home_{self.deals['fallowmere']}")
         self.assertEqual(hashlib.sha256(self.db_path.read_bytes()).hexdigest(), before)
+
+
+class TestEditorPolish(unittest.TestCase):
+    """Stage 3: a save reloads only the slide's fields unless the slide's colour changed."""
+
+    def run_refresh(self, colour_before, colour_now):
+        from types import SimpleNamespace
+        from app.views import om_slides_view as view
+        calls = []
+
+        class Rerun(Exception):
+            pass
+
+        def rerun(scope="app"):
+            calls.append(scope)
+            raise Rerun
+
+        fake_st = SimpleNamespace(session_state={"deal_id": 1, "om_slide": "cover", "om_slide_colour": colour_before}, rerun=rerun)
+        row = SimpleNamespace(slide=SimpleNamespace(id="cover"), colour=colour_now)
+        with mock.patch.object(view, "st", fake_st), mock.patch.object(view.om_status, "state"), \
+                mock.patch.object(view.om_slides, "rows", return_value=[row]):
+            with self.assertRaises(Rerun):
+                view.refresh()
+        return calls
+
+    def test_same_colour_reloads_only_the_fields(self):
+        self.assertEqual(self.run_refresh("red", "red"), ["fragment"])
+
+    def test_a_new_colour_reloads_the_page_so_the_list_and_percent_follow(self):
+        self.assertEqual(self.run_refresh("red", "amber"), ["app"])
+
+
+class TestSlideListAndPreview(FreshAppCase):
+    def test_the_list_shows_each_slides_colour_number_title_and_badges(self):
+        self.open_om("quillhaven")
+        cover = self.app.button(key="om_slide_btn_cover")
+        self.assertEqual(cover.label, "🔴 1. Cover :orange-badge[needs text] :orange-badge[needs a photo]")
+        self.assertEqual(cover.proto.type, "primary")  # the selected slide
+        self.assertTrue(self.app.button(key="om_slide_btn_disclosures").label.startswith("🟢 2. "))
+
+
+class TestTextTooLong(FreshAppCase):
+    def test_a_name_too_long_for_the_cover_is_flagged_on_the_slide_and_blocks_client_ready(self):
+        from services import deals
+        long_name = "Wrenfield Logistics And Distribution Campus Number Seventeen (SCREENSHOT TEST - fictional)"
+        deals.update_details(self.deals["brindlewick"], {"name": long_name}, "Avery Sample", db_path=self.db_path)
+        self.open_om("brindlewick")
+        warnings = " ".join(w.value for w in self.app.warning)
+        self.assertIn("Text too long: The property name is too long for the cover title", warnings)
+        from app import om_status
+        self.assertTrue(any("too long" in b for b in om_export.final_blockers(om_status.state(self.deals["brindlewick"]))))

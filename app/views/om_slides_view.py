@@ -12,9 +12,10 @@ from html import escape
 from pathlib import Path
 
 import streamlit as st
+from streamlit.errors import StreamlitAPIException
 
-from app import queries, style
-from services import om_assets, om_drafting, om_export, om_slides, om_slots
+from app import om_status, queries, style
+from services import om_assets, om_design, om_drafting, om_export, om_slides, om_slots
 
 DOT = {"green": "🟢", "amber": "🟠", "red": "🔴"}
 PILL = {"green": "approved", "amber": "needs-review", "red": "flag"}
@@ -62,13 +63,20 @@ def _chip(size, frame, fit="whole"):
 
 # ---------- the list (desktop) and the stepper (phones, and above the editor everywhere) ----------
 
-def _list(rows, index):
+def _list(rows, index, thumbs):
+    """Every slide: a thumbnail from the same 200 dpi render, its status colour and its badges."""
     with st.container(key="om_slide_list"):
         style.section_title(f"Slides ({len(rows)})")
         for i, row in enumerate(rows):
             badges = " ".join(f":orange-badge[{b}]" for b in row.badges)
-            st.button(f"{DOT[row.colour]} {row.number}. {row.slide.title} {badges}".strip(), key=f"om_slide_btn_{row.slide.id}",
-                      type="primary" if i == index else "tertiary", on_click=go_to, args=(row.slide.id,), width="stretch")
+            selected = "on_" if i == index else ""
+            with st.container(key=f"om_slide_item_{selected}{row.colour}_{row.slide.id}", horizontal=True,
+                              vertical_alignment="center"):
+                thumb = thumbs.get(row.slide.id)
+                if thumb is not None:
+                    st.image(str(thumb), width=88)
+                st.button(f"{DOT[row.colour]} {row.number}. {row.slide.title} {badges}".strip(), key=f"om_slide_btn_{row.slide.id}",
+                          type="primary" if i == index else "tertiary", on_click=go_to, args=(row.slide.id,), width="stretch")
 
 
 def _stepper(rows, index):
@@ -122,7 +130,7 @@ def _text_item(deal_id, item, user):
             _tab().flash("error", str(error))
         else:
             _tab().flash("success", f"{item.slot.label} saved. Approve the slide when it is right.")
-        st.rerun()
+        refresh()
 
 
 def _number_item(item):
@@ -150,6 +158,20 @@ def _done(message, kind="success"):
     st.session_state.pop("om_photo_mode", None)
     st.session_state.om_photo_round = st.session_state.get("om_photo_round", 0) + 1
     _tab().flash(kind, message)
+    refresh()
+
+
+def refresh():
+    """After a save: reload only the slide's fields (no full-page flash). The whole page reloads only when the
+    slide's colour changed, so the slide list, its badges and the OM % stay right."""
+    deal_id, slide_id = st.session_state.get("deal_id"), st.session_state.get("om_slide")
+    before = st.session_state.get("om_slide_colour")
+    rows = {r.slide.id: r for r in om_slides.rows(om_status.state(deal_id))} if deal_id else {}
+    if slide_id in rows and rows[slide_id].colour == before:
+        try:
+            st.rerun(scope="fragment")
+        except StreamlitAPIException:  # not inside a fragment run (for example in tests): reload the page
+            pass
     st.rerun()
 
 
@@ -281,7 +303,7 @@ def _draft_box(deal, row, state, user, email):
                 else:
                     lines = [f"Drafted: {', '.join(result['saved'])}. Check it, then approve." if result["saved"] else "Nothing new was drafted."]
                     _tab().flash("info", " ".join(lines + result["dropped"] + result["questions"]))
-            st.rerun()
+            refresh()
         if not writable:
             st.caption("This slide's text is yours or approved, so the AI leaves it alone.")
         with st.expander("Facts the AI will use"):
@@ -292,10 +314,17 @@ def _draft_box(deal, row, state, user, email):
                        if research else "No accepted research yet, so the location is not drafted.")
 
 
-@st.dialog("Slide preview", width="large")
+def _close_full_size():
+    st.session_state.pop("om_full_size", None)
+
+
+@st.dialog("Slide preview", width="large", on_dismiss=_close_full_size)
 def _full_size(path, title):
+    """The full 200 dpi render, sent as it is (st.image would shrink anything wider than 1460 px). Only on a click."""
+    import base64
+    data = base64.b64encode(Path(path).read_bytes()).decode()
     st.markdown(f"**{escape(title)}**")
-    st.image(str(path), width="stretch")
+    st.html(f'<img class="slide-full" src="data:image/png;base64,{data}" alt="{escape(title)}, full size">')
     st.caption("A draft rendering of the slide at 200 dpi. Close it to keep editing.")
 
 
@@ -309,21 +338,25 @@ def _preview(state, row, pages, fresh):
         st.image(str(pages[page]), width="stretch",
                  caption="This slide as it looks now (draft)" + ("" if fresh else " · updating with your latest change"))
         if st.button("Open full size", key="om_preview_full", icon=":material/open_in_full:"):
-            _full_size(pages[page], f"Slide {row.number} - {row.slide.title}")
+            # Opened by the page, not by this refreshing preview, so the next refresh does not close it.
+            st.session_state.om_full_size = (str(pages[page]), f"Slide {row.number} - {row.slide.title}")
+            st.rerun()
 
 
-def _editor(deal, row, state, user, email, pages, fresh):
+def _editor(deal, row, state, user, email):
     library = queries.om_assets(deal["id"])
     om_assets.ensure_sample_files(library)
     with st.container(key="om_slide_editor"):
         style.html(f'<div class="slide-head">{style.pill(om_slides.COLOUR_WORDS[row.colour], PILL[row.colour])}'
                    f'<div class="slide-need">{escape(om_slides.needs_line(row.number, row.slide, state))}</div></div>')
-        _preview(state, row, pages, fresh)
         if not row.items:
             st.caption("This page is fixed wording or built by the app. Nothing to fill.")
+        too_long = dict(om_design.too_long(state))  # text is never shrunk on the slide: it is flagged instead
         for item in row.items:
             with st.container(key=f"om_item_{_key(item.slot.id)}"):
                 _item_head(item)
+                if item.slot.id in too_long:
+                    st.warning(f"Text too long: {too_long[item.slot.id]}")
                 if item.slot.type == "photo":
                     _photo_item(deal["id"], row.slide, item, user, library)
                 elif om_slides.is_text(item):
@@ -338,7 +371,7 @@ def _editor(deal, row, state, user, email, pages, fresh):
                      width="stretch"):
             om_slots.approve(deal["id"], waiting, user)
             _tab().flash("success", f"Slide {row.number} - {row.slide.title}: {len(waiting)} item{'s' if len(waiting) != 1 else ''} approved.")
-            st.rerun()
+            refresh()
         if not waiting:
             st.caption("Nothing on this slide is waiting for approval." if row.colour != "red" else
                        "Fill what is missing first; filled items can then be approved.")
@@ -388,19 +421,69 @@ def _many_photos(deal, state, user):
 
 # ---------- the view ----------
 
-def render(state, deal, user, email):
+def _current(state):
     rows = om_slides.rows(state)
     ids = [r.slide.id for r in rows]
     if st.session_state.get("om_slide") not in ids:
         st.session_state.om_slide = ids[0]
-    index = ids.index(st.session_state.om_slide)
+    return rows, ids.index(st.session_state.om_slide)
+
+
+@st.fragment
+def _fields(deal, user, email):
+    """The selected slide's items. A save here reloads only this part (see refresh)."""
+    _tab()._show_flash()
+    state = om_status.state(deal["id"], email)
+    rows, index = _current(state)
+    st.session_state.om_slide_colour = rows[index].colour
+    _editor(deal, rows[index], state, user, email)
+
+
+def _preview_body(deal, email):
+    state = om_status.state(deal["id"], email)
+    rows, index = _current(state)
     pdf, fresh, _ = om_export.live_preview(deal["id"], state, queries.om_facts(deal["id"], email))
     pages = om_export.page_images(pdf) if pdf and Path(pdf).exists() else []
+    with st.container(key="om_preview_pane"):
+        _preview(state, rows[index], pages, fresh)
+
+
+@st.fragment(run_every=2)
+def _preview_live(deal, email):
+    """The live slide, redrawn in the background after each change and picked up here every 2 seconds."""
+    _preview_body(deal, email)
+
+
+@st.fragment
+def _preview_still(deal, email):
+    _preview_body(deal, email)
+
+
+def _preview_pane(deal, email):
+    """Every tab is drawn on each run, so the 2-second refresh runs only while the OM tab is the one open."""
+    (_preview_live if st.session_state.get("deal_tabs") == "OM" else _preview_still)(deal, email)
+
+
+def render(state, deal, user, email):
+    rows, index = _current(state)
+    pdf, _, _ = om_export.live_preview(deal["id"], state, queries.om_facts(deal["id"], email))
+    pages = om_export.page_images(pdf) if pdf and Path(pdf).exists() else []
+    small = om_export.thumbnails(pages, width=180) if pages else []
+    thumbs = {r.slide.id: small[om_export.page_of(state, r.slide.id)] for r in rows
+              if om_export.page_of(state, r.slide.id) < len(small)}
     with st.container(key="om_slides_layout"):
-        left, right = st.columns([1, 2.4], gap="medium")
+        left, right = st.columns([1, 2.6], gap="medium")
         with left:
-            _list(rows, index)
+            _list(rows, index, thumbs)
         with right:
             _stepper(rows, index)
-            _editor(deal, rows[index], state, user, email, pages, fresh)
+            with st.container(key="om_slide_body"):
+                fields, preview = st.columns([1.05, 1], gap="medium")
+                with preview:
+                    _preview_pane(deal, email)
+                with fields:
+                    _fields(deal, user, email)
     _many_photos(deal, state, user)
+    full = st.session_state.get("om_full_size")
+    if full and Path(full[0]).exists():
+        _full_size(*full)

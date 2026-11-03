@@ -119,3 +119,29 @@ class TestResolutionChip(SlideCase):
         whole = om_assets.resolution((1600, 900), (6.4, 8.5), "whole")[1]
         fill = om_assets.resolution((1600, 900), (6.4, 8.5), "fill")[1]
         self.assertLess(fill, whole)
+
+
+class TestThumbnailsStayThumbnails(SlideCase):
+    def test_pages_never_include_their_thumbnails(self):
+        with mock.patch.object(om_export, "EXPORT_DIR", self.dir / "exports"):
+            pdf = letter_pdf(self.dir / "page.pdf")
+            for _ in range(3):
+                pages = om_export.page_images(pdf)
+                om_export.thumbnails(pages, width=180)
+                om_export.thumbnails(pages)
+            self.assertEqual([p.name for p in om_export.page_images(pdf)], ["page-01.png"])
+
+
+class TestPreviewCacheKey(SlideCase):
+    def test_the_preview_is_redrawn_when_a_photo_fit_or_the_design_changes(self):
+        deal = self.new_deal()
+        asset = om_assets.add_to_slot(deal, "photo.hero", "a.jpg", jpeg(), USER, db_path=self.db_path)
+        from app import queries
+        from services import om_engine
+        key = lambda: om_export._state_key(om_engine.build(queries.om_facts(deal)), queries.om_facts(deal))
+        before = key()
+        om_assets.set_fit(deal, asset, "fill", USER, db_path=self.db_path)
+        self.assertNotEqual(key(), before)
+        after_fit = key()
+        with mock.patch.object(om_export, "design_fingerprint", return_value="a-new-design"):
+            self.assertNotEqual(key(), after_fit)
