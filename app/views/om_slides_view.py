@@ -19,7 +19,6 @@ from services import om_assets, om_drafting, om_export, om_slides, om_slots
 DOT = {"green": "🟢", "amber": "🟠", "red": "🔴"}
 PILL = {"green": "approved", "amber": "needs-review", "red": "flag"}
 PHOTO_TYPES = ["png", "jpg", "jpeg", "webp"]
-PREVIEW_WIDTH, PHOTO_WIDTH = 640, 360   # pixels: the slide and a photo are shown at a readable size, not full width
 FILLED_BY = {"document_field": "the deal's documents", "calculated": "a calculation in code", "broker_input": "you",
              "broker_photo": "you (your photo)", "ai_text": "an AI draft", "research": "accepted research",
              "fixed": "fixed wording", "client_reply": "the client's reply", "client_document": "a client document",
@@ -40,15 +39,25 @@ def go_to(slide_id):
     st.session_state.pop("om_photo_mode", None)
 
 
-@st.cache_data(max_entries=200, show_spinner=False)
-def _cropped(path, modified, ratio):
-    """The photo cut to its frame on the slide (cached per file version and frame shape)."""
-    return om_assets.cover_crop(path, ratio)
+@st.cache_data(max_entries=300, show_spinner=False)
+def _framed(path, modified, ratio, fit):
+    """The photo in its slide frame: whole on the stone backing, or cut only if the broker chose Fill (cached)."""
+    return om_assets.preview(path, ratio, fit)
 
 
-def _cropped_bytes(data, ratio):
-    import io
-    return om_assets.cover_crop(io.BytesIO(data), ratio)
+@st.cache_data(max_entries=300, show_spinner=False)
+def _thumb(path, modified):
+    """A small square-ish thumbnail for the photo grid, the whole photo on the backing."""
+    return om_assets.preview(path, 4 / 3, "whole", width=360)
+
+
+def _chip(size, frame, fit="whole"):
+    """'Good' or 'Low resolution' for this photo at this frame's print size, with a plain warning when low."""
+    label, dpi = om_assets.resolution(size, frame, fit)
+    kind = "approved" if label == "Good" else "needs-review"
+    style.html(f'<div class="res-chip">{style.pill(label, kind)}<span>{dpi} dpi at print size</span></div>')
+    if label != "Good":
+        st.caption("Low resolution: it may look blurry on a full-page slide. You can still use it.")
 
 
 # ---------- the list (desktop) and the stepper (phones, and above the editor everywhere) ----------
@@ -146,16 +155,26 @@ def _done(message, kind="success"):
 
 def _photo_item(deal_id, slide, item, user, library):
     slot, key = item.slot, _key(item.slot.id)
-    ratio = om_export.photo_ratio(slide.layout, slot)
+    frame = om_export.photo_frame(slide.layout, slot)
+    ratio = frame[0] / frame[1]
     mode = _mode(slot.id)
     photos = [a for a in item.photos if om_assets.full_path(a["file_path"]).exists()]
     if photos:
         columns = st.columns(min(len(photos), 2))
         for i, asset in enumerate(photos):
-            path = om_assets.full_path(asset["file_path"])
+            path, fit = om_assets.full_path(asset["file_path"]), asset.get("fit") or "whole"
             with columns[i % len(columns)], st.container(key=f"om_slot_photo_{asset['id']}"):
-                st.image(_cropped(str(path), path.stat().st_mtime, round(ratio, 3)), width=PHOTO_WIDTH,
+                st.image(_framed(str(path), path.stat().st_mtime, round(ratio, 3), fit), width="stretch",
                          caption="As it will look on the slide" + (" · Sample illustration" if asset.get("sample") else ""))
+                _chip(om_assets.image_size(path), frame, fit)
+                choice = st.segmented_control("Photo fit", ["Show whole photo (default)", "Fill the frame (crops)"],
+                                              default="Fill the frame (crops)" if fit == "fill" else "Show whole photo (default)",
+                                              key=f"om_photo_fit_{asset['id']}", label_visibility="collapsed")
+                wanted = "fill" if choice == "Fill the frame (crops)" else "whole"
+                if choice and wanted != fit:
+                    om_assets.set_fit(deal_id, asset["id"], wanted, user)
+                    _done("The photo now fills its frame (the edges are cut)." if wanted == "fill"
+                          else "The whole photo is shown again.", "info")
                 with st.container(horizontal=True):
                     st.button("Replace", key=f"om_photo_replace_{asset['id']}", icon=":material/swap_horiz:",
                               on_click=_set_mode, args=(slot.id, "choose", asset["id"]))
@@ -170,7 +189,7 @@ def _photo_item(deal_id, slide, item, user, library):
     else:
         left = slot.count - len(photos)
         st.caption(f"Add {left} {' or '.join(om_slides.PHOTO_WORDS[k] for k in slot.photo_kinds)} photo{'s' if left != 1 else ''}. "
-                   "It is fitted to the frame automatically (cut from the centre, never stretched).")
+                   "The whole photo is shown, never cut; you can choose Fill afterwards.")
     with st.container(horizontal=True, key=f"om_photo_ways_{key}"):
         st.button("Take photo", key=f"om_photo_take_{key}", icon=":material/photo_camera:", type="primary",
                   on_click=_set_mode, args=(slot.id, "camera", replace))
@@ -178,27 +197,40 @@ def _photo_item(deal_id, slide, item, user, library):
                   on_click=_set_mode, args=(slot.id, "upload", replace))
         if mode:
             st.button("Cancel", key=f"om_photo_cancel_{key}", on_click=lambda: st.session_state.pop("om_photo_mode", None))
+    _capture(deal_id, slot, key, mode, ratio, frame, user)
+    _grid(deal_id, slot, key, replace, library, user)
+
+
+def _where(asset, labels):
+    return labels.get(asset["slot_id"], "Not used") if asset["slot_id"] else "Not used"
+
+
+def _grid(deal_id, slot, key, replace, library, user):
+    """"This deal's photos": thumbnails with where each is used; one tap places it here."""
     others = [a for a in library if a["slot_id"] != slot.id and om_assets.full_path(a["file_path"]).exists()]
-    if others:
-        names = {a["id"]: _photo_name(a) for a in others}
-        choice = st.selectbox("Choose from this deal's photos", list(names), index=None, format_func=names.get,
-                              key=f"om_photo_pick_{key}_{st.session_state.get('om_photo_round', 0)}",
-                              placeholder="Pick a photo this deal already has")
-        if choice is not None and st.button("Use this photo", key=f"om_photo_use_pick_{key}", type="primary"):
-            try:
-                om_assets.use_on_slot(deal_id, slot.id, choice, user, replace_id=replace)
-            except ValueError as error:
-                _done(str(error), "error")
-            _done(f"Photo placed on {slot.label}. Approve the slide when it looks right.")
-    _capture(deal_id, slot, key, mode, ratio, user)
+    if not others:
+        return
+    from app import om_status
+    labels = {sid: s.slot.label for sid, s in om_status.state(deal_id).slots.items()}
+    style.html("<div class='grid-title'>This deal&#x27;s photos</div>")
+    with st.container(key=f"om_photo_grid_{key}"):
+        columns = st.columns(4)
+        for i, asset in enumerate(others):
+            path = om_assets.full_path(asset["file_path"])
+            with columns[i % 4], st.container(key=f"om_grid_{key}_{asset['id']}"):
+                st.image(_thumb(str(path), path.stat().st_mtime), width="stretch")
+                where = _where(asset, labels)
+                style.html(f'<div class="grid-badge {"used" if asset["slot_id"] else ""}">{escape(where)}</div>')
+                if st.button("Use here", key=f"om_grid_use_{key}_{asset['id']}", icon=":material/add_photo_alternate:",
+                             width="stretch", help=f"Put this photo on {slot.label}" + (f" (it moves from {where})" if asset["slot_id"] else "")):
+                    try:
+                        om_assets.use_on_slot(deal_id, slot.id, asset["id"], user, replace_id=replace)
+                    except ValueError as error:
+                        _done(str(error), "error")
+                    _done(f"Photo placed on {slot.label}. Approve the slide when it looks right.")
 
 
-def _photo_name(asset):
-    where = "not on a slide" if not asset["slot_id"] else f"on {asset['slot_id'].split('.', 1)[-1].replace('_', ' ')}"
-    return f"{asset.get('caption') or 'Photo ' + str(asset['id'])} ({where})"
-
-
-def _capture(deal_id, slot, key, mode, ratio, user):
+def _capture(deal_id, slot, key, mode, ratio, frame, user):
     """The camera or the file picker, once the person chose one, then a preview and "Use this photo"."""
     if mode.get("how") not in ("camera", "upload"):
         return
@@ -213,9 +245,11 @@ def _capture(deal_id, slot, key, mode, ratio, user):
         name = shot.name if shot is not None else ""
     if shot is None:
         return
+    import io
     data = shot.getvalue()
     try:
-        st.image(_cropped_bytes(data, ratio), width=PHOTO_WIDTH, caption="Preview: how it will look on the slide")
+        st.image(om_assets.preview(io.BytesIO(data), ratio), width="stretch", caption="Preview: how it will look on the slide")
+        _chip(om_assets.image_size(io.BytesIO(data)), frame)
     except Exception:
         st.warning("That file is not a readable picture. Try another one.")
         return
@@ -258,10 +292,24 @@ def _draft_box(deal, row, state, user, email):
                        if research else "No accepted research yet, so the location is not drafted.")
 
 
+@st.dialog("Slide preview", width="large")
+def _full_size(path, title):
+    st.markdown(f"**{escape(title)}**")
+    st.image(str(path), width="stretch")
+    st.caption("A draft rendering of the slide at 200 dpi. Close it to keep editing.")
+
+
 def _preview(state, row, pages, fresh):
+    """The slide at 200 dpi (PNG), shown at the full width of its column, with "Open full size"."""
     page = om_export.page_of(state, row.slide.id)
-    if page < len(pages):
-        st.image(str(pages[page]), width=PREVIEW_WIDTH, caption="This slide as it looks now (draft)" + ("" if fresh else " · updating with your latest change"))
+    if page >= len(pages):
+        st.caption("The slide preview is being drawn...")
+        return
+    with st.container(key="om_slide_preview"):
+        st.image(str(pages[page]), width="stretch",
+                 caption="This slide as it looks now (draft)" + ("" if fresh else " · updating with your latest change"))
+        if st.button("Open full size", key="om_preview_full", icon=":material/open_in_full:"):
+            _full_size(pages[page], f"Slide {row.number} - {row.slide.title}")
 
 
 def _editor(deal, row, state, user, email, pages, fresh):
@@ -347,7 +395,7 @@ def render(state, deal, user, email):
         st.session_state.om_slide = ids[0]
     index = ids.index(st.session_state.om_slide)
     pdf, fresh, _ = om_export.live_preview(deal["id"], state, queries.om_facts(deal["id"], email))
-    pages = om_export.page_images(pdf, zoom=1.0) if pdf and Path(pdf).exists() else []
+    pages = om_export.page_images(pdf) if pdf and Path(pdf).exists() else []
     with st.container(key="om_slides_layout"):
         left, right = st.columns([1, 2.4], gap="medium")
         with left:

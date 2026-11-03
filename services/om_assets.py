@@ -1,7 +1,10 @@
 """OM photos: a person uploads them, code checks and resizes them, and they are placed on photo slots.
 
 - Photos come from the broker (or the client). The AI never makes aerials, maps or site plans.
-- Files are saved under om_assets/ (git-ignored), resized so the long side is at most MAX_SIDE pixels.
+- Files are saved under om_assets/ (git-ignored): the upload exactly as received (originals/, never changed) and a
+  high-quality copy for the slides (long side at most MAX_SIDE pixels, JPEG quality 92 or PNG, only ever shrunk).
+- Photos are never cropped automatically: fit is 'whole' (shown entire inside its frame) unless the broker picks
+  'fill', which crops to the frame.
 - "Sort my photos" asks Gemini once per batch of up to BATCH photos what each one shows (aerial, exterior,
   interior, site plan, map). That is only a proposal: nothing changes until a person clicks Apply.
 - "Place photos" fills empty photo slots in template order with photos of the right kind (code only).
@@ -25,6 +28,9 @@ ASSET_DIR = ROOT / "om_assets"
 TYPES = {".png": "PNG", ".jpg": "JPEG", ".jpeg": "JPEG", ".webp": "WEBP"}
 MAX_BYTES = 15 * 1024 * 1024
 MAX_SIDE = 2400
+JPEG_QUALITY = 92
+GOOD_DPI = 150       # at print size; below this a photo gets a "Low resolution" chip (never blocked)
+FITS = ("whole", "fill")
 BATCH = 8            # photos per "Sort my photos" request
 KIND_NAMES = {"aerial": "Aerial", "exterior": "Exterior", "interior": "Interior", "site_plan": "Site plan", "map": "Map"}
 
@@ -48,7 +54,7 @@ def full_path(stored):
 
 
 def _clean_image(name, data):
-    """(image bytes, suffix) after checking the file really is a picture and resizing it."""
+    """(image bytes, suffix) for the slides, after checking the file really is a picture. Only ever shrunk."""
     suffix = Path(name or "").suffix.lower()
     if suffix not in TYPES:
         raise ValueError(f"{name}: use a PNG, JPEG or WebP picture.")
@@ -59,10 +65,11 @@ def _clean_image(name, data):
             image.verify()
         with Image.open(io.BytesIO(data)) as image:
             image = ImageOps.exif_transpose(image)
-            image.thumbnail((MAX_SIDE, MAX_SIDE))
+            image.thumbnail((MAX_SIDE, MAX_SIDE), Image.Resampling.LANCZOS)  # does nothing to a smaller picture
             out = io.BytesIO()
-            if suffix in (".jpg", ".jpeg"):
-                image.convert("RGB").save(out, "JPEG", quality=88)
+            if suffix in (".jpg", ".jpeg", ".webp"):
+                image.convert("RGB").save(out, "JPEG", quality=JPEG_QUALITY)
+                suffix = ".jpg"
             else:
                 image.save(out, "PNG")
                 suffix = ".png"
@@ -95,10 +102,14 @@ def add_photos(deal_id, files, user, kind=None, slot_id=None, db_path=None, asse
                     number += 1
                     path = folder / f"photo_{number}{suffix}"
                 path.write_bytes(clean)
+                original = folder / "originals" / f"photo_{number}{Path(name).suffix.lower()}"
+                original.parent.mkdir(exist_ok=True)
+                original.write_bytes(data)  # exactly as uploaded
                 caption = Path(name).stem[:80]
                 saved.append(conn.execute(
-                    "INSERT INTO om_assets (deal_id, file_path, kind, caption, slot_id, position, sample) VALUES (?, ?, ?, ?, ?, ?, 0)",
-                    (deal_id, stored_path(path), kind, caption, slot_id, position)).lastrowid)
+                    "INSERT INTO om_assets (deal_id, file_path, kind, caption, slot_id, position, sample, original_path) "
+                    "VALUES (?, ?, ?, ?, ?, ?, 0, ?)",
+                    (deal_id, stored_path(path), kind, caption, slot_id, position, stored_path(original))).lastrowid)
                 position += 1
             if saved:
                 om_slots.log(conn, deal_id, "photos_added", f"{len(saved)} photo(s)", user)
@@ -222,21 +233,56 @@ def take_off_slot(deal_id, asset_id, user, db_path=None):
     _update(deal_id, asset_id, "slot_id = NULL, position = 0", (), "photo_unplaced", user, db_path)
 
 
-def cover_crop(path, ratio, width=900):
-    """JPEG bytes of the photo cut to the frame's shape (width / height) from the centre, the way the slide shows it."""
-    with Image.open(path) as image:
-        image = image.convert("RGB")
-        iw, ih = image.size
-        if iw / ih > ratio:
-            cut = int((iw - ih * ratio) / 2)
-            image = image.crop((cut, 0, iw - cut, ih))
+def set_fit(deal_id, asset_id, fit, user, db_path=None):
+    """"Show whole photo" (default) or "Fill the frame (crops)": the broker's choice for one photo."""
+    if fit not in FITS:
+        raise ValueError("A photo is shown whole or fills its frame.")
+    _update(deal_id, asset_id, "fit = ?", (fit,), f"photo_fit_{fit}", user, db_path)
+
+
+def orientation(size):
+    """'landscape', 'portrait' or 'square' (within 10%)."""
+    w, h = size
+    return "square" if abs(w - h) <= 0.1 * max(w, h) else "landscape" if w > h else "portrait"
+
+
+def fitted(size, frame):
+    """Where a whole photo of `size` sits inside `frame` (x, y, w, h): (x, y, w, h), centred, never cut."""
+    fx, fy, fw, fh = frame
+    scale = min(fw / size[0], fh / size[1])
+    w, h = size[0] * scale, size[1] * scale
+    return fx + (fw - w) / 2, fy + (fh - h) / 2, w, h
+
+
+def resolution(size, frame_inches, fit="whole"):
+    """("Good" or "Low resolution", dpi) for a photo of `size` pixels shown in a frame (width, height) in inches."""
+    fw, fh = frame_inches
+    # Printed width of the photo: it fits inside the frame when whole, and covers it (and more) when filling.
+    shown_w = max(fw, fh * size[0] / size[1]) if fit == "fill" else fitted(size, (0, 0, fw, fh))[2]
+    dpi = size[0] / shown_w if shown_w else 0
+    return ("Good" if dpi >= GOOD_DPI else "Low resolution"), round(dpi)
+
+
+def preview(path_or_file, ratio, fit="whole", width=1200, backing=(231, 227, 218)):
+    """PNG bytes of the photo in a frame of shape `ratio` (width / height) exactly as the slide shows it:
+    whole and centred on the stone backing, or cut from the centre when the broker chose 'fill'."""
+    with Image.open(path_or_file) as image:
+        image = ImageOps.exif_transpose(image).convert("RGB")
+        frame = (width, max(1, round(width / ratio)))
+        if fit == "fill":
+            out = ImageOps.fit(image, frame, Image.Resampling.LANCZOS)
         else:
-            cut = int((ih - iw / ratio) / 2)
-            image = image.crop((0, cut, iw, ih - cut))
-        image.thumbnail((width, width))
-        out = io.BytesIO()
-        image.save(out, "JPEG", quality=85)
-    return out.getvalue()
+            out = Image.new("RGB", frame, backing)
+            x, y, w, h = fitted(image.size, (0, 0, *frame))
+            out.paste(image.resize((max(1, round(w)), max(1, round(h))), Image.Resampling.LANCZOS), (round(x), round(y)))
+        data = io.BytesIO()
+        out.save(data, "PNG")
+    return data.getvalue()
+
+
+def image_size(path_or_file):
+    with Image.open(path_or_file) as image:
+        return ImageOps.exif_transpose(image).size
 
 
 def auto_place(deal_id, user, db_path=None, template=None):

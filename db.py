@@ -289,7 +289,9 @@ CREATE TABLE IF NOT EXISTS om_assets (
     slot_id    TEXT,
     position   INTEGER NOT NULL DEFAULT 0,
     sample     INTEGER NOT NULL DEFAULT 0,
-    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    original_path TEXT,                          -- the upload exactly as received, never changed
+    fit        TEXT NOT NULL DEFAULT 'whole' CHECK (fit IN ('whole', 'fill'))  -- 'fill' crops, only if the broker chose it
 );
 
 -- Questions the OM Builder asked, to the broker or for the client. status: open, answered, skipped.
@@ -446,7 +448,8 @@ CREATE INDEX IF NOT EXISTS idx_research_briefs_job   ON research_briefs(job_id);
 #   3: OM Builder tables (om_slots, om_assets, om_questions, om_assumptions, om_exports, om_events),
 #      rent_roll_totals, and users.title / users.phone for the OM's contacts page
 #   4: deal_changes (renaming a deal and editing its type and location, with Undo)
-SCHEMA_VERSION = 4
+#   5: om_assets.original_path (the untouched upload) and om_assets.fit ('whole' by default, 'fill' crops)
+SCHEMA_VERSION = 5
 
 # Sample meetings and emails are stored on this day; Home moves them to the same place relative to today.
 SAMPLE_ANCHOR_DAY = "2000-01-03"
@@ -488,6 +491,7 @@ ADDED_COLUMNS = {
     ],
     "deals": [("approved_by", "TEXT"), ("approved_at", "TEXT"), ("photo_path", "TEXT")],
     "users": [("title", "TEXT"), ("phone", "TEXT")],
+    "om_assets": [("original_path", "TEXT"), ("fit", "TEXT NOT NULL DEFAULT 'whole' CHECK (fit IN ('whole', 'fill'))")],
     "research_findings": [
         ("connection_id", "TEXT NOT NULL DEFAULT 'web_search_tavily'"),
         ("simulated", "INTEGER NOT NULL DEFAULT 0"),

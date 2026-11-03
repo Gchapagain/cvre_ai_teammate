@@ -122,14 +122,10 @@ class TestPhotoSlots(SlideCase):
         with self.assertRaisesRegex(ValueError, "not a photo slot"):
             om_assets.add_to_slot(self.new_deal(), "offering.narrative", "x.png", png(), USER, db_path=self.db_path)
 
-    def test_the_preview_is_cut_to_the_frame_the_slide_uses(self):
+    def test_the_frame_size_matches_the_slide_layout(self):
         cover = om_template.load().slots["photo.hero"]
-        ratio = om_export.photo_ratio("cover", cover)
-        self.assertAlmostEqual(ratio, (11 - 4.6) / 8.5)
-        grid = om_template.load().slots["photo.grid"]
-        self.assertAlmostEqual(om_export.photo_ratio("photo_grid", grid), ((9.8 - 0.15) / 2) / ((6.05 - 0.15) / 2))
-        with Image.open(io.BytesIO(om_assets.cover_crop(io.BytesIO(png((1600, 900))), ratio))) as image:
-            self.assertAlmostEqual(image.width / image.height, ratio, places=2)
+        self.assertEqual(om_export.photo_frame("cover", cover), (11 - 4.6, 8.5))
+        self.assertAlmostEqual(om_export.photo_ratio("cover", cover), (11 - 4.6) / 8.5)
 
 
 class TestManyPhotosAtOnce(SlideCase):

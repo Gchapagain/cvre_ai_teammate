@@ -26,7 +26,7 @@ from pptx.enum.shapes import MSO_SHAPE
 from pptx.enum.text import MSO_ANCHOR, PP_ALIGN
 from pptx.util import Inches, Pt
 
-from services import om_calc, om_engine, om_slots, om_template
+from services import om_assets, om_calc, om_engine, om_slots, om_template
 
 ROOT = Path(__file__).resolve().parent.parent
 EXPORT_DIR = ROOT / "om_exports"
@@ -36,10 +36,14 @@ GREEN, DARK, GOLD = RGBColor(0x1D, 0x3C, 0x2F), RGBColor(0x13, 0x27, 0x1E), RGBC
 SAGE, INK, GREY = RGBColor(0x30, 0x65, 0x4F), RGBColor(0x22, 0x22, 0x22), RGBColor(0x6B, 0x6B, 0x6B)
 LIGHT, WHITE, RED = RGBColor(0xF3, 0xF1, 0xEC), RGBColor(0xFF, 0xFF, 0xFF), RGBColor(0xB4, 0x23, 0x18)
 PINK = RGBColor(0xFD, 0xEC, 0xEA)
+STONE = RGBColor(0xE7, 0xE3, 0xDA)
 HEAD, BODY = "Georgia", "Arial"
 W, H = 11.0, 8.5          # inches
 MARGIN = 0.6
 RENT_ROLL_ROWS = 14       # rows per rent roll slide; more units continue on the next slide
+PREVIEW_DPI = 200         # slide previews: 11 in x 200 = 2200 px wide, PNG
+THUMB_WIDTH = 360         # slide-list thumbnails, made once from the preview with a good filter
+LARGE_FILE_MB = 40
 
 
 class ExportError(Exception):
@@ -100,10 +104,15 @@ def _missing(slide, x, y, w, h, state):
           anchor=MSO_ANCHOR.MIDDLE, space=3)
 
 
-def _picture(slide, path, x, y, w, h):
-    """Place an image filling the frame, cropped in the centre (never stretched)."""
+def _picture(slide, path, x, y, w, h, fit="whole"):
+    """Place a photo in the frame. 'whole' (the default): the entire photo, centred on a stone backing, never cut.
+    'fill' (only when the broker chose it): the photo covers the frame and is cropped in the centre. Never stretched."""
     with Image.open(path) as image:
         iw, ih = image.size
+    if fit != "fill":
+        _box(slide, x, y, w, h, fill=STONE)
+        px, py, pw, ph = om_assets.fitted((iw, ih), (x, y, w, h))
+        return slide.shapes.add_picture(str(path), Inches(px), Inches(py), Inches(pw), Inches(ph))
     pic = slide.shapes.add_picture(str(path), Inches(x), Inches(y), Inches(w), Inches(h))
     frame, ratio = w / h, iw / ih
     if ratio > frame:
@@ -129,7 +138,7 @@ def _photos(slide, state, x, y, w, h, cols=1, gap=0.15, show_missing=True):
     for i in range(count):
         cx, cy = x + (i % cols) * (cw + gap), y + (i // cols) * (ch + gap)
         if i < len(photos):
-            _picture(slide, _asset_path(photos[i]), cx, cy, cw, ch)
+            _picture(slide, _asset_path(photos[i]), cx, cy, cw, ch, photos[i].get("fit") or "whole")
             if photos[i].get("sample"):
                 _text(slide, cx + 0.08, cy + ch - 0.35, 2.2, 0.3, "Sample illustration", size=8, color=WHITE, bold=True)
         elif show_missing and state.slot.required:
@@ -392,12 +401,18 @@ PHOTO_AREAS = {"cover": (W - 4.6, H, 1), "divider": (W / 2, H, 1), "narrative_ph
                "kpi_tiles": (W - 6.7 - MARGIN, 4.95, 1)}
 
 
-def photo_ratio(layout, slot, gap=0.15):
-    """Width / height of one photo frame for this slot on this layout, so a preview can be cut the same way."""
+def photo_frame(layout, slot, gap=0.15):
+    """(width, height) in inches of one photo frame for this slot on this layout."""
     w, h, cols = PHOTO_AREAS.get(layout, (W - 2 * MARGIN, H - 2.45, 1))
     count = max(slot.count, 1)
     rows = -(-count // cols)
-    return ((w - gap * (cols - 1)) / cols) / ((h - gap * (rows - 1)) / rows)
+    return (w - gap * (cols - 1)) / cols, (h - gap * (rows - 1)) / rows
+
+
+def photo_ratio(layout, slot, gap=0.15):
+    """Width / height of one photo frame for this slot on this layout, so a preview can be drawn the same way."""
+    w, h = photo_frame(layout, slot, gap)
+    return w / h
 
 
 # ---------- building the file ----------
@@ -485,8 +500,8 @@ def to_pdf(pptx_path, timeout=180):
     return pdf
 
 
-def page_images(pdf_path, zoom=1.0):
-    """PNG previews of each PDF page, cached by the file's hash so a page is drawn once."""
+def page_images(pdf_path, zoom=PREVIEW_DPI / 72):
+    """PNG previews of each PDF page (200 dpi by default, never JPEG), cached by the file's hash so a page is drawn once."""
     import pymupdf as fitz
 
     digest = hashlib.sha256(Path(pdf_path).read_bytes()).hexdigest()[:16]
@@ -500,6 +515,28 @@ def page_images(pdf_path, zoom=1.0):
         for i, page in enumerate(pdf, start=1):
             page.get_pixmap(matrix=fitz.Matrix(zoom, zoom)).save(folder / f"page-{i:02d}.png")
     return sorted(folder.glob("page-*.png"))
+
+
+def thumbnails(pages, width=THUMB_WIDTH):
+    """Small PNGs of the preview pages for the slide list, downscaled once (Lanczos) and cached beside them."""
+    out = []
+    for page in pages:
+        thumb = page.with_name(page.stem + f"-thumb{width}.png")
+        if not thumb.exists():
+            with Image.open(page) as image:
+                image.thumbnail((width, width * 2), Image.Resampling.LANCZOS)
+                image.save(thumb, "PNG")
+        out.append(thumb)
+    return out
+
+
+def size_warning(path):
+    """A plain warning when the PowerPoint is very large, with what to do about it."""
+    megabytes = Path(path).stat().st_size / 1024 / 1024 if path and Path(path).exists() else 0
+    if megabytes <= LARGE_FILE_MB:
+        return None
+    return (f"The PowerPoint is {megabytes:.0f} MB, which is large to email. Use fewer or smaller photos (each is kept "
+            "at most 2400 px on its long side), or share it as a link instead of an attachment.")
 
 
 # ---------- the export a person asks for ----------
@@ -545,7 +582,8 @@ def export(deal_id, facts, kind, user, want_pdf=True, db_path=None, out_dir=None
     finally:
         conn.close()
     return {"version": version, "kind_label": "client-ready" if kind == "final" else "draft", "pptx": pptx_path,
-            "pdf": pdf_path, "pdf_error": pdf_error, "slides": slides, "completion": state.percent}
+            "pdf": pdf_path, "pdf_error": pdf_error, "slides": slides, "completion": state.percent,
+            "size_warning": size_warning(pptx_path)}
 
 
 # ---------- live preview (not an export: nothing is logged) ----------
@@ -590,7 +628,7 @@ _live = {}   # deal_id -> {"key", "running", "latest": Path, "error"}
 def _build_live(deal_id, key, state, facts):
     try:
         pdf = preview_pdf(state, facts)
-        page_images(pdf, zoom=1.0)
+        thumbnails(page_images(pdf))
         with _live_lock:
             _live[deal_id].update(running=False, latest=pdf, error=None, built=key)
     except Exception as error:  # e.g. LibreOffice missing: the page says so

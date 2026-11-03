@@ -434,7 +434,7 @@ def _updates(deal_id, state):
 def _slides(state, deal):
     facts = queries.om_facts(deal["id"], _email())
     pdf, fresh, error = om_export.live_preview(deal["id"], state, facts)
-    pages = om_export.page_images(pdf, zoom=1.0) if pdf else []
+    pages = om_export.thumbnails(om_export.page_images(pdf), width=800) if pdf else []  # two per row: sharp at 800 px
     head, buttons = st.columns([2, 1.2], vertical_alignment="center")
     with head:
         style.section_title(f"The whole OM so far ({len(pages) or len(state.slides)} pages)")
@@ -500,6 +500,8 @@ def _export_result(deal):
         _download(result["pdf"], "PDF", "application/pdf", "om_dl_pdf")
     if result["pdf_error"]:
         st.warning(result["pdf_error"])
+    if result.get("size_warning"):
+        st.warning(result["size_warning"])
 
 
 def _history(deal_id):

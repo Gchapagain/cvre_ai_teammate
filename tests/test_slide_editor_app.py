@@ -17,6 +17,7 @@ from streamlit.testing.v1 import AppTest
 import db
 import seed
 from services import om_assets, om_export, om_template
+from tests.test_om_builder import png
 from tests.test_app import APP
 
 
@@ -129,6 +130,29 @@ class TestSlideEditor(FreshAppCase):
         self.assertTrue(self.app.button(key="om_export_final").disabled)
         self.assertFalse(self.app.button(key="om_export_draft").disabled)
         self.assertEqual(self.keys("om_export_"), ["om_export_draft", "om_export_final"])  # once, not on every slide
+
+
+class TestPhotoGrid(FreshAppCase):
+    def test_this_deals_photos_grid_places_a_photo_in_one_tap(self):
+        deal = self.deals["quillhaven"]
+        ids, _ = om_assets.add_photos(deal, [("front (test).png", png())], "Avery Sample", db_path=self.db_path)
+        self.open_om("quillhaven")
+        self.assertIn("This deal&#x27;s photos", self.text())
+        self.assertIn("Not used", self.text())
+        self.click(f"om_grid_use_photo_hero_{ids[0]}")
+        conn = db.get_connection(self.db_path)
+        slot = conn.execute("SELECT slot_id FROM om_assets WHERE id = ?", (ids[0],)).fetchone()["slot_id"]
+        conn.close()
+        self.assertEqual(slot, "photo.hero")
+        self.assertIn("Show whole photo (default)", self.app.button_group(key=f"om_photo_fit_{ids[0]}").options)
+        self.assertEqual(self.app.button_group(key=f"om_photo_fit_{ids[0]}").value, ["Show whole photo (default)"]
+                         if isinstance(self.app.button_group(key=f"om_photo_fit_{ids[0]}").value, list)
+                         else "Show whole photo (default)")
+
+    def test_the_preview_has_open_full_size(self):
+        with mock.patch.object(om_export, "live_preview", return_value=(None, False, None)):
+            self.open_om("fallowmere")
+        self.assertIn("The slide preview is being drawn", self.text())
 
 
 class TestQuickAdd(FreshAppCase):

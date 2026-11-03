@@ -651,6 +651,15 @@ table.preview tr.derived td { background: var(--gold-tint); }
 [class*="st-key-om_photo_take_"] button [data-testid="stIconMaterial"],
 [class*="st-key-om_photo_upload_"] button [data-testid="stIconMaterial"] { font-size: 24px; }
 [class*="st-key-om_slot_photo_"] img, [class*="st-key-om_item_"] img { border-radius: var(--radius-sm); }
+.res-chip { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; font-size: 0.8rem; color: var(--ink-soft); }
+[class*="st-key-om_slot_photo_"] [data-testid="stImage"] img { max-width: 480px; }
+.grid-title { font-weight: 700; color: var(--ink); margin-top: 4px; }
+[class*="st-key-om_photo_grid_"] [data-testid="stHorizontalBlock"] { gap: 10px !important; }
+[class*="st-key-om_grid_"] { gap: 4px !important; }
+[class*="st-key-om_grid_"] img { border-radius: var(--radius-sm); border: 1px solid var(--line); }
+.grid-badge { font-size: 0.75rem; color: var(--ink-soft); background: #f1eef3; border-radius: var(--pill); padding: 1px 8px;
+  display: inline-block; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.grid-badge.used { background: var(--green-tint); color: var(--green); font-weight: 600; }
 .st-key-om_slide_draft { background: var(--gold-tint); border: 1px solid var(--gold); border-radius: var(--radius-sm); padding: var(--s2); }
 /* Rename: the small pencil next to a deal's name (above a card's click layer), and the Undo bar */
 [class*="st-key-rename_btn_"] button { min-height: 32px; width: 32px; min-width: 32px; padding: 0; border-radius: 50%;
@@ -825,6 +834,12 @@ table.preview tr.derived td { background: var(--gold-tint); }
     color: var(--green-dark) !important; font-size: 28px; display: inline-flex; align-items: center; justify-content: center;
     margin-top: -14px; box-shadow: 0 0 0 3px var(--green-dark); }
   .st-key-bnav_add button p { color: var(--gold) !important; font-weight: 700; }
+  /* "This deal's photos": two thumbnails per row on a phone. */
+  [class*="st-key-om_photo_grid_"] [data-testid="stHorizontalBlock"] { flex-wrap: wrap !important; }
+  [class*="st-key-om_photo_grid_"] [data-testid="stColumn"] { flex: 1 1 calc(50% - 5px) !important; min-width: calc(50% - 5px) !important;
+    width: calc(50% - 5px) !important; }
+  [class*="st-key-om_photo_grid_"] [data-testid="stColumn"]:empty,
+  [class*="st-key-om_photo_grid_"] [data-testid="stColumn"]:not(:has([class*="st-key-om_grid_"])) { display: none !important; }
   /* OM slide editor on a phone: Previous / Next instead of the list. */
   [data-testid="stColumn"]:has(.st-key-om_slide_list) { display: none !important; }
   .st-key-om_stepper [data-testid="stElementContainer"]:has(.stButton) { width: auto !important; flex: none !important; }
