@@ -58,7 +58,8 @@ def facts(**changes):
 class TestTemplate(unittest.TestCase):
     def test_the_template_loads_with_five_sections_and_19_baseline_slides(self):
         template = om_template.load()
-        self.assertEqual([s["number"] for s in template.sections], ["01", "02", "03", "04", "05"])
+        self.assertEqual([s["number"] for s in template.sections], ["I", "II", "III", "IV", "V"])
+        self.assertEqual(template.id, "om_v2_editorial")
         self.assertEqual(len(template.slides), 19)
         self.assertEqual(template.slide_limits, (18, 25))
 
@@ -76,9 +77,13 @@ class TestTemplate(unittest.TestCase):
         self.assertTrue(fixed and all(s.fixed and not s.required and s.boilerplate in text for s in fixed))
 
     def test_no_logo_or_company_name_is_in_the_template(self):
-        raw = (om_template.TEMPLATES / "om_v1.json").read_text() + om_template.BOILERPLATE.read_text()
+        raw = (om_template.TEMPLATES / "om_v2_editorial.json").read_text()
         self.assertNotIn("CBRE", raw)
         self.assertNotIn(".png", raw)
+        legal = om_template.BOILERPLATE.read_text()
+        self.assertNotIn(".png", legal)
+        # The legal file names CBRE only to say its placeholder text must be replaced with CBRE-approved text.
+        self.assertEqual(legal.count("CBRE"), legal.count("CBRE-approved"))
 
 
 class TestCalculations(unittest.TestCase):
@@ -238,9 +243,23 @@ class TestCompletion(unittest.TestCase):
         self.assertEqual((changed.status, changed.note), ("auto-filled", "Changed since it was approved"))
 
     def test_photo_slots_say_how_many_more_are_needed(self):
+        offering = self.state(assets=[{"id": 1, "slot_id": "photo.offering", "kind": "exterior"}]).slots["photo.offering"]
+        self.assertEqual(offering.status, "empty")
+        self.assertEqual(offering.needs, ["1 more exterior or interior photo"])
+
+    def test_the_photo_page_is_filled_by_one_to_four_photos(self):
+        self.assertEqual(self.state().slots["photo.grid"].needs, ["1 more exterior or interior photo"])
         grid = self.state(assets=[{"id": 1, "slot_id": "photo.grid", "kind": "exterior"}]).slots["photo.grid"]
-        self.assertEqual(grid.status, "empty")
-        self.assertEqual(grid.needs, ["3 more exterior or interior photos"])
+        self.assertEqual(grid.status, "broker-provided")
+
+    def test_section_openers_never_need_a_photo(self):
+        state = self.state()
+        openers = [slide for _, slide in state.slides if slide.layout == "opener"]
+        self.assertEqual(len(openers), 5)
+        for slide in openers:
+            for slot_id in slide.slots:
+                self.assertFalse(state.slots[slot_id].counts, slot_id)
+                self.assertNotIn(state.slots[slot_id], state.required_missing())
 
     def test_per_section_completion_and_slide_colours(self):
         state = self.state()

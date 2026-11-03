@@ -1,0 +1,15 @@
+{
+  "_about": "PLACEHOLDER legal wording for the OM. Our own words, written only to show where legal text goes. Replace every line with CBRE-approved legal text before any client use. The AI never writes or changes this file.",
+  "cover_title": "Confidential Offering Memorandum",
+  "draft_mark": "DRAFT - NOT FOR DISTRIBUTION",
+  "legal_notice": "PLACEHOLDER - Replace with CBRE-approved legal text.",
+  "legal": [
+    "PLACEHOLDER: Confidentiality. Replace with CBRE-approved legal text. This paragraph only marks where the confidentiality terms go: who may read this memorandum and what they may do with it.",
+    "PLACEHOLDER: Information sources. Replace with CBRE-approved legal text. This paragraph marks where the statement about where the information came from, and how far it was checked, belongs.",
+    "PLACEHOLDER: Projections. Replace with CBRE-approved legal text. This paragraph marks where the wording about estimates, assumptions and projected figures belongs.",
+    "PLACEHOLDER: Offer terms. Replace with CBRE-approved legal text. This paragraph marks where the wording about how offers are handled, and that nothing is binding until signed, belongs.",
+    "PLACEHOLDER: Inspections and advice. Replace with CBRE-approved legal text. This paragraph marks where the wording about a buyer's own inspections and professional advice belongs.",
+    "PLACEHOLDER: Relationships. Replace with CBRE-approved legal text. This paragraph marks where any disclosure about the broker's relationships and other services belongs."
+  ],
+  "back_cover_line": "PLACEHOLDER legal line - Replace with CBRE-approved legal text."
+}

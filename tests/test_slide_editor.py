@@ -124,8 +124,9 @@ class TestPhotoSlots(SlideCase):
 
     def test_the_frame_size_matches_the_slide_layout(self):
         cover = om_template.load().slots["photo.hero"]
-        self.assertEqual(om_export.photo_frame("cover", cover), (11 - 4.6, 8.5))
-        self.assertAlmostEqual(om_export.photo_ratio("cover", cover), (11 - 4.6) / 8.5)
+        width, height = om_export.photo_frame("cover", cover)
+        self.assertAlmostEqual(width, 11 * 0.6 - 1.2 - 0.16)   # the right 60% of the cover, inside the margins and mat
+        self.assertAlmostEqual(om_export.photo_ratio("cover", cover), width / height)
 
 
 class TestManyPhotosAtOnce(SlideCase):

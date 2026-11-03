@@ -345,7 +345,7 @@ class TestPhotos(DbCase):
         self.assertEqual(state.slots["photo.hero"].status, "broker-provided")
         self.assertEqual(state.slots["photo.highlights_aerial"].status, "broker-provided")
         needs = " ".join(om_assets.needs_summary(state))
-        self.assertIn("Photo page: needs 4 more exterior or interior photos", needs)
+        self.assertIn("Photo page: needs 1 more exterior or interior photo", needs)  # 1 to 4 photos fill it
 
     def test_a_photo_of_the_wrong_kind_is_refused_for_a_slot(self):
         deal = self.deals["quillhaven"]

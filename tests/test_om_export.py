@@ -86,11 +86,15 @@ class TestDraft(ExportCase):
         mark = om_template.boilerplate()["draft_mark"]
         self.assertTrue(all(mark in page for page in pages))
 
-    def test_missing_items_are_red_boxes_that_name_what_is_needed(self):
-        text = "\n".join(slide_texts(self.build(facts())))
-        self.assertIn("MISSING", text)
-        self.assertIn("Cover photo", text)
-        self.assertIn("Needs: the sale price (broker)", text)
+    def test_empty_slots_are_dashed_placeholders_that_name_what_to_add(self):
+        path = self.build(facts())
+        text = "\n".join(slide_texts(path))
+        self.assertIn("Add photo: exterior or aerial", text)
+        self.assertIn("Add: Sale price", text)
+        from pptx.enum.dml import MSO_LINE
+        dashed = [shape for shape in Presentation(path).slides[0].shapes
+                  if shape.shape_type == 1 and shape.line.fill.type is not None and shape.line.dash_style == MSO_LINE.DASH]
+        self.assertTrue(dashed)  # a dashed outline, no fill, no shadow
 
     def test_numbers_on_the_slides_are_the_calculated_ones(self):
         data = facts(assumptions=APPROVED_ASSUMPTIONS, price=2_400_000.0,
@@ -105,8 +109,10 @@ class TestDraft(ExportCase):
 
     def test_the_fixed_disclosures_appear_word_for_word(self):
         text = "\n".join(slide_texts(self.build(facts())))
-        for paragraph in om_template.boilerplate()["disclosures"]:
+        for paragraph in om_template.boilerplate()["legal"]:
             self.assertIn(paragraph, text)
+            self.assertTrue(paragraph.startswith("PLACEHOLDER"))
+        self.assertIn("Replace with CBRE-approved legal text", text)
 
     def test_optional_items_that_are_unknown_are_left_off(self):
         text = "\n".join(slide_texts(self.build(facts())))

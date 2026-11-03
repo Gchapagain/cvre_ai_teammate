@@ -67,7 +67,7 @@ def needs_line(number, slide, state):
         if item.status != "empty" or not item.slot.required:
             continue
         if item.slot.type == "photo":
-            missing = item.slot.count - len(item.photos)
+            missing = item.slot.needed - len(item.photos)
             asks.append(f"add {missing} photo{'s' if missing != 1 else ''} ({item.slot.label.lower()}: "
                         + " or ".join(PHOTO_WORDS[k] for k in item.slot.photo_kinds) + ")")
         elif is_text(item):

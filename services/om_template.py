@@ -1,4 +1,5 @@
-"""Load an OM template (templates/om_v1.json) and the fixed boilerplate (config/om_boilerplate.json).
+"""Load an OM template (templates/om_v2_editorial.json) and the fixed legal wording, which is clearly marked
+placeholder text in config/om_legal_placeholder.json (replace it with CBRE-approved text before client use).
 
 A template is a list of sections, slides and slots. Slots are defined once and placed on one or more
 slides by id. Nothing here touches the database.
@@ -11,8 +12,8 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 TEMPLATES = ROOT / "templates"
-BOILERPLATE = ROOT / "config" / "om_boilerplate.json"
-DEFAULT = "om_v1"
+BOILERPLATE = ROOT / "config" / "om_legal_placeholder.json"
+DEFAULT = "om_v2_editorial"
 
 TYPES = {"text", "bullets", "table", "kpi", "photo", "boilerplate", "auto"}
 SOURCES = {"document_field", "calculated", "ai_text", "broker_input", "broker_photo", "research", "fixed"}
@@ -36,8 +37,13 @@ class Slot:
     validation: dict = field(default_factory=dict)
     auto: str | None = None          # where an automatic value comes from: deal.<column> or calc.<name>
     photo_kinds: tuple = ()
-    count: int = 1                   # photos needed
-    boilerplate: str | None = None   # key in config/om_boilerplate.json
+    count: int = 1                   # photos the slot holds
+    boilerplate: str | None = None   # key in config/om_legal_placeholder.json
+    min_count: int | None = None     # photos needed before it counts as filled (default: count)
+
+    @property
+    def needed(self):
+        return self.min_count or self.count
 
     @property
     def fixed(self):
@@ -53,6 +59,7 @@ class Slide:
     section: str
     slots: tuple
     only_if_filled: str | None = None  # an optional slide shown only when this slot has a value
+    facts_strip: tuple = ()             # computed key facts shown large on the slide (slot ids; display only)
 
 
 @dataclass(frozen=True)
@@ -82,7 +89,7 @@ def _slot(slot_id, raw):
                 why=raw["why"], broker_question=raw.get("broker_question", ""), client_question=raw.get("client_question", ""),
                 answer_by=tuple(raw.get("answer_by", ())), topic=raw.get("topic", ""), priority=raw.get("priority", "medium"),
                 validation=raw.get("validation", {}), auto=raw.get("auto"), photo_kinds=tuple(raw.get("photo_kinds", ())),
-                count=raw.get("count", 1), boilerplate=raw.get("boilerplate"))
+                count=raw.get("count", 1), boilerplate=raw.get("boilerplate"), min_count=raw.get("min_count"))
 
 
 @lru_cache(maxsize=4)
@@ -90,9 +97,10 @@ def load(template_id=DEFAULT):
     raw = json.loads((TEMPLATES / f"{template_id}.json").read_text())
     slots = {slot_id: _slot(slot_id, spec) for slot_id, spec in raw["slots"].items()}
     slides = tuple(Slide(id=s["id"], layout=s["layout"], title=s["title"], section=s["section"], slots=tuple(s["slots"]),
-                         only_if_filled=s.get("only_if_filled")) for s in raw["slides"])
+                         only_if_filled=s.get("only_if_filled"), facts_strip=tuple(s.get("facts_strip", ())))
+                   for s in raw["slides"])
     for slide in slides:
-        unknown = [slot_id for slot_id in slide.slots if slot_id not in slots]
+        unknown = [slot_id for slot_id in slide.slots + slide.facts_strip if slot_id not in slots]
         if unknown:
             raise ValueError(f"Slide {slide.id} uses unknown slots: {unknown}")
     limits = raw.get("slide_limits", {"min": 18, "max": 25})

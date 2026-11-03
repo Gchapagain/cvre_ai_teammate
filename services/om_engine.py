@@ -79,7 +79,7 @@ def _auto_value(slot, facts, template):
 def _photo_state(slot, state, facts, row):
     photos = [a for a in facts.get("assets", []) if a.get("slot_id") == slot.id]
     state.photos = photos
-    have, need = len(photos), slot.count
+    have, need = len(photos), slot.needed
     kinds = " or ".join(PHOTO_NAMES[k] for k in slot.photo_kinds)
     if have < need:
         state.status = "empty"
@@ -107,7 +107,7 @@ def slot_state(slot, facts, template, numbers):
         if slot.boilerplate:
             text = om_template.boilerplate()[slot.boilerplate]
             state.value, state.display = text, text if isinstance(text, str) else " ".join(text)
-            state.source = {"kind": "fixed", "detail": "config/om_boilerplate.json"}
+            state.source = {"kind": "fixed", "detail": "config/om_legal_placeholder.json (placeholder text)"}
         else:
             calc, state.source = _auto_value(slot, facts, template)
             state.calc, state.value, state.display = calc, calc.value, calc.display
