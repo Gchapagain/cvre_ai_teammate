@@ -385,6 +385,21 @@ LAYOUTS = {"cover": _cover, "boilerplate": _boilerplate, "contents": _contents, 
 DARK_LAYOUTS = {"cover", "divider", "contacts"}
 
 
+# Each layout's photo area (width, height in inches, columns), the same numbers the layout functions use.
+PHOTO_AREAS = {"cover": (W - 4.6, H, 1), "divider": (W / 2, H, 1), "narrative_photo": (W - 6.2 - MARGIN, 5.6, 1),
+               "bullets_photo": (W - 6.4 - MARGIN, 5.6, 1), "features_photo": (W - 6.8 - MARGIN, 5.6, 1),
+               "full_photo": (W - 2 * MARGIN, H - 2.45, 1), "photo_grid": (W - 2 * MARGIN, H - 2.45, 2),
+               "kpi_tiles": (W - 6.7 - MARGIN, 4.95, 1)}
+
+
+def photo_ratio(layout, slot, gap=0.15):
+    """Width / height of one photo frame for this slot on this layout, so a preview can be cut the same way."""
+    w, h, cols = PHOTO_AREAS.get(layout, (W - 2 * MARGIN, H - 2.45, 1))
+    count = max(slot.count, 1)
+    rows = -(-count // cols)
+    return ((w - gap * (cols - 1)) / cols) / ((h - gap * (rows - 1)) / rows)
+
+
 # ---------- building the file ----------
 
 def footer_text(state):

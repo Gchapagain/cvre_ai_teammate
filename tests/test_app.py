@@ -2,6 +2,7 @@
 
 import hashlib
 import io
+import os
 import json
 import tempfile
 import unittest
@@ -16,7 +17,7 @@ from streamlit.testing.v1 import AppTest
 import db
 import seed
 from app.views import home
-from services import ai_limits, gemini, qa, transcribe
+from services import ai_limits, gemini, om_export, qa, transcribe
 from tests.test_extraction import daily_quota_error, gemini_error
 
 # Drafts made by the tests, leaving out the sample draft seed.py gives the approved deal.
@@ -34,9 +35,14 @@ class AppTestCase(unittest.TestCase):
         cls.deals = seed.seed(cls.db_path)
 
     def setUp(self):
-        patcher = mock.patch.object(db, "DB_PATH", self.db_path)
-        patcher.start()
-        self.addCleanup(patcher.stop)
+        # The setting too, so a db module loaded afresh mid-run (app/fresh.py) still uses the test database.
+        # No LibreOffice: the OM tab would otherwise draw its slide preview in background threads during every
+        # screen test (tests/test_om_export.py checks the real conversion).
+        for patcher in (mock.patch.object(db, "DB_PATH", self.db_path),
+                        mock.patch.dict(os.environ, {"CBRE_DB_PATH": str(self.db_path)}),
+                        mock.patch.object(om_export, "soffice_path", return_value=None)):
+            patcher.start()
+            self.addCleanup(patcher.stop)
         self.app = AppTest.from_file(APP, default_timeout=15).run()
 
     def sign_in(self, provider="google"):
@@ -237,22 +243,28 @@ class TestDashboard(AppTestCase):
             self.assertIn(f">{status}</span>", text)
         self.assertIn("1 anomaly", text)
 
-    def test_the_deal_name_is_the_only_button_on_each_card(self):
+    def test_each_card_has_its_name_to_open_it_and_a_pencil_to_rename_it(self):
         # The bell's label is the unread count, which depends on the time of day (sample meetings).
         labels = {button.key: button.label for button in self.app.button if not button.key.startswith(("statbtn_", "nav_bell"))}
+        pencils = {key: labels.pop(key) for key in list(labels) if key.startswith("rename_btn_deals_")}
+        self.assertEqual(pencils, {f"rename_btn_deals_{self.deals[name]}": "Rename"
+                                   for name in ("fallowmere", "quillhaven", "brindlewick")})
         self.assertEqual(labels, {
             "nav_home": "CBRE AI Teammate",
             "nav_home_link": "Home",
             "nav_all_deals": "All deals",
             "nav_connections": "Connections",
             "new_deal": "New deal",
+            "nav_add": "New property",
             "nav_settings": "Avery Sample",
             "sign_out": "Sign out",
             "menu_settings": "Settings",
             "menu_sign_out": "Sign out",
             "bnav_home": "Home",
             "bnav_deals": "Deals",
+            "bnav_add": "New",
             "bnav_connections": "Connections",
+            "bnav_settings": "Settings",
             "open_assistant": "Ask the AI Teammate",
             f"open_deal_{self.deals['fallowmere']}": "Fallowmere Industrial Park (SAMPLE - fictional)",
             f"open_deal_{self.deals['quillhaven']}": "Quillhaven Flex Center (SAMPLE - fictional)",
@@ -813,10 +825,13 @@ class NewDealAppTestCase(unittest.TestCase):
         self.calls = []
         from services import deals as deal_writes
         for target, name, value in ((db, "DB_PATH", self.db_path), (deal_writes, "UPLOAD_DIR", self.uploads),
-                                    (gemini, "RETRY_WAIT_SECONDS", 0)):
+                                    (gemini, "RETRY_WAIT_SECONDS", 0), (om_export, "soffice_path", lambda: None)):
             patcher = mock.patch.object(target, name, value)
             patcher.start()
             self.addCleanup(patcher.stop)
+        patcher = mock.patch.dict(os.environ, {"CBRE_DB_PATH": str(self.db_path)})
+        patcher.start()
+        self.addCleanup(patcher.stop)
         self.app = AppTest.from_file(APP, default_timeout=20).run()
         self.app.button(key="sign_in_google").click().run()
         self.app.button(key="nav_all_deals").click().run()  # sign-in lands on Home; these start from All deals
@@ -1982,7 +1997,8 @@ class TestHome(HomeTestCase):
 
     def test_top_bar_order_is_home_all_deals_connections(self):
         keys = [b.key for b in self.app.button if b.key.startswith("nav_")]
-        self.assertEqual(keys, ["nav_home", "nav_home_link", "nav_all_deals", "nav_connections", "nav_bell", "nav_settings"])
+        self.assertEqual(keys, ["nav_home", "nav_home_link", "nav_all_deals", "nav_connections", "nav_add", "nav_bell",
+                                "nav_settings"])
 
     def test_one_card_per_deal_with_progress_from_the_database(self):
         text = self.page_text()

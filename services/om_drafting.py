@@ -107,11 +107,15 @@ def _writable(state, slot_id):
     return slot_state is not None and (slot_state.status == "empty" or slot_state.status == "ai-draft")
 
 
-def draft_all_text(deal_id, facts, state, user, client=None, db_path=None, today=None):
-    """One Gemini request. Returns {saved: [labels], dropped: [reasons], skipped: [labels], questions: [text]}."""
-    targets = [key for key, slot_id in TEXT_SLOTS.items() if _writable(state, slot_id)]
+def draft_all_text(deal_id, facts, state, user, client=None, db_path=None, today=None, only=None):
+    """One Gemini request. Returns {saved: [labels], dropped: [reasons], skipped: [labels], questions: [text]}.
+
+    only: slot IDs to draft (one slide's "Draft with AI"); None drafts every text slot.
+    """
+    wanted = {key: slot_id for key, slot_id in TEXT_SLOTS.items() if only is None or slot_id in only}
+    targets = [key for key, slot_id in wanted.items() if _writable(state, slot_id)]
     result = {"saved": [], "dropped": [], "skipped": [], "questions": []}
-    for key, slot_id in TEXT_SLOTS.items():
+    for key, slot_id in wanted.items():
         if key not in targets and slot_id in state.slots:
             result["skipped"].append(state.slots[slot_id].slot.label)
     if not targets:

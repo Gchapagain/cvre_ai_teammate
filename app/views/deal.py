@@ -5,7 +5,7 @@ from html import escape
 import streamlit as st
 
 from app import images, nav, om_status, queries, style
-from app.views import ask_ai, data_tab, documents_tab, om_tab, recommendations_tab, review
+from app.views import ask_ai, data_tab, documents_tab, om_tab, recommendations_tab, rename, review
 from services import deals, metrics
 
 # The last tab is styled as the gold AI tab in app/style.py.
@@ -37,13 +37,21 @@ def _header(deal, units, documents):
                     for doc in documents if doc["used_for"] == "Rent roll")
     picture, is_photo = images.picture(deal)
     with st.container(border=True, key="deal_header"):
-        style.html(
-            f'<div class="deal-top"><div class="deal-id"><img class="deal-thumb" src="{picture}" '
-            f'alt="{"Photo" if is_photo else "Illustration"} of the property"><div>'
-            f'<div class="deal-title">{escape(deal["name"])}{chips}</div>'
-            f'<div class="deal-meta">{escape(header_line(deal, units, documents))}</div></div></div>'
-            f'<div class="deal-pills">{style.pill(deal["status"])}{om_status.badge_html(om_status.state(deal["id"]))}</div></div>'
-        )
+        with st.container(key="deal_top", horizontal=True, horizontal_alignment="distribute", vertical_alignment="top"):
+            with st.container(key="deal_id", horizontal=True, vertical_alignment="center"):
+                st.markdown(f'<img class="deal-thumb" src="{picture}" alt="{"Photo" if is_photo else "Illustration"} of the '
+                            'property">', unsafe_allow_html=True, width="content")
+                with st.container(key="deal_name_col"):
+                    if rename.is_editing("header", deal["id"]):
+                        rename.form(deal, "header")
+                    else:
+                        with st.container(key="deal_name_row", horizontal=True, vertical_alignment="center"):
+                            st.markdown(f'<div class="deal-title">{escape(deal["name"])}{chips}</div>', unsafe_allow_html=True,
+                                        width="content")
+                            rename.pencil(deal, "header")
+                    style.html(f'<div class="deal-meta">{escape(header_line(deal, units, documents))}</div>')
+            st.markdown(f'<div class="deal-pills">{style.pill(deal["status"])}{om_status.badge_html(om_status.state(deal["id"]))}'
+                        '</div>', unsafe_allow_html=True, width="content")
         _change_photo(deal, is_photo)
 
 

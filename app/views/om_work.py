@@ -1,4 +1,4 @@
-"""The OM tab's working views: photos, pricing and assumptions, and client questions.
+"""The OM tab's working views: pricing and assumptions, and client questions. (Photos are on each slide.)
 
 Every change happens on a person's click. AI buttons say how many requests they use.
 """
@@ -8,136 +8,12 @@ from html import escape
 import streamlit as st
 
 from app import queries, style
-from services import om_assets, om_calc, om_interview, om_slots
-
-KINDS = list(om_assets.KIND_NAMES)
+from services import om_calc, om_interview, om_slots
 
 
 def _tab():
     from app.views import om_tab  # here: om_tab imports this module
     return om_tab
-
-
-# ---------- photos ----------
-
-def photo_answer(deal_id, slot_state, user):
-    """In the interview: upload photos straight onto this photo slot."""
-    slot = slot_state.slot
-    kinds = list(slot.photo_kinds)
-    kind = st.selectbox("What do the photos show?", kinds, format_func=om_assets.KIND_NAMES.get, key=f"om_qphoto_kind_{slot.id}")
-    files = st.file_uploader(f"Upload {slot.count} photo{'s' if slot.count != 1 else ''} (PNG, JPEG or WebP)",
-                             type=["png", "jpg", "jpeg", "webp"], accept_multiple_files=True, key=f"om_qphoto_{slot.id}")
-    st.caption("Photos come from you or the client. The AI cannot make aerials, maps or site plans.")
-    if st.button("Add to this slide", key="om_qphoto_save", type="primary", disabled=not files):
-        saved, problems = om_assets.add_photos(deal_id, [(f.name, f.getvalue()) for f in files], user, kind=kind,
-                                               slot_id=slot.id)
-        _tab().flash("warning" if problems else "success",
-                     f"{len(saved)} photo(s) added." + (" " + " ".join(problems) if problems else ""))
-        st.rerun()
-
-
-def photos(state, deal, user):
-    deal_id = deal["id"]
-    rows = om_assets.assets(deal_id)
-    om_assets.ensure_sample_files(rows)
-    needs = om_assets.needs_summary(state)
-    left, right = st.columns([1, 1.4], gap="large")
-    with left:
-        style.section_title("Still needed")
-        if needs:
-            style.html("".join(f'<div class="om-need">{escape(line)}</div>' for line in needs))
-        else:
-            st.success("Every required photo slot is filled.")
-        style.section_title("Add photos")
-        files = st.file_uploader("Photos (PNG, JPEG or WebP, up to 15 MB each)", type=["png", "jpg", "jpeg", "webp"],
-                                 accept_multiple_files=True, key=f"om_photos_upload_{st.session_state.get('om_upload_round', 0)}")
-        st.caption("Use photos you are free to share. They are resized and stored on this server only. "
-                   "The AI cannot make aerials, maps or site plans: please upload them.")
-        if st.button("Add photos", key="om_photos_add", type="primary", icon=":material/upload:", disabled=not files):
-            saved, problems = om_assets.add_photos(deal_id, [(f.name, f.getvalue()) for f in files], user)
-            st.session_state.om_upload_round = st.session_state.get("om_upload_round", 0) + 1
-            _tab().flash("warning" if problems else "success",
-                         f"{len(saved)} photo(s) added. Sort them, then place them." + (" " + " ".join(problems) if problems else ""))
-            st.rerun()
-        unsorted = [a for a in rows if not a["kind"]]
-        if unsorted:
-            requests = -(-len(unsorted) // om_assets.BATCH)
-            style.html(f'<span class="ai-label">AI · {requests} request{"s" if requests != 1 else ""}</span>')
-            if st.button(f"Sort my photos ({len(unsorted)})", key="om_photos_sort", icon=":material/auto_awesome:",
-                         help="The AI looks at each photo and proposes what it shows. Nothing changes until you click Apply."):
-                with st.spinner("Looking at the photos..."):
-                    try:
-                        st.session_state.om_sort = om_assets.sort_photos(deal_id)[0]
-                    except Exception as exc:
-                        st.error(_tab().ai_error(exc))
-        _sort_proposals(deal_id, rows, user)
-        if st.button("Place photos on the slides", key="om_photos_place", icon=":material/dashboard_customize:",
-                     help="Fills empty photo slots with photos of the right kind (no AI)."):
-            placed = om_assets.auto_place(deal_id, user)
-            _tab().flash("success" if placed else "info",
-                         f"{placed} photo(s) placed." if placed else "Nothing to place: sort photos first, or every slot is full.")
-            st.rerun()
-    with right:
-        style.section_title(f"Photos ({len(rows)})")
-        if not rows:
-            st.caption("No photos yet.")
-        columns = st.columns(3)
-        for i, asset in enumerate(rows):
-            with columns[i % 3]:
-                _photo_card(deal_id, asset, state, user)
-
-
-def _sort_proposals(deal_id, rows, user):
-    proposals = st.session_state.get("om_sort")
-    if not proposals:
-        return
-    names = {a["id"]: a.get("caption") or f"Photo {a['id']}" for a in rows}
-    with st.container(key="om_sort_box"):
-        style.html('<span class="ai-label">AI proposal: check before applying</span>')
-        for p in proposals:
-            st.markdown(f"- **{escape(names.get(p['asset_id'], str(p['asset_id'])))}**: {om_assets.KIND_NAMES[p['kind']]}"
-                        f" ({escape(p['description'])})")
-        with st.container(horizontal=True):
-            if st.button("Apply", key="om_sort_apply", type="primary"):
-                om_assets.apply_kinds(deal_id, proposals, user)
-                st.session_state.pop("om_sort")
-                st.rerun()
-            if st.button("Cancel", key="om_sort_cancel"):
-                st.session_state.pop("om_sort")
-                st.rerun()
-
-
-def _photo_card(deal_id, asset, state, user):
-    path = om_assets.full_path(asset["file_path"])
-    with st.container(key=f"om_photo_{asset['id']}"):
-        if path.exists():
-            st.image(str(path))
-        place = state.slots[asset["slot_id"]].slot.label if asset["slot_id"] in state.slots else "Not placed"
-        kind = om_assets.KIND_NAMES.get(asset["kind"], "Not sorted")
-        sample = " · Sample illustration" if asset.get("sample") else ""
-        st.caption(f"{kind} · {place}{sample}")
-        with st.popover("Edit", icon=":material/tune:", key=f"om_photo_edit_{asset['id']}"):
-            new_kind = st.selectbox("Shows", KINDS, index=KINDS.index(asset["kind"]) if asset["kind"] in KINDS else 0,
-                                    format_func=om_assets.KIND_NAMES.get, key=f"om_photo_kind_{asset['id']}")
-            slots = [None] + [s.slot.id for s in state.slots.values() if s.slot.type == "photo" and new_kind in s.slot.photo_kinds]
-            current = asset["slot_id"] if asset["slot_id"] in slots else None
-            target = st.selectbox("Slide", slots, index=slots.index(current),
-                                  format_func=lambda s: "Not placed" if s is None else state.slots[s].slot.label,
-                                  key=f"om_photo_slot_{asset['id']}")
-            with st.container(horizontal=True):
-                if st.button("Save", key=f"om_photo_save_{asset['id']}", type="primary"):
-                    try:
-                        if new_kind != asset["kind"]:
-                            om_assets.set_kind(deal_id, asset["id"], new_kind, user)
-                        if target != asset["slot_id"]:
-                            om_assets.place(deal_id, asset["id"], target, user)
-                    except ValueError as error:
-                        st.error(str(error))
-                    else:
-                        st.rerun()
-                if st.button("Remove", key=f"om_photo_remove_{asset['id']}"):
-                    om_assets.remove(deal_id, asset["id"], user)
-                    st.rerun()
 
 
 # ---------- pricing and assumptions ----------
@@ -181,7 +57,7 @@ def _price(deal_id, state, user):
         except om_slots.InvalidValue as error:
             st.error(str(error))
         else:
-            _tab().flash("success", "Price saved. Approve it on the Checklist when you are sure.")
+            _tab().flash("success", "Price saved. Approve it on the Investment Price Overview slide when you are sure.")
             st.rerun()
 
 

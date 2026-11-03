@@ -268,6 +268,11 @@ def om_exports(deal_id):
     return _om_table("SELECT * FROM om_exports WHERE deal_id = ? ORDER BY version DESC, format DESC", (deal_id,))
 
 
+def om_assets(deal_id):
+    """The deal's OM photos (on a slide or not), read-only."""
+    return _om_table("SELECT * FROM om_assets WHERE deal_id = ? ORDER BY slot_id, position, id", (deal_id,))
+
+
 def om_events(deal_id):
     return _om_table("SELECT * FROM om_events WHERE deal_id = ? ORDER BY id", (deal_id,))
 

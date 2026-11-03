@@ -608,9 +608,107 @@ table.preview tr.derived td { background: var(--gold-tint); }
   border-radius: var(--radius-sm); padding: var(--s2); margin-bottom: var(--s2); }
 [class*="st-key-om_wait_"], [class*="st-key-om_assumption_"], [class*="st-key-om_reply_card_"], [class*="st-key-om_doc_card_"] {
   background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius-sm); padding: 12px var(--s2); }
-[class*="st-key-om_slide_"] button { justify-content: flex-start; min-height: 32px; padding: 0 4px; }
-[class*="st-key-om_slide_"] button p { text-align: left; }
-[class*="st-key-om_photo_"] img { border-radius: var(--radius-sm); }
+/* OM compact bar: % approved, counts, Missing and the two exports on one row */
+.st-key-om_bar { background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); box-shadow: var(--shadow);
+  padding: 12px var(--s2) !important; margin-bottom: var(--s1); gap: var(--s2) !important; flex-wrap: wrap !important; }
+.st-key-om_bar [data-testid="stMarkdownContainer"] { margin-bottom: 0; }
+.st-key-om_bar_actions { gap: var(--s1) !important; flex-wrap: wrap !important; }
+.om-mini { display: flex; align-items: center; gap: 12px; min-width: 0; }
+.om-mini .om-percent { font-size: 2rem; }
+.om-mini-text { min-width: 0; }
+.om-mini .om-head-title { font-size: 1.05rem; }
+.om-mini .om-head-note { font-size: 0.85rem; }
+.om-mini-track { height: 6px; border-radius: var(--pill); background: #ece8ee; overflow: hidden; display: flex; margin-top: 6px; max-width: 360px; }
+.st-key-om_export_result { gap: var(--s1) !important; flex-wrap: wrap !important; margin-bottom: var(--s1); }
+/* OM slide editor: the list (desktop and tablet), the stepper, the editor */
+.st-key-om_slide_list { gap: 2px !important; position: sticky; top: calc(var(--topbar-h) + var(--s2)); }
+[class*="st-key-om_slide_btn_"] button { justify-content: flex-start; min-height: 36px; padding: 4px 10px; border-radius: var(--radius-sm); }
+[class*="st-key-om_slide_btn_"] button > div, [class*="st-key-om_slide_btn_"] button [data-testid="stMarkdownContainer"] {
+  justify-content: flex-start; text-align: left; width: 100%; }
+[class*="st-key-om_slide_btn_"] button p { text-align: left; font-size: 0.9rem; }
+.st-key-om_stepper { background: var(--green-tint); border-radius: var(--radius-sm); padding: 6px 8px !important;
+  margin-bottom: var(--s1); flex-wrap: nowrap !important; }
+.om-step { display: flex; flex-direction: column; align-items: center; text-align: center; line-height: 1.25; }
+.om-step b { font-family: 'Fraunces', Georgia, serif; color: var(--green); font-size: 1.05rem; }
+.om-step span { font-size: 0.8rem; color: var(--ink-soft); }
+.st-key-om_slide_editor { gap: 12px !important; }
+/* Previews have a readable fixed width on big screens, and shrink to fit a phone. */
+.st-key-om_slide_editor [data-testid="stImage"], .st-key-om_slide_editor [data-testid="stImageContainer"],
+.st-key-om_slide_editor [data-testid="stImage"] img { max-width: 100% !important; height: auto !important; }
+/* Previous | title | Next on one line at every width. */
+.st-key-om_stepper { display: grid !important; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; }
+.st-key-om_stepper > * { width: auto !important; min-width: 0; }
+.st-key-om_stepper [data-testid="stElementContainer"]:has(.om-step) { justify-self: center; }
+.om-step span { white-space: nowrap; }
+.slide-head { display: flex; align-items: center; gap: var(--s1); flex-wrap: wrap; }
+.slide-need { font-weight: 600; color: var(--ink); font-size: 1rem; }
+[class*="st-key-om_item_"] { background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius-sm);
+  padding: 12px 14px !important; gap: 8px !important; }
+[class*="st-key-om_item_"] [data-testid="stMarkdownContainer"] { margin-bottom: 0; }
+[class*="st-key-om_photo_ways_"] { gap: var(--s1) !important; flex-wrap: wrap !important; }
+[class*="st-key-om_photo_take_"] button, [class*="st-key-om_photo_upload_"] button { min-height: 56px; min-width: 180px;
+  font-size: 1rem; font-weight: 700; }
+[class*="st-key-om_photo_take_"] button [data-testid="stIconMaterial"],
+[class*="st-key-om_photo_upload_"] button [data-testid="stIconMaterial"] { font-size: 24px; }
+[class*="st-key-om_slot_photo_"] img, [class*="st-key-om_item_"] img { border-radius: var(--radius-sm); }
+.st-key-om_slide_draft { background: var(--gold-tint); border: 1px solid var(--gold); border-radius: var(--radius-sm); padding: var(--s2); }
+/* Rename: the small pencil next to a deal's name (above a card's click layer), and the Undo bar */
+[class*="st-key-rename_btn_"] button { min-height: 32px; width: 32px; min-width: 32px; padding: 0; border-radius: 50%;
+  justify-content: center; border: 1px solid transparent; background: none; }
+/* Zero-size text, not position: absolute, because cards force every element inside them to be static. */
+[class*="st-key-rename_btn_"] button p { font-size: 0 !important; width: 0; height: 0; overflow: hidden; margin: 0; }
+[class*="st-key-rename_btn_"] button [data-testid="stIconMaterial"] { color: var(--green-mid); font-size: 18px; margin: 0; }
+[class*="st-key-rename_btn_"] button:hover { background: var(--green-tint); border-color: var(--line); }
+[class*="st-key-deal_card_"] [class*="st-key-rename_btn_"] button,
+[class*="st-key-proj_card_"] [class*="st-key-rename_btn_"] button { position: relative !important; z-index: 2; }
+[class*="st-key-proj_name_"], [class*="st-key-deal_name_"] { gap: 4px !important; flex-wrap: nowrap !important;
+  align-items: flex-start !important; }
+[class*="st-key-proj_name_"] { padding: 0 var(--s2); }
+/* The name takes the room and wraps; the pencil keeps its place at the end. */
+[class*="st-key-proj_name_"] > [data-testid="stElementContainer"]:first-child,
+[class*="st-key-deal_name_"] > [data-testid="stElementContainer"]:first-child { flex: 0 1 auto !important; min-width: 0; }
+[class*="st-key-proj_name_"] > [data-testid="stElementContainer"]:last-child,
+[class*="st-key-deal_name_"] > [data-testid="stElementContainer"]:last-child { flex: none !important; }
+[class*="st-key-open_project_"] button div, [class*="st-key-open_deal_"] button div { white-space: normal; overflow: visible;
+  text-overflow: clip; }
+[class*="st-key-open_project_"] button p, [class*="st-key-open_deal_"] button p { white-space: normal; }
+[class*="st-key-open_project_"] button *, [class*="st-key-open_deal_"] button * { text-align: left !important; justify-content: flex-start !important; }
+[class*="st-key-proj_card_"] [data-testid="stForm"] { padding: 0 var(--s2); }
+[class*="st-key-rename_buttons_"] { gap: var(--s1) !important; }
+[class*="st-key-deal_card_"] [data-testid="stForm"], [class*="st-key-proj_card_"] [data-testid="stForm"] { position: relative !important; z-index: 2; }
+.st-key-deal_top { gap: var(--s3) !important; flex-wrap: nowrap !important; }
+.st-key-deal_id { gap: var(--s2) !important; flex-wrap: nowrap !important; min-width: 0; }
+.st-key-deal_name_col { gap: 4px !important; min-width: 0; }
+.st-key-deal_name_row { gap: 6px !important; flex-wrap: nowrap !important; }
+.st-key-rename_undo_bar { background: var(--green-tint); border: 1px solid #c9dccf; border-radius: var(--radius-sm);
+  padding: 6px 12px !important; gap: var(--s1) !important; margin-bottom: var(--s1); flex-wrap: wrap !important; }
+.st-key-rename_undo_bar [data-testid="stMarkdownContainer"] { margin-bottom: 0; }
+.undo-text { font-weight: 600; color: var(--green); }
+.st-key-rename_reapprove { gap: var(--s1) !important; align-items: center; }
+/* "+": the first tile in the Home strip, the top bar button and the centre of the phone bottom bar */
+.st-key-project_strip > div:has(.st-key-proj_add_tile) { flex: 0 0 200px !important; width: 200px !important; }
+.st-key-proj_add_tile { position: relative; width: 100% !important; height: 100%; min-height: 240px; border: 2px dashed #b9c9bf;
+  border-radius: var(--radius); background: var(--green-tint); align-items: center; justify-content: center !important; text-align: center;
+  gap: 6px !important; padding: var(--s2); transition: border-color 0.15s, background 0.15s; }
+.st-key-proj_add_tile:hover { border-color: var(--green-mid); background: #e3efe7; }
+.st-key-proj_add_tile:focus-within { box-shadow: var(--focus); }
+.st-key-proj_add_tile * { position: static !important; }
+.st-key-proj_add_tile { display: grid !important; align-content: center; justify-items: center; }
+.st-key-proj_add_tile > * { flex: none !important; width: auto !important; }
+.st-key-proj_add_tile [data-testid="stMarkdownContainer"] { margin-bottom: 0; }
+.add-tile-plus { width: 56px; height: 56px; border-radius: 50%; background: var(--green); color: #ffffff; font-size: 2rem;
+  line-height: 1; font-weight: 400; margin: 0 auto; display: flex; align-items: center; justify-content: center; padding-bottom: 3px;
+  box-sizing: border-box; box-shadow: 0 0 0 4px #ffffff, 0 0 0 6px var(--gold); }
+.st-key-add_property_tile button { min-height: 0; border: none; background: none; box-shadow: none; padding: 0; }
+.st-key-add_property_tile button:hover { background: none; }
+.st-key-add_property_tile button p { font-family: 'Fraunces', Georgia, serif; font-size: 1.08rem; font-weight: 600; color: var(--green); }
+.st-key-add_property_tile button::after { content: ""; position: absolute; inset: 0; z-index: 1; cursor: pointer; }
+.add-tile-note { font-size: 0.82rem; color: var(--ink-soft); max-width: 200px; margin: 0 auto; }
+.st-key-nav_add button { min-height: 36px; background: var(--gold); border-color: var(--gold); color: var(--green-dark);
+  border-radius: var(--pill); padding: 0 14px; font-weight: 700; white-space: nowrap; }
+.st-key-nav_add button p { color: var(--green-dark); font-weight: 700; }
+.st-key-nav_add button [data-testid="stIconMaterial"] { color: var(--green-dark); }
+.st-key-nav_add button:hover { background: #d8b23a; border-color: #d8b23a; color: var(--green-dark); }
 .om-live { font-size: 0.88rem; padding: 8px 12px; border-radius: var(--radius-sm); margin-bottom: var(--s1); }
 .om-live.working { background: var(--gold-tint); border: 1px solid var(--gold); color: var(--gold-ink); }
 .om-live.done { background: #eef5f0; border: 1px solid #c9dccf; color: var(--green); }
@@ -670,6 +768,9 @@ table.preview tr.derived td { background: var(--gold-tint); }
     flex-wrap: nowrap !important; overflow-x: auto; scrollbar-width: none; padding-bottom: 2px; }
   .st-key-om_view button, .st-key-feed_filter button { flex: none; }
   .om-bar { grid-template-columns: repeat(3, minmax(0, 1fr)); row-gap: 10px; }
+  /* "+" in the top bar: just the icon (the label is read out by screen readers). */
+  .st-key-nav_add button { width: 40px; min-width: 40px; padding: 0; justify-content: center; }
+  .st-key-nav_add button p { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
   [data-testid="stLayoutWrapper"]:has(> .st-key-home_rail) { position: static; }
   /* Home: the rail ("Today", "Waiting on you") moves under the feed, full width. */
   .st-key-home_columns [data-testid="stHorizontalBlock"] { flex-wrap: wrap !important; row-gap: var(--s3) !important; }
@@ -696,6 +797,7 @@ table.preview tr.derived td { background: var(--gold-tint); }
   .st-key-nav_menu button [data-testid="stIconMaterial"] { color: #ffffff; font-size: 26px; }
   .st-key-nav_menu button:hover { background: rgba(255, 255, 255, 0.12); }
   .st-key-nav_bell button { min-height: 44px; padding: 0 8px; }
+  .st-key-nav_add { display: none !important; }  /* the "+" is the centre of the bottom bar on phones */
   .st-key-topbar .pill.simulated { font-size: 0.65rem; padding: 2px 6px; }
   /* Bottom navigation: always in view, one tap, icon and label. */
   .st-key-bottom_nav { display: flex !important; position: fixed; left: 0; right: 0; bottom: 0; z-index: 1001;
@@ -712,6 +814,33 @@ table.preview tr.derived td { background: var(--gold-tint); }
   .st-key-bottom_nav button[kind="primary"] p, .st-key-bottom_nav button[data-testid="stBaseButton-primary"] p,
   .st-key-bottom_nav button[kind="primary"] [data-testid="stIconMaterial"],
   .st-key-bottom_nav button[data-testid="stBaseButton-primary"] [data-testid="stIconMaterial"] { color: var(--gold); font-weight: 700; }
+  .st-key-bottom_nav { padding: 0 2px env(safe-area-inset-bottom); }
+  .st-key-bottom_nav button p { font-size: 0.68rem; letter-spacing: -0.01em; }
+  .st-key-bottom_nav button > div > span { flex-direction: column !important; gap: 2px; align-items: center !important; }
+  /* Card names stay left-aligned (phones centre other buttons). */
+  [class*="st-key-open_project_"] button, [class*="st-key-open_deal_"] button { justify-content: flex-start !important; }
+  [class*="st-key-open_project_"] button p, [class*="st-key-open_deal_"] button p { text-align: left; }
+  /* The centre "+": a raised gold circle. */
+  .st-key-bnav_add button [data-testid="stIconMaterial"] { width: 40px; height: 40px; border-radius: 50%; background: var(--gold);
+    color: var(--green-dark) !important; font-size: 28px; display: inline-flex; align-items: center; justify-content: center;
+    margin-top: -14px; box-shadow: 0 0 0 3px var(--green-dark); }
+  .st-key-bnav_add button p { color: var(--gold) !important; font-weight: 700; }
+  /* OM slide editor on a phone: Previous / Next instead of the list. */
+  [data-testid="stColumn"]:has(.st-key-om_slide_list) { display: none !important; }
+  .st-key-om_stepper [data-testid="stElementContainer"]:has(.stButton) { width: auto !important; flex: none !important; }
+  .st-key-om_stepper .stButton, .st-key-om_stepper .stButton button { width: auto !important; min-width: 44px; }
+  .st-key-om_stepper .stButton button p { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
+  .st-key-om_stepper .om-step b { font-size: 1rem; }
+  [class*="st-key-om_photo_take_"] button, [class*="st-key-om_photo_upload_"] button { min-width: 0; }
+  .st-key-om_bar_actions { width: 100% !important; }
+  /* The pencil: a 44px tap target that stays next to the name. */
+  [class*="st-key-rename_btn_"] button { min-height: 44px; width: 44px !important; min-width: 44px; }
+  .block-container [data-testid="stElementContainer"][class*="st-key-rename_btn_"], .block-container [class*="st-key-rename_btn_"] .stButton {
+    width: auto !important; flex: none !important; }
+  .st-key-deal_top, .st-key-deal_id { flex-direction: column !important; align-items: flex-start !important; gap: 8px !important; }
+  .st-key-deal_id > [data-testid="stElementContainer"], .st-key-deal_id > [data-testid="stLayoutWrapper"] { width: 100% !important; }
+  .st-key-proj_add_tile { min-height: 200px; }
+  .st-key-project_strip > div:has(.st-key-proj_add_tile) { flex-basis: 150px !important; width: 150px !important; }
   /* The AI button sits above the bottom bar, never over it. */
   .st-key-fab { right: 16px; bottom: calc(var(--bottomnav-h) + 16px + env(safe-area-inset-bottom)); }
   /* Readable text and comfortable taps. */

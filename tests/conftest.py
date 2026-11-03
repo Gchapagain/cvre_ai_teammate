@@ -5,6 +5,13 @@ simulated AI requests in a row. They are switched off here; tests/test_ai_limits
 """
 
 import os
+import tempfile
+from pathlib import Path
+
+# Tests never open the real local database (cbre_ai_teammate.db). Each test points the app at its own
+# throwaway database; this default catches anything that forgets, even a db module loaded afresh mid-run
+# (app/fresh.py can do that), because db.DB_PATH is read from this setting on import.
+os.environ["CBRE_DB_PATH"] = str(Path(tempfile.mkdtemp(prefix="cbre-tests-")) / "not-the-real-database.db")
 
 os.environ.setdefault("AI_DAILY_LIMIT", "100000")
 os.environ.setdefault("AI_SESSION_HOURLY_LIMIT", "100000")

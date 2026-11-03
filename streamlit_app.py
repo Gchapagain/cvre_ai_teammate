@@ -29,7 +29,8 @@ fresh.ensure()  # must run before the imports below: see app/fresh.py
 from app import nav, queries, style  # noqa: E402
 from services import gemini  # noqa: E402
 import db  # noqa: E402
-from app.views import assistant, connections_page, dashboard, deal, home, login, new_deal, settings  # noqa: E402
+from app.views import (assistant, connections_page, dashboard, deal, home, login, new_deal, quick_add,  # noqa: E402
+                       rename, settings)
 
 st.set_page_config(page_title="CBRE AI Teammate", layout="wide")
 style.apply()
@@ -49,6 +50,9 @@ def _top_bar(user):
             st.button("All deals", key="nav_all_deals", type="tertiary", on_click=nav.go_all_deals)
             st.button("Connections", key="nav_connections", type="tertiary", on_click=nav.open_connections)
         with st.container(key="topbar_user", horizontal=True, vertical_alignment="center", width="content"):
+            # Desktop and tablet (phones use the centre of the bottom bar): add a property with just its name.
+            st.button("New property", key="nav_add", icon=":material/add:", on_click=quick_add.open_dialog,
+                      help="Add a property with just its name")
             unread = home.unread_count()
             st.button(str(unread), key="nav_bell", icon=":material/notifications:", type="tertiary", on_click=nav.go_home,
                       help=f"{unread} unread on Home" if unread else "Nothing unread on Home")
@@ -69,11 +73,14 @@ def _top_bar(user):
 
 BOTTOM_NAV = (("bnav_home", "Home", ":material/home:", nav.go_home, ("home", None)),
               ("bnav_deals", "Deals", ":material/work:", nav.go_all_deals, ("dashboard", "deal")),
-              ("bnav_connections", "Connections", ":material/hub:", nav.open_connections, ("connections",)))
+              ("bnav_add", "New", ":material/add:", quick_add.open_dialog, ()),
+              ("bnav_connections", "Connections", ":material/hub:", nav.open_connections, ("connections",)),
+              ("bnav_settings", "Settings", ":material/person:", nav.open_settings, ("settings",)))
 
 
 def _bottom_nav():
-    """Phones only (CSS hides it elsewhere): Home, Deals and Connections pinned to the bottom of the screen.
+    """Phones only (CSS hides it elsewhere): Home, Deals, + New (in the centre), Connections and Settings pinned
+    to the bottom of the screen.
 
     A bottom bar is always in view and needs one tap, unlike a menu that has to be opened first."""
     page = st.session_state.get("page")
@@ -96,6 +103,7 @@ if user is None:
 else:
     _top_bar(user)
     _bottom_nav()
+    rename.undo_bar()
     if st.session_state.get("page") == "deal":
         deal.render()
     elif st.session_state.get("page") == "settings":
@@ -108,3 +116,4 @@ else:
         home.render()
     assistant.render()
     new_deal.render_dialog()
+    quick_add.render_dialog()

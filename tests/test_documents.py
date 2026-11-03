@@ -6,6 +6,7 @@ Gemini is always simulated. Every file here is made up for the test.
 import csv
 import hashlib
 import io
+import os
 import tempfile
 import unittest
 from pathlib import Path
@@ -16,7 +17,7 @@ from pypdf import PdfWriter
 
 import db
 import seed
-from services import documents, gemini, om_assets
+from services import documents, gemini, om_assets, om_export
 from tests.test_app import AppTestCase
 from tests.test_extraction import FIELDS, RENT_ROLL, daily_quota_error, fake_client, forbidden_client
 
@@ -57,10 +58,13 @@ class DocumentsCase(unittest.TestCase):
         with mock.patch.object(om_assets, "ASSET_DIR", self.dir / "assets"), mock.patch("sample_om.ASSET_DIR", self.dir / "assets"):
             self.deals = seed.seed(self.db_path)
         for target, name, value in ((db, "DB_PATH", self.db_path), (om_assets, "ASSET_DIR", self.dir / "assets"),
-                                    (documents.deals, "UPLOAD_DIR", self.uploads)):
+                                    (documents.deals, "UPLOAD_DIR", self.uploads), (om_export, "soffice_path", lambda: None)):
             patcher = mock.patch.object(target, name, value)
             patcher.start()
             self.addCleanup(patcher.stop)
+        patcher = mock.patch.dict(os.environ, {"CBRE_DB_PATH": str(self.db_path)})
+        patcher.start()
+        self.addCleanup(patcher.stop)
         self.deal = self.deals["quillhaven"]
 
     def add(self, *files):

@@ -324,7 +324,7 @@ def open_om_tab(page, deal_name):
     page.locator('[class*="st-key-deal_card_"]', has_text=deal_name).locator("button").first.click()
     page.locator(".deal-title").wait_for()
     page.get_by_role("tab", name="OM", exact=True).click()
-    page.locator(".om-head").wait_for()
+    page.locator(".st-key-om_bar").wait_for()
     wait_for_teammate(page)
 
 
@@ -351,8 +351,12 @@ def check_om(page, suffix):
     no_error_box(page, "on the OM tab")
     check("the AI Teammate filled the address from an email on its own",
           "Street address from an email" in page.locator(".om-live").inner_text(), page.locator(".om-live").inner_text()[:120])
-    check("Slides is the first view and shows the deck", page.locator('[data-testid="stImage"] img').count() >= 18,
-          page.locator('[data-testid="stImage"] img').count())
+    check("Slides is the first view: the slide list and the editor for slide 1",
+          page.locator('[class*="st-key-om_slide_btn_"]').count() == 18
+          and page.locator(".slide-need").first.inner_text().startswith("Slide 1 - Cover"),
+          (page.locator('[class*="st-key-om_slide_btn_"]').count(), page.locator(".slide-need").first.inner_text()[:60]))
+    bulk = page.locator('[data-testid="stExpander"] details', has_text="Upload many photos at once (AI places them)")
+    check("the many-photos upload is folded away", bulk.count() == 1 and bulk.get_attribute("open") is None)
     tall_shot(page, f"o0_om_slides_live{suffix}", height=2400)
     check("a barely started OM is still under 30%", int(page.locator(".om-percent").inner_text().strip().rstrip("%")) < 30)
     om_view(page, "Checklist")
@@ -382,8 +386,9 @@ def check_om(page, suffix):
     message = page.locator('[data-testid="stCode"]').inner_text()
     check("Ask the client builds one grouped message", message.startswith("Hi there,") and "Photos" in message, message[:80])
     page.screenshot(path=str(OUT / f"o2_om_client{suffix}.png"), full_page=False)
-    om_view(page, "Photos")
-    check("the Photos view lists what is still needed", page.get_by_text("Still needed").count() == 1)
+    om_view(page, "Whole deck")
+    check("the Whole deck view shows every page", page.locator('[data-testid="stImage"] img').count() >= 18,
+          page.locator('[data-testid="stImage"] img').count())
 
     open_om_tab(page, "Fallowmere")
     om_view(page, "Checklist")
@@ -401,7 +406,7 @@ def check_om(page, suffix):
     page.wait_for_timeout(1500)
     check("the broker's price is saved", page.get_by_text("$15,460,000").count() >= 1)
     tall_shot(page, f"o4_om_pricing{suffix}", height=1800)
-    om_view(page, "Slides")
+    om_view(page, "Whole deck")
     wait_for_teammate(page)
     check("the deck redraws itself with the new price", page.get_by_text("Up to date with every change").count() == 1
           and page.locator('[data-testid="stImage"] img').count() >= 18)
@@ -410,9 +415,8 @@ def check_om(page, suffix):
 
     open_om_tab(page, "Brindlewick")
     check("the finished sample OM is 100%", page.locator(".om-percent").inner_text().strip() == "100%")
-    om_view(page, "Export")
-    check("client-ready export is unlocked at 100%", page.locator(".st-key-om_export_final button").is_enabled())
-    page.locator(".st-key-om_export_final button").click()
+    check("client-ready export is unlocked at 100%", page.locator(".st-key-om_export_final button").first.is_enabled())
+    page.locator(".st-key-om_export_final button").first.click()
     page.locator(".st-key-om_dl_pdf button").wait_for(timeout=120000)
     check("a client-ready export offers the PowerPoint and the PDF",
           page.locator(".st-key-om_dl_pptx button").count() == 1 and page.locator(".st-key-om_dl_pdf button").count() == 1)
@@ -739,8 +743,8 @@ def run(page, suffix):
     header = box(page, ".st-key-deal_header")
     check("header card has the name, source chip, facts line and status", page.locator(".deal-title").count() == 1
           and "from rent_roll.xlsx" in page.locator(".chip").first.inner_text()
-          and "12 units · 154,600 SF · Extracted" in page.locator(".deal-top .deal-meta").inner_text()
-          and page.locator(".deal-top .pill").count() == 1)
+          and "12 units · 154,600 SF · Extracted" in page.locator(".st-key-deal_header .deal-meta").inner_text()
+          and page.locator(".st-key-deal_header .deal-pills .pill").count() == 1)
     check("Documents tab shows a count", "2" in tabs.nth(1).inner_text(), tabs.nth(1).inner_text())
     fields, snapshot = box(page, ".st-key-card_fields"), box(page, ".st-key-card_snapshot")
     check("two columns: wide left, narrow right", snapshot["x"] > fields["x"] + fields["width"]
@@ -1123,11 +1127,13 @@ def run(page, suffix):
     page.locator(".st-key-nav_all_deals button").click()
     page.get_by_text("Needs your attention").wait_for()
     page.locator('[class*="st-key-deal_card_"]').first.click()
+    page.get_by_role("tab", name="Review").click()  # a deal opens on the tab used last
     page.get_by_text("Extracted fields").wait_for()
     page.locator(".st-key-back_to_deals button").click()
     page.get_by_text("Needs your attention").wait_for()
     check("the breadcrumb link goes to the dashboard", page.get_by_role("heading", name="All deals").count() == 1)
     check_documents(page, "", "desktop")
+    check_new_property_and_slides(page, "", "desktop")
     check_home_scrolling(page, suffix)
     check_empty_feed(page, suffix)
 
@@ -1277,6 +1283,144 @@ def check_documents(page, prefix, size="desktop"):
     page.screenshot(path=str(OUT / f"{prefix}d4_documents_empty.png"))
 
 
+def check_new_property_and_slides(page, prefix, size="desktop"):
+    """The "+" tile and dialog, the slide editor on slide 1 (empty, then with a photo), a text slide, and the
+    pencil on the deal header in edit mode, with Renamed / Undo."""
+    print(f"New property, slide editor and rename ({size})")
+    phone = size == "phone"
+    shot = lambda name: page.screenshot(path=str(OUT / f"{prefix}{name}.png"))
+
+    def ok(where):
+        no_error_box(page, where)
+        check(f"no sideways scrolling {where} ({size})", overflow(page) <= 1, f"{overflow(page)}px")
+        if phone:
+            small = small_targets(page)
+            check(f"every tap target is at least 44px tall {where}", not small, small[:8])
+
+    page.locator(".st-key-bnav_home button" if phone else ".st-key-nav_home_link button").click()
+    page.get_by_text("Your projects").wait_for()
+    page.wait_for_timeout(1500)
+    tile = page.locator(".st-key-proj_add_tile")
+    check("the + tile is the first tile in the project strip", tile.count() == 1 and box(page, ".st-key-proj_add_tile")["x"]
+          < box(page, '[class*="st-key-proj_card_"]')["x"])
+    page.locator(".st-key-strip_head").scroll_into_view_if_needed()
+    page.wait_for_timeout(400)
+    ok("on Home with the + tile")
+    shot("n1_home_plus_tile")
+    if phone:
+        check("the + is the centre of the bottom bar", page.locator(".st-key-bnav_add button:visible").first.is_visible())
+    else:
+        check("the + is in the top bar", page.locator(".st-key-nav_add button:visible").first.is_visible())
+    page.locator(".st-key-add_property_tile button:visible").first.click()
+    page.get_by_role("dialog").get_by_text("Property name").wait_for()
+    page.wait_for_timeout(800)
+    name = page.locator(".st-key-qa_name input")
+    name.fill("Fallowmere Industrial Park (SAMPLE - fictional)")
+    name.press("Tab")
+    page.get_by_text("Another deal is already called").wait_for()
+    check("a name already in use is a warning, not a block", page.locator(".st-key-qa_create button:visible").first.is_enabled())
+    name.fill(f"Larkspur Commons {size} (SCREENSHOT TEST - fictional)")
+    name.press("Tab")
+    page.wait_for_timeout(800)
+    ok("with the + dialog open")
+    shot("n2_plus_dialog")
+    page.locator(".st-key-qa_create button:visible").first.click()
+    page.locator(".st-key-om_slide_editor").wait_for(timeout=30000)
+    wait_for_teammate(page, timeout=40)
+    check("Create opens the new deal on the OM tab, slide 1",
+          page.get_by_role("tab", name="OM", exact=True).get_attribute("aria-selected") == "true"
+          and page.locator(".slide-need").first.inner_text().startswith("Slide 1 - Cover"),
+          page.locator(".slide-need").first.inner_text()[:60])
+    check("slide 1 says in plain words what it needs", "add 1 photo (cover photo: exterior or aerial)"
+          in page.locator(".slide-need").first.inner_text())
+    check("Take photo and Upload photo are big, obvious buttons",
+          page.locator('[class*="st-key-om_photo_take_"] button:visible').first.bounding_box()["height"] >= 44
+          and page.locator('[class*="st-key-om_photo_upload_"] button:visible').first.bounding_box()["height"] >= 44)
+    if phone:
+        check("phones get Previous / Next with 'Slide 1 of'", page.locator(".om-step").inner_text().count("Slide 1 of") == 1
+              and not page.locator(".st-key-om_slide_list").is_visible())
+    else:
+        check("the slide list sits left of the editor", box(page, ".st-key-om_slide_list")["x"] < box(page, ".st-key-om_slide_editor")["x"])
+    page.locator(".st-key-om_stepper").scroll_into_view_if_needed()
+    page.wait_for_timeout(500)
+    ok("on slide 1 (empty)")
+    tall_shot(page, f"{prefix}n3_slide1_empty", height=2600 if phone else 1800)
+    if size == "desktop":
+        page.locator('[class*="st-key-om_photo_take_"] button:visible').first.click()
+        camera = page.locator('[data-testid="stCameraInput"]')
+        camera.wait_for(timeout=15000)
+        page.wait_for_timeout(2500)
+        check("Take photo opens the browser camera (Chrome's fake camera here)", camera.count() == 1)
+        camera.scroll_into_view_if_needed()
+        shot("n3b_take_photo_camera")
+    page.locator('[class*="st-key-om_photo_upload_"] button:visible').first.click()
+    chooser = page.locator('[class*="st-key-om_file_photo_hero_"] input[type="file"]')
+    chooser.wait_for(state="attached", timeout=15000)
+    import io
+    from PIL import Image, ImageDraw
+    picture = Image.new("RGB", (1600, 900), (120, 150, 170))
+    ImageDraw.Draw(picture).rectangle([300, 300, 1300, 800], fill=(232, 230, 222))
+    data = io.BytesIO()
+    picture.save(data, "JPEG")
+    chooser.set_input_files(files=[{"name": "front (sample).jpg", "mimeType": "image/jpeg", "buffer": data.getvalue()}])
+    page.get_by_text("Preview: how it will look on the slide").wait_for(timeout=20000)
+    page.locator('[class*="st-key-om_photo_save_"] button:visible').first.click()
+    page.locator('[class*="st-key-om_photo_replace_"] button:visible').first.wait_for(timeout=20000)
+    page.wait_for_timeout(1500)
+    check("the photo is on the slide with Replace and Remove", page.locator('[class*="st-key-om_photo_replace_"] button:visible').first.count() == 1
+          and page.locator('[class*="st-key-om_photo_remove_"] button:visible').first.count() == 1)
+    page.locator('[class*="st-key-om_item_photo_hero"]').scroll_into_view_if_needed()
+    page.wait_for_timeout(500)
+    ok("on slide 1 with a photo")
+    shot("n4_slide1_with_photo")
+    if phone:
+        for _ in range(4):
+            page.locator(".st-key-om_slide_next button:visible").first.click()
+            page.wait_for_timeout(1200)
+    else:
+        page.locator(".st-key-om_slide_btn_offering button:visible").first.click()
+        page.wait_for_timeout(1500)
+    check("the text slide shows its text box and Draft with AI", page.locator(".om-step").inner_text().startswith("The Offering")
+          and page.locator(".st-key-om_slide_draft_btn button:visible").first.count() == 1, page.locator(".om-step").inner_text()[:40])
+    page.locator(".st-key-om_stepper").scroll_into_view_if_needed()
+    page.wait_for_timeout(500)
+    ok("on a text slide")
+    tall_shot(page, f"{prefix}n5_text_slide", height=2400 if phone else 1600)
+
+    page.mouse.wheel(0, -20000)
+    page.wait_for_timeout(500)
+    page.locator('[class*="st-key-rename_btn_header_"] button:visible').first.click()
+    field = page.locator('[class*="st-key-rename_name_header_"] input').first
+    field.wait_for()
+    page.wait_for_timeout(600)
+    check("the pencil turns the name into a text box with Save and Cancel", field.is_visible()
+          and page.locator('[class*="st-key-rename_save_header_"] button:visible').first.is_visible()
+          and page.locator('[class*="st-key-rename_cancel_header_"] button:visible').first.is_visible())
+    if phone:
+        pencil_ok = all(b.bounding_box()["height"] >= 44 for b in page.locator('[class*="st-key-rename_"] button:visible').all())
+        check("rename buttons are at least 44px on a phone", pencil_ok)
+    ok("with the deal name in edit mode")
+    page.screenshot(path=str(OUT / f"{prefix}n6_header_rename.png"), clip={"x": 0, "y": 0, "width": page.viewport_size["width"],
+                                                                         "height": 520 if phone else 420})
+    field.press("Escape")
+    page.wait_for_timeout(1500)
+    check("Esc cancels the rename", page.locator('[class*="st-key-rename_name_header_"] input').count() == 0)
+    page.locator('[class*="st-key-rename_btn_header_"] button:visible').first.click()
+    field = page.locator('[class*="st-key-rename_name_header_"] input').first
+    field.wait_for()
+    field.fill(f"Larkspur Commons renamed {size} (SCREENSHOT TEST - fictional)")
+    field.press("Enter")
+    page.locator(".st-key-rename_undo_bar").wait_for(timeout=15000)
+    page.wait_for_timeout(800)
+    check("Enter saves and the new name shows in the header and breadcrumb",
+          "renamed" in page.locator(".deal-title").inner_text() and "renamed" in page.locator(".crumb .here").inner_text())
+    ok("after a rename")
+    shot("n7_renamed_undo")
+    page.locator(".st-key-rename_undo button:visible").first.click()
+    page.get_by_text("Undone").wait_for(timeout=15000)
+    check("Undo puts the old name back", "renamed" not in page.locator(".deal-title").inner_text())
+
+
 def run_small(page, size):
     """Phone or tablet checks: nothing wider than the screen, tap targets, text size and a screenshot of each screen."""
     phone = size == "phone"
@@ -1308,8 +1452,9 @@ def run_small(page, size):
     page.get_by_text("Your projects").wait_for()
     page.wait_for_timeout(1500)
     page_ok("on Home")
-    card = box(page, '[class*="st-key-proj_card_"]')
-    check("a project card fits the screen", card["x"] >= 0 and card["x"] + card["width"] <= width + 1, card)
+    card = box(page, ".st-key-proj_add_tile")  # the first tile in the strip ("+"), then the project cards
+    check("the first tile fits the screen", card["x"] >= 0 and card["x"] + card["width"] <= width + 1, card)
+    check("a project card is no wider than the screen", box(page, '[class*="st-key-proj_card_"]')["width"] <= width)
     check("the project strip snaps", css(page, ".st-key-project_strip", "scrollSnapType").startswith("x"))
     bar = box(page, ".st-key-topbar")
     check("the top bar fits the screen and stays fixed", bar["width"] <= width + 1 and css(page, ".st-key-topbar", "position") == "fixed", bar)
@@ -1324,10 +1469,11 @@ def run_small(page, size):
               and css(page, ".st-key-bottom_nav", "position") == "fixed", nav_box)
         fab = box(page, ".st-key-fab button")
         check("the AI button sits above the bottom bar", fab["y"] + fab["height"] <= nav_box["y"] - 4, (fab, nav_box))
-        check("the bottom bar has Home, Deals and Connections",
-              page.locator(".st-key-bottom_nav button").all_inner_texts() and
-              [t.split("\n")[-1].strip() for t in page.locator(".st-key-bottom_nav button").all_inner_texts()] == ["Home", "Deals", "Connections"],
-              page.locator(".st-key-bottom_nav button").all_inner_texts())
+        labels = [t.split("\n")[-1].strip() for t in page.locator(".st-key-bottom_nav button").all_inner_texts()]
+        check("the bottom bar has Home, Deals, + New in the centre, Connections and Settings",
+              labels == ["Home", "Deals", "New", "Connections", "Settings"], labels)
+        check("the bottom bar shows every label in full", all(page.evaluate(
+            "b => b.scrollWidth <= b.clientWidth + 1", b.element_handle()) for b in page.locator(".st-key-bottom_nav button p").all()))
         page.locator(".st-key-nav_menu button").first.click()
         page.get_by_role("button", name="Sign out").last.wait_for()
         page.wait_for_timeout(600)
@@ -1338,7 +1484,7 @@ def run_small(page, size):
         page.wait_for_timeout(500)
     else:
         links = [box(page, f".st-key-{key} button:visible") for key in ("nav_home", "nav_home_link", "nav_all_deals",
-                                                                         "nav_connections", "nav_bell", "nav_settings", "sign_out")]
+                                                                         "nav_connections", "nav_add", "nav_bell", "nav_settings", "sign_out")]
         check("every top-bar link is fully on screen", all(l["x"] >= 0 and l["x"] + l["width"] <= width for l in links),
               [round(l["x"] + l["width"]) for l in links])
     shot("h_home")
@@ -1372,7 +1518,7 @@ def run_small(page, size):
     om_tab = page.get_by_role("tab", name="OM", exact=True)
     om_tab.scroll_into_view_if_needed()
     om_tab.click()
-    page.locator(".om-head").wait_for()
+    page.locator(".st-key-om_bar").wait_for()
     wait_for_teammate(page)
     page_ok("on the OM tab")
     tab_box, list_box = box(page, '[role="tab"][aria-selected="true"]'), box(page, '[role="tablist"]')
@@ -1383,7 +1529,7 @@ def run_small(page, size):
     page.wait_for_timeout(1500)
     page_ok("on the OM checklist")
     full("3b_om_checklist", 4200)
-    for view, name in (("Pricing", "3c_om_pricing"), ("Client", "3d_om_client"), ("Photos", "3e_om_photos"), ("Export", "3f_om_export")):
+    for view, name in (("Pricing", "3c_om_pricing"), ("Client", "3d_om_client"), ("Whole deck", "3e_om_whole_deck")):
         page.locator(".st-key-om_view button", has_text=view).first.click()
         page.wait_for_timeout(1500)
         page_ok(f"on the OM {view} view")
@@ -1426,6 +1572,7 @@ def run_small(page, size):
     page.keyboard.press("Escape")
     page.wait_for_timeout(800)
     check_documents(page, f"{prefix}_", size)
+    check_new_property_and_slides(page, f"{prefix}_", size)
 
 
 def main():
@@ -1452,7 +1599,7 @@ def main():
             else:
                 browser = p.chromium.launch(channel="chrome", args=[
                     "--use-fake-device-for-media-stream", "--use-fake-ui-for-media-stream"])
-                context = browser.new_context(viewport={"width": 1440, "height": 900}, permissions=["microphone"])
+                context = browser.new_context(viewport={"width": 1440, "height": 900}, permissions=["microphone", "camera"])
                 page = context.new_page()
             page.set_default_timeout(15000)
             run(page, "" if engine == "chrome" else f"_{engine}")

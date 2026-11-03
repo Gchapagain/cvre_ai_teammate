@@ -46,9 +46,9 @@ class TestPhoneNavigation(AppTestCase):
         super().setUp()
         self.sign_in()
 
-    def test_bottom_bar_has_home_deals_and_connections_and_marks_the_page(self):
+    def test_bottom_bar_has_the_add_button_in_the_centre_and_marks_the_page(self):
         labels = {b.key: b.label for b in self.app.button if b.key and b.key.startswith("bnav_")}
-        self.assertEqual(labels, {"bnav_home": "Home", "bnav_deals": "Deals", "bnav_connections": "Connections"})
+        self.assertEqual(list(labels.values()), ["Home", "Deals", "New", "Connections", "Settings"])  # "+" in the centre
         self.assertEqual(self.app.button(key="bnav_home").proto.type, "primary")
         self.app.button(key="bnav_deals").click().run()
         self.assertEqual(self.app.session_state["page"], "dashboard")

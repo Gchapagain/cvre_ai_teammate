@@ -5,7 +5,7 @@ from html import escape
 import streamlit as st
 
 from app import nav, om_status, queries, style
-from app.views import new_deal
+from app.views import new_deal, rename
 
 # Stat cards that filter the deal list: key -> (name shown above the list, which deals match).
 FILTERS = {
@@ -69,9 +69,15 @@ def card_kind(deal):
 
 def _deal_card(deal):
     with st.container(border=True, key=f"deal_card_{card_kind(deal)}_{deal['id']}"):
-        # The name is the button. CSS in app/style.py stretches its click area over the whole card.
-        st.button(deal["name"], key=f"open_deal_{deal['id']}", type="tertiary",
-                  on_click=nav.open_deal, args=(deal["id"],))
+        if rename.is_editing("deals", deal["id"]):
+            rename.form(deal, "deals")
+        else:
+            with st.container(key=f"deal_name_{deal['id']}", horizontal=True, vertical_alignment="center"):
+                # The name is the button. CSS in app/style.py stretches its click area over the whole card;
+                # the pencil sits above that layer.
+                st.button(deal["name"], key=f"open_deal_{deal['id']}", type="tertiary",
+                          on_click=nav.open_deal, args=(deal["id"],))
+                rename.pencil(deal, "deals")
         flags = deal["flag_count"]
         flag_pill = style.pill(f"{flags} anomal{'y' if flags == 1 else 'ies'}", "flag") if flags else ""
         units = f"{deal['unit_count']} units" if deal["unit_count"] else "No numbers yet"

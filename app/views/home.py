@@ -9,7 +9,7 @@ from zoneinfo import ZoneInfo
 import streamlit as st
 
 from app import images, nav, om_status, queries, style
-from app.views import feed_view
+from app.views import feed_view, quick_add, rename
 from services import feed, progress
 
 COLOUR_NAMES = {"red": "Just started", "orange": "Under way", "yellow": "Nearly done", "green": "Complete"}
@@ -93,9 +93,15 @@ def _project_card(project):
     label = "" if is_photo else '<span class="pic-label">Illustration</span>'
     with st.container(key=f"proj_card_{result.colour}_{project['id']}"):
         style.html(f'<div class="proj-pic"><img src="{picture}" alt="">{label}</div>')
-        # The name is the button. CSS in app/style.py stretches its click area over the whole card.
-        st.button(project["name"], key=f"open_project_{project['id']}", type="tertiary",
-                  on_click=nav.open_deal, args=(project["id"],))
+        if rename.is_editing("home", project["id"]):
+            rename.form(project, "home")
+        else:
+            with st.container(key=f"proj_name_{project['id']}", horizontal=True, vertical_alignment="center"):
+                # The name is the button. CSS in app/style.py stretches its click area over the whole card;
+                # the pencil sits above that layer.
+                st.button(project["name"], key=f"open_project_{project['id']}", type="tertiary",
+                          on_click=nav.open_deal, args=(project["id"],))
+                rename.pencil(project, "home")
         meta = " · ".join(part for part in (project["property_type"], project["submarket"]) if part)
         style.html(f'<div class="proj-meta">{escape(meta)}</div><div class="proj-pills">{style.pill(project["status"])}'
                    f'{om_status.badge_html(om_status.state(project["id"]))}</div>{progress_html(result)}')
@@ -118,13 +124,22 @@ def _project_strip():
                 '<button type="button" class="strip-arrow" data-strip-scroll="-1" aria-label="Scroll projects left">‹</button>'
                 '<button type="button" class="strip-arrow" data-strip-scroll="1" aria-label="Scroll projects right">›</button>'
                 '</div>' + STRIP_SCRIPT, width="content", unsafe_allow_javascript=True)
-    if not projects:
-        st.info("No deals yet. Use + New deal on All deals to start one.")
-        return
     with st.container(key="project_strip", horizontal=True):
+        _add_tile()
         for project in projects:
             _project_card(project)
-    style.html(legend_html())
+    if projects:
+        style.html(legend_html())
+    else:
+        st.caption("No deals yet. Tap + to add your first property.")
+
+
+def _add_tile():
+    """The first tile in the strip: add a property with just its name."""
+    with st.container(key="proj_add_tile"):
+        style.html('<div class="add-tile-plus" aria-hidden="true">+</div>')
+        st.button("New property", key="add_property_tile", type="tertiary", on_click=quick_add.open_dialog)
+        style.html('<div class="add-tile-note">Just a name to start. Add the rest slide by slide.</div>')
 
 
 def render():

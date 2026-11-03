@@ -34,16 +34,16 @@ class OmTabCase(AppTestCase):
 class TestOmViews(OmTabCase):
     def test_every_view_renders_for_every_sample_deal(self):
         for deal in ("fallowmere", "quillhaven", "brindlewick"):
-            for view in ("Checklist", "Slides", "Photos", "Pricing", "Client", "Export"):
+            for view in ("Slides", "Whole deck", "Pricing", "Client", "Checklist"):
                 with self.subTest(deal=deal, view=view):
                     self.open_view(deal, view)
 
-    def test_the_slides_view_shows_the_deck_with_each_slides_colour(self):
+    def test_the_whole_deck_view_shows_every_slide_with_its_colour(self):
         with mock.patch.object(om_export, "soffice_path", return_value=None), \
                 mock.patch.object(om_export, "cached_preview", return_value=None), mock.patch.dict(om_export._live, clear=True):
-            self.open_view("fallowmere", "Slides")
+            self.open_view("fallowmere", "Whole deck")
         text = self.page_text()
-        self.assertIn("The OM so far", text)
+        self.assertIn("The whole OM so far", text)
         self.assertIn("The live preview needs LibreOffice", text)
         lines = [m.value for m in self.app.markdown if m.value[:2] in ("🟢 ", "🟠 ", "🔴 ")]
         self.assertEqual(len(lines), 18)
@@ -55,9 +55,9 @@ class TestOmViews(OmTabCase):
         self.assertEqual(self.app.session_state["om_view"], "Slides")
 
     def test_client_ready_export_is_locked_until_100_percent(self):
-        self.open_view("quillhaven", "Export")
+        self.open_view("quillhaven", "Slides")  # the export buttons sit in the compact bar on every view
         self.assertTrue(self.app.button(key="om_export_final").disabled)
-        self.open_view("brindlewick", "Export")
+        self.open_view("brindlewick", "Pricing")
         self.assertFalse(self.app.button(key="om_export_final").disabled)
 
 

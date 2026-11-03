@@ -166,15 +166,103 @@ def _update(deal_id, asset_id, assignments, params, action, user, db_path):
         conn.close()
 
 
+# ---------- the slide editor: one photo at a time, straight onto a slot (no AI) ----------
+
+def _photo_slot(slot_id, template):
+    slot = (template or om_template.load()).slots.get(slot_id)
+    if slot is None or slot.type != "photo":
+        raise ValueError("That is not a photo slot.")
+    return slot
+
+
+def _make_room(deal_id, slot, replace_id, db_path):
+    """Take the photo being replaced off the slot (it stays in the deal's photos), or check there is room."""
+    rows = [a for a in assets(deal_id, db_path) if a["slot_id"] == slot.id]
+    if replace_id is not None:
+        if replace_id not in [a["id"] for a in rows]:
+            raise ValueError("The photo to replace is not on this slide any more.")
+        return [a["id"] for a in rows].index(replace_id)
+    if len(rows) >= slot.count:
+        raise ValueError(f"{slot.label} already has {slot.count} photo{'s' if slot.count != 1 else ''}. Replace or remove one first.")
+    return len(rows)
+
+
+def add_to_slot(deal_id, slot_id, name, data, user, replace_id=None, db_path=None, asset_dir=None, template=None):
+    """Save one photo (uploaded or taken with the camera) onto a photo slot. Returns the new photo's ID.
+
+    The broker chose the slot, so the photo gets the slot's own kind. Replacing takes the old photo off
+    the slot; it stays in the deal's photos and can be chosen again.
+    """
+    slot = _photo_slot(slot_id, template)
+    position = _make_room(deal_id, slot, replace_id, db_path)
+    saved, problems = add_photos(deal_id, [(name, data)], user, kind=slot.photo_kinds[0], db_path=db_path, asset_dir=asset_dir)
+    if not saved:
+        raise ValueError(problems[0] if problems else "That photo could not be saved.")
+    if replace_id is not None:
+        _update(deal_id, replace_id, "slot_id = NULL, position = 0", (), "photo_unplaced", user, db_path)
+    _update(deal_id, saved[0], "slot_id = ?, position = ?", (slot.id, position), "photo_placed", user, db_path)
+    return saved[0]
+
+
+def use_on_slot(deal_id, slot_id, asset_id, user, replace_id=None, db_path=None, template=None):
+    """Put a photo the deal already has onto a slot (the "Choose from this deal's photos" list)."""
+    slot = _photo_slot(slot_id, template)
+    position = _make_room(deal_id, slot, replace_id, db_path)
+    row = next((a for a in assets(deal_id, db_path) if a["id"] == asset_id), None)
+    if row is None:
+        raise ValueError("That photo could not be found.")
+    if replace_id is not None:
+        _update(deal_id, replace_id, "slot_id = NULL, position = 0", (), "photo_unplaced", user, db_path)
+    kind = row["kind"] if row["kind"] in slot.photo_kinds else slot.photo_kinds[0]
+    _update(deal_id, asset_id, "kind = ?, slot_id = ?, position = ?", (kind, slot.id, position), "photo_placed", user, db_path)
+
+
+def take_off_slot(deal_id, asset_id, user, db_path=None):
+    """"Remove" on a slide: the photo leaves the slide but stays in the deal's photos."""
+    _update(deal_id, asset_id, "slot_id = NULL, position = 0", (), "photo_unplaced", user, db_path)
+
+
+def cover_crop(path, ratio, width=900):
+    """JPEG bytes of the photo cut to the frame's shape (width / height) from the centre, the way the slide shows it."""
+    with Image.open(path) as image:
+        image = image.convert("RGB")
+        iw, ih = image.size
+        if iw / ih > ratio:
+            cut = int((iw - ih * ratio) / 2)
+            image = image.crop((cut, 0, iw - cut, ih))
+        else:
+            cut = int((ih - iw / ratio) / 2)
+            image = image.crop((0, cut, iw, ih - cut))
+        image.thumbnail((width, width))
+        out = io.BytesIO()
+        image.save(out, "JPEG", quality=85)
+    return out.getvalue()
+
+
 def auto_place(deal_id, user, db_path=None, template=None):
     """Fill empty photo slots, required ones first, with unplaced photos of a kind the slot accepts.
 
     Returns the number of photos placed. Photos without a kind are left alone (sort them first).
     """
+    plan = [step for step in plan_placement(deal_id, [], db_path, template) if step["slot_id"]]
+    for step in plan:
+        place(deal_id, step["asset_id"], step["slot_id"], user, db_path, template)
+    return len(plan)
+
+
+def plan_placement(deal_id, proposals, db_path=None, template=None):
+    """Where each unplaced photo would go, without saving anything: [{asset_id, kind, slot_id or None}].
+
+    proposals: [{asset_id, kind}] from sort_photos (the AI's guess of what each photo shows); photos that
+    already have a kind keep it. Empty photo slots are filled required ones first, in template order.
+    """
     template = template or om_template.load()
     rows = assets(deal_id, db_path)
-    loose = [a for a in rows if a["slot_id"] is None and a["kind"]]
-    placed = 0
+    kinds = {p["asset_id"]: p["kind"] for p in proposals}
+    loose = [dict(a, kind=kinds.get(a["id"], a["kind"])) for a in rows if a["slot_id"] is None]
+    plan = {a["id"]: {"asset_id": a["id"], "kind": a["kind"], "slot_id": None} for a in loose
+            if a["kind"] or a["id"] in kinds}
+    loose = [a for a in loose if a["kind"]]
     slots = sorted((s for s in template.slots.values() if s.type == "photo"), key=lambda s: not s.required)
     for slot in slots:
         have = sum(1 for a in rows if a["slot_id"] == slot.id)
@@ -184,7 +272,21 @@ def auto_place(deal_id, user, db_path=None, template=None):
             if match is None:
                 break
             loose.remove(match)
-            place(deal_id, match["id"], slot.id, user, db_path, template)
+            plan[match["id"]]["slot_id"] = slot.id
+    return list(plan.values())
+
+
+def apply_plan(deal_id, plan, user, db_path=None, template=None):
+    """A person checked the proposed places and clicked Place them. Returns how many photos were placed."""
+    placed = 0
+    for step in plan:
+        if step["kind"] in KIND_NAMES:
+            set_kind(deal_id, step["asset_id"], step["kind"], user, db_path)
+        if step["slot_id"]:
+            try:
+                place(deal_id, step["asset_id"], step["slot_id"], user, db_path, template)
+            except ValueError:
+                continue  # the slot filled up or the photo went since the list was shown
             placed += 1
     return placed
 

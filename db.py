@@ -407,7 +407,21 @@ CREATE TABLE IF NOT EXISTS deal_notes (
     created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 
+-- Every rename or change of a deal's details: one row per field, so Undo can put the old value back.
+-- reverted_at is set when a change was undone.
+CREATE TABLE IF NOT EXISTS deal_changes (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    deal_id     INTEGER NOT NULL REFERENCES deals(id) ON DELETE CASCADE,
+    field       TEXT NOT NULL CHECK (field IN ('name', 'property_type', 'submarket')),
+    old_value   TEXT,
+    new_value   TEXT,
+    user        TEXT,
+    created_at  TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    reverted_at TEXT
+);
+
 CREATE INDEX IF NOT EXISTS idx_deal_notes_deal       ON deal_notes(deal_id);
+CREATE INDEX IF NOT EXISTS idx_deal_changes_deal     ON deal_changes(deal_id);
 CREATE INDEX IF NOT EXISTS idx_meetings_start        ON meetings(starts_at);
 CREATE INDEX IF NOT EXISTS idx_om_slots_deal         ON om_slots(deal_id);
 CREATE INDEX IF NOT EXISTS idx_om_assets_deal        ON om_assets(deal_id);
@@ -431,7 +445,8 @@ CREATE INDEX IF NOT EXISTS idx_research_briefs_job   ON research_briefs(job_id);
 #   2: meetings, emails and notification_state tables (the Home feed)
 #   3: OM Builder tables (om_slots, om_assets, om_questions, om_assumptions, om_exports, om_events),
 #      rent_roll_totals, and users.title / users.phone for the OM's contacts page
-SCHEMA_VERSION = 3
+#   4: deal_changes (renaming a deal and editing its type and location, with Undo)
+SCHEMA_VERSION = 4
 
 # Sample meetings and emails are stored on this day; Home moves them to the same place relative to today.
 SAMPLE_ANCHOR_DAY = "2000-01-03"
