@@ -119,27 +119,30 @@ def legend_html():
 def _project_strip():
     projects = queries.projects()
     with st.container(key="strip_head", horizontal=True, horizontal_alignment="distribute", vertical_alignment="center"):
-        st.markdown('<div class="home-section">Your projects</div>', unsafe_allow_html=True, width="content")
-        st.html('<div class="strip-arrows">'
-                '<button type="button" class="strip-arrow" data-strip-scroll="-1" aria-label="Scroll projects left">‹</button>'
-                '<button type="button" class="strip-arrow" data-strip-scroll="1" aria-label="Scroll projects right">›</button>'
-                '</div>' + STRIP_SCRIPT, width="content", unsafe_allow_javascript=True)
-    with st.container(key="project_strip", horizontal=True):
-        _add_tile()
+        with st.container(key="strip_title", horizontal=True, vertical_alignment="center", width="content"):
+            st.markdown('<div class="home-section">Your projects</div>', unsafe_allow_html=True, width="content")
+            # Add a property without scrolling to the end of the strip.
+            st.button("New", key="add_property_head", icon=":material/add:", type="tertiary", on_click=quick_add.open_dialog)
+        if projects:  # nothing to scroll without projects
+            st.html('<div class="strip-arrows">'
+                    '<button type="button" class="strip-arrow" data-strip-scroll="-1" aria-label="Scroll projects left">‹</button>'
+                    '<button type="button" class="strip-arrow" data-strip-scroll="1" aria-label="Scroll projects right">›</button>'
+                    '</div>' + STRIP_SCRIPT, width="content", unsafe_allow_javascript=True)
+    with st.container(key="project_strip" if projects else "project_strip_empty", horizontal=True):
         for project in projects:
             _project_card(project)
+        _add_tile(alone=not projects)
     if projects:
         style.html(legend_html())
-    else:
-        st.caption("No deals yet. Tap + to add your first property.")
 
 
-def _add_tile():
-    """The first tile in the strip: add a property with just its name."""
+def _add_tile(alone=False):
+    """The last tile in the strip: add a property with just its name. Alone (and full width) when there are none."""
     with st.container(key="proj_add_tile"):
         style.html('<div class="add-tile-plus" aria-hidden="true">+</div>')
         st.button("New property", key="add_property_tile", type="tertiary", on_click=quick_add.open_dialog)
-        style.html('<div class="add-tile-note">Just a name to start. Add the rest slide by slide.</div>')
+        note = "No properties yet. Start with a name." if alone else "Just a name to start. Add the rest slide by slide."
+        style.html(f'<div class="add-tile-note">{note}</div>')
 
 
 def render():

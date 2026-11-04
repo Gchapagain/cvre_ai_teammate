@@ -1305,11 +1305,30 @@ def check_new_property_and_slides(page, prefix, size="desktop"):
     page.get_by_text("Your projects").wait_for()
     page.wait_for_timeout(1500)
     tile = page.locator(".st-key-proj_add_tile")
-    check("the + tile is the first tile in the project strip", tile.count() == 1 and box(page, ".st-key-proj_add_tile")["x"]
-          < box(page, '[class*="st-key-proj_card_"]')["x"])
+    check("the New property card is the last item in the strip", tile.count() == 1 and page.evaluate(
+        "() => { const s = document.querySelector('.st-key-project_strip');"
+        " return s.lastElementChild.contains(document.querySelector('.st-key-proj_add_tile')); }"))
+    check("+ New sits beside the Your projects heading", page.locator(".st-key-add_property_head button:visible").count() == 1)
     page.locator(".st-key-strip_head").scroll_into_view_if_needed()
     page.wait_for_timeout(400)
-    ok("on Home with the + tile")
+    if phone:  # swipe to the end
+        page.evaluate("() => { const s = document.querySelector('.st-key-project_strip'); s.scrollLeft = s.scrollWidth; }")
+    else:  # the arrows scroll all the way to the new card
+        for _ in range(12):  # until the right arrow greys out at the end
+            arrow = page.locator('[data-strip-scroll="1"]')
+            if arrow.is_disabled():
+                break
+            arrow.click()
+            page.wait_for_timeout(450)
+        check("the right arrow greys out at the end of the strip", page.locator('[data-strip-scroll="1"]').is_disabled())
+    page.wait_for_timeout(900)
+    card, tile_box = box(page, '[class*="st-key-proj_card_"]'), box(page, ".st-key-proj_add_tile")
+    check("the strip reaches the New property card", 0 <= tile_box["x"] and tile_box["x"] + tile_box["width"] <= page.viewport_size["width"] + 1,
+          tile_box)
+    check("it is as wide as a project card and about 60% as tall", abs(tile_box["width"] - card["width"]) < 2
+          and 0.5 <= tile_box["height"] / card["height"] <= 0.7, (tile_box, card))
+    check("it is centred on the row of cards", abs((tile_box["y"] + tile_box["height"] / 2) - (card["y"] + card["height"] / 2)) < 4)
+    ok("on Home with the New property card")
     shot("n1_home_plus_tile")
     if phone:
         check("the + is the centre of the bottom bar", page.locator(".st-key-bnav_add button:visible").first.is_visible())
@@ -1488,8 +1507,8 @@ def run_small(page, size):
     page.get_by_text("Your projects").wait_for()
     page.wait_for_timeout(1500)
     page_ok("on Home")
-    card = box(page, ".st-key-proj_add_tile")  # the first tile in the strip ("+"), then the project cards
-    check("the first tile fits the screen", card["x"] >= 0 and card["x"] + card["width"] <= width + 1, card)
+    card = box(page, '[class*="st-key-proj_card_"]')  # projects come first; the New property card is the last swipe
+    check("the first project card fits the screen", card["x"] >= 0 and card["x"] + card["width"] <= width + 1, card)
     check("a project card is no wider than the screen", box(page, '[class*="st-key-proj_card_"]')["width"] <= width)
     check("the project strip snaps", css(page, ".st-key-project_strip", "scrollSnapType").startswith("x"))
     bar = box(page, ".st-key-topbar")
@@ -1498,8 +1517,16 @@ def run_small(page, size):
         visible = lambda key: page.locator(f".st-key-{key}").first.is_visible()
         bell = page.locator(".st-key-nav_bell button").first.inner_text()
         check("the bell shows its whole count", "…" not in bell and bell.strip()[-1:].isdigit(), bell)
-        check("phone top bar: logo, bell and menu only", visible("nav_home") and visible("nav_bell") and visible("nav_menu")
-              and not visible("nav_all_deals") and not visible("sign_out"))
+        clipped = page.evaluate("""() => { const b = [...document.querySelectorAll('.st-key-nav_bell button')].find(x => x.getBoundingClientRect().width > 0);
+          const box = b && b.querySelector('[data-testid="stMarkdownContainer"]'); return box ? box.scrollWidth - box.clientWidth : 0; }""")
+        check("the bell's count is not cut off on screen", clipped <= 1, f"{clipped}px hidden")
+        check("phone top bar: logo, gold +, bell and menu", visible("nav_home") and visible("nav_add") and visible("nav_bell")
+              and visible("nav_menu") and not visible("nav_all_deals") and not visible("sign_out"))
+        page.locator(".st-key-nav_add button:visible").first.click()
+        page.get_by_role("dialog").get_by_text("Property name").wait_for()
+        check("the gold + in the phone top bar opens New property", page.get_by_role("dialog").count() == 1)
+        page.keyboard.press("Escape")
+        page.wait_for_timeout(800)
         nav_box = box(page, ".st-key-bottom_nav")
         check("the bottom bar sits at the bottom of the screen", abs(nav_box["y"] + nav_box["height"] - page.viewport_size["height"]) <= 2
               and css(page, ".st-key-bottom_nav", "position") == "fixed", nav_box)

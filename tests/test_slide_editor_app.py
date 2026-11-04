@@ -293,3 +293,24 @@ class TestTextTooLong(FreshAppCase):
         self.assertIn("Text too long: The property name is too long for the cover title", warnings)
         from app import om_status
         self.assertTrue(any("too long" in b for b in om_export.final_blockers(om_status.state(self.deals["brindlewick"]))))
+
+
+class TestNewPropertyCard(FreshAppCase):
+    def strip_buttons(self):
+        return [b.key for b in self.app.button if b.key and b.key.startswith(("open_project_", "add_property_tile"))]
+
+    def test_the_new_property_card_is_the_last_item_in_the_strip(self):
+        keys = self.strip_buttons()
+        self.assertEqual(keys[-1], "add_property_tile")
+        self.assertEqual(len([k for k in keys if k.startswith("open_project_")]), 3)  # every project comes first
+        self.assertIn("Just a name to start. Add the rest slide by slide.", self.text())
+
+    def test_with_no_projects_the_card_is_alone_with_a_friendly_line(self):
+        with mock.patch("app.queries.projects", return_value=[]):
+            self.run_ok()
+        self.assertEqual(self.strip_buttons(), ["add_property_tile"])
+        self.assertIn("No properties yet. Start with a name.", self.text())
+
+    def test_new_beside_the_heading_opens_the_same_dialog(self):
+        self.click("add_property_head")
+        self.assertEqual(self.app.session_state["open_dialog"], "quick_add")

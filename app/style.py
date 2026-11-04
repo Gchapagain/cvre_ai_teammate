@@ -519,6 +519,9 @@ table.preview tr.derived td { background: var(--gold-tint); }
 .st-key-nav_bell button p { background: var(--gold); color: var(--green-dark); border-radius: var(--pill); padding: 0 7px;
   font-size: 0.75rem; font-weight: 700; line-height: 18px; }
 .st-key-nav_bell button:hover { background: rgba(255, 255, 255, 0.12); }
+/* The count keeps its natural width: Streamlit would otherwise squeeze it and cut it off. */
+.st-key-nav_bell button div, .st-key-nav_bell button span { overflow: visible !important; max-width: none !important;
+  flex-shrink: 0 !important; }
 .st-key-nav_bell button:focus-visible { box-shadow: var(--focus); }
 /* Right rail: Today's agenda and Waiting on you. It stays in view while the feed scrolls (desktop). */
 /* Streamlit wraps the rail in a box only as tall as the rail, so that wrapper is what sticks (inside the
@@ -713,11 +716,15 @@ table.preview tr.derived td { background: var(--gold-tint); }
 .undo-text { font-weight: 600; color: var(--green); }
 .st-key-rename_reapprove { gap: var(--s1) !important; align-items: center; }
 /* "+": the first tile in the Home strip, the top bar button and the centre of the phone bottom bar */
-.st-key-project_strip > div:has(.st-key-proj_add_tile) { flex: 0 0 200px !important; width: 200px !important; }
-.st-key-proj_add_tile { position: relative; width: 100% !important; height: 100%; min-height: 240px; border: 2px dashed #b9c9bf;
+/* The "+ New property" card: last in the strip, as wide as a project card, about 60% as tall, centred on the row. */
+.st-key-project_strip > div:has(.st-key-proj_add_tile) { flex: 0 0 288px !important; width: 288px !important; align-self: center; }
+.st-key-project_strip_empty { width: 100% !important; }
+.st-key-project_strip_empty > div:has(.st-key-proj_add_tile) { width: 100% !important; flex: 1 1 100% !important; }
+.st-key-proj_add_tile { position: relative; width: 100% !important; height: 230px !important; min-height: 0;
+  flex: none !important;  /* Streamlit's flex: 1 1 0% would override the height */ border: 2px dashed #b9c9bf;
   border-radius: var(--radius); background: var(--green-tint); align-items: center; justify-content: center !important; text-align: center;
   gap: 6px !important; padding: var(--s2); transition: border-color 0.15s, background 0.15s; }
-.st-key-proj_add_tile:hover { border-color: var(--green-mid); background: #e3efe7; }
+.st-key-proj_add_tile:hover { border-style: solid; border-color: var(--green-mid); background: #e3efe7; }
 .st-key-proj_add_tile:focus-within { box-shadow: var(--focus); }
 .st-key-proj_add_tile * { position: static !important; }
 .st-key-proj_add_tile { display: grid !important; align-content: center; justify-items: center; }
@@ -730,7 +737,13 @@ table.preview tr.derived td { background: var(--gold-tint); }
 .st-key-add_property_tile button:hover { background: none; }
 .st-key-add_property_tile button p { font-family: 'Fraunces', Georgia, serif; font-size: 1.08rem; font-weight: 600; color: var(--green); }
 .st-key-add_property_tile button::after { content: ""; position: absolute; inset: 0; z-index: 1; cursor: pointer; }
-.add-tile-note { font-size: 0.82rem; color: var(--ink-soft); max-width: 200px; margin: 0 auto; }
+.add-tile-note { font-size: 0.85rem; color: var(--ink-soft); max-width: 220px; margin: 0 auto; text-align: center; }
+/* "+ New" beside the "Your projects" heading */
+.st-key-strip_title { gap: var(--s1) !important; }
+.st-key-add_property_head button { min-height: 32px; padding: 0 8px; border-radius: var(--pill); }
+.st-key-add_property_head button p { color: var(--green-mid); font-weight: 700; }
+.st-key-add_property_head button [data-testid="stIconMaterial"] { color: var(--green-mid); }
+.st-key-add_property_head button:hover { background: var(--green-tint); }
 .st-key-nav_add button { min-height: 36px; background: var(--gold); border-color: var(--gold); color: var(--green-dark);
   border-radius: var(--pill); padding: 0 14px; font-weight: 700; white-space: nowrap; }
 .st-key-nav_add button p { color: var(--green-dark); font-weight: 700; }
@@ -834,7 +847,12 @@ table.preview tr.derived td { background: var(--gold-tint); }
   .st-key-nav_menu button [data-testid="stIconMaterial"] { color: #ffffff; font-size: 26px; }
   .st-key-nav_menu button:hover { background: rgba(255, 255, 255, 0.12); }
   .st-key-nav_bell button { min-height: 44px; padding: 0 8px; }
-  .st-key-nav_add { display: none !important; }  /* the "+" is the centre of the bottom bar on phones */
+  /* The gold "+" stays in the phone top bar too: a compact 44px circle, so the bell keeps its whole count. */
+  .st-key-nav_add, .st-key-nav_add .stButton { width: 44px !important; flex: none !important; }
+  .st-key-nav_add button { width: 44px !important; min-width: 44px; height: 44px; min-height: 44px; padding: 0 !important;
+    border-radius: 50%; justify-content: center; gap: 0; }
+  .st-key-topbar_user { gap: 2px !important; }
+  .st-key-topbar_user > * { flex: none !important; }  /* nothing in the bar is squeezed: the bell keeps its count */
   .st-key-topbar .pill.simulated { font-size: 0.65rem; padding: 2px 6px; }
   /* Bottom navigation: always in view, one tap, icon and label. */
   .st-key-bottom_nav { display: flex !important; position: fixed; left: 0; right: 0; bottom: 0; z-index: 1001;
@@ -882,8 +900,9 @@ table.preview tr.derived td { background: var(--gold-tint); }
     width: auto !important; flex: none !important; }
   .st-key-deal_top, .st-key-deal_id { flex-direction: column !important; align-items: flex-start !important; gap: 8px !important; }
   .st-key-deal_id > [data-testid="stElementContainer"], .st-key-deal_id > [data-testid="stLayoutWrapper"] { width: 100% !important; }
-  .st-key-proj_add_tile { min-height: 200px; }
-  .st-key-project_strip > div:has(.st-key-proj_add_tile) { flex-basis: 150px !important; width: 150px !important; }
+  .st-key-project_strip > div:has(.st-key-proj_add_tile) { flex-basis: 82vw !important; width: 82vw !important; }
+  .st-key-proj_add_tile { height: 245px !important; }  /* phone cards are taller: still about 60% of one */
+  .st-key-add_property_head button { min-height: 44px; min-width: 44px; }
   /* The AI button sits above the bottom bar, never over it. */
   .st-key-fab { right: 16px; bottom: calc(var(--bottomnav-h) + 16px + env(safe-area-inset-bottom)); }
   /* Readable text and comfortable taps. */
@@ -920,10 +939,11 @@ table.preview tr.derived td { background: var(--gold-tint); }
   section[role="dialog"] .stButton [data-testid="stTooltipIcon"], section[role="dialog"] .stButton [data-testid="stTooltipHoverTarget"] {
     width: 100%; }
   /* ...except the small controls that belong on one line. */
+  .st-key-add_property_head, .st-key-add_property_head button,
   .st-key-back_to_deals, .st-key-back_to_deals button, .st-key-clear_filter, .st-key-clear_filter button,
   [class*="st-key-more_"], [class*="st-key-more_"] [data-testid="stPopover"], [class*="st-key-more_"] button,
-  .block-container [data-testid="stElementContainer"]:is(.st-key-back_to_deals, .st-key-clear_filter, [class*="st-key-more_"]) {
-    width: auto !important; flex: none !important; }
+  .block-container [data-testid="stElementContainer"]:is(.st-key-back_to_deals, .st-key-clear_filter, .st-key-add_property_head,
+    [class*="st-key-more_"]) { width: auto !important; flex: none !important; }
   .block-container [data-testid="stElementContainer"]:is(.st-key-back_to_deals, .st-key-clear_filter, [class*="st-key-more_"]),
   .st-key-fab { width: auto !important; }
   .st-key-fab button { width: 56px !important; min-width: 56px; }
