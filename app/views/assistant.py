@@ -17,7 +17,7 @@ def _open():
     nav.open_dialog(DIALOG)
 
 
-@st.dialog("AI Teammate", width="large", icon=":material/auto_awesome:", on_dismiss=nav.close_dialog)
+@st.dialog("AI Teammate", width="large", on_dismiss=nav.close_dialog)
 def _dialog():
     names = {deal["id"]: deal["name"] for deal in queries.list_deals()}
     choice = st.selectbox("Ask about", [ALL_DEALS, *names], format_func=lambda d: names.get(d, ALL_DEALS),
@@ -28,7 +28,7 @@ def _dialog():
                    "The AI is only contacted when you send a message.")
     else:
         st.caption("Answers come only from this deal's saved data. The AI is only contacted when you send a message.")
-    ask_ai.render_chat(deal_id, prefix="assistant_")
+    ask_ai.render_chat(deal_id, prefix="assistant_", header=False)  # the dialog's own title bar is styled as the header
 
 
 def render():

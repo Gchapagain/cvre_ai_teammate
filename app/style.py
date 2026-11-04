@@ -781,6 +781,61 @@ table.preview tr.derived td { background: var(--gold-tint); }
 .st-key-docs_upload { background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); padding: var(--s2) var(--s3);
   margin-top: var(--s2); }
 
+/* ---- The AI Teammate chat card: one style for the Ask AI tab and the floating dialog ---- */
+[class*="chatcard_"] { background: #ffffff; border: 1px solid var(--line); border-radius: 20px; overflow: hidden;
+  box-shadow: 0 6px 24px rgba(19, 39, 30, 0.10); gap: 0 !important; }
+[class*="chatcard_"] [data-testid="stMarkdownContainer"] { margin-bottom: 0; }
+.chat-head { background: var(--green); color: #ffffff; font-weight: 700; font-size: 1.05rem; padding: 14px 20px;
+  display: flex; align-items: center; gap: 10px; }
+.chat-dot { width: 10px; height: 10px; border-radius: 50%; background: var(--gold); flex: none; }
+[class*="chatbody_"] { padding: 18px 18px 8px !important; gap: 14px !important; background: #ffffff; }
+/* Bubbles: AI on the left in sage, the broker on the right in gold, limits and errors in soft amber. */
+[class*="chatmsg_"] { width: fit-content !important; border-radius: 20px; padding: 12px 18px 15px !important; gap: 4px !important;
+  color: #2E2E2C; border: none; }
+[class*="chatmsg_"][class*="_ai"] { align-self: flex-start; max-width: 80%; background: #E4EBE3; }
+[class*="chatmsg_"][class*="_notice"] { align-self: flex-start; max-width: 80%; background: #FBF0D4; }
+[class*="chatmsg_"][class*="_user"] { align-self: flex-end; max-width: 75%; background: #DDBB52; }
+[class*="chatmsg_"] p, [class*="chatmsg_"] li { font-size: 16.5px; line-height: 1.45; color: #2E2E2C; margin: 0; }
+[class*="chatmsg_"] [data-testid="stCaptionContainer"] p { font-size: 0.8rem; color: #55605a; line-height: 1.35; }
+[class*="chatmsg_"] [data-testid="stCaptionContainer"] { margin: 2px 0 0; }
+[class*="chatmsg_"] .pill { font-size: 0.7rem; padding: 1px 9px; margin: 0 0 2px; background: rgba(255, 255, 255, 0.7); }
+.chat-typing { display: inline-flex; gap: 6px; background: #E4EBE3; padding: 16px 20px; border-radius: 20px; }
+.chat-typing span { width: 8px; height: 8px; border-radius: 50%; background: #8DA094; animation: chat-dot 1.2s ease-in-out infinite; }
+.chat-typing span:nth-child(2) { animation-delay: 0.15s; } .chat-typing span:nth-child(3) { animation-delay: 0.3s; }
+@keyframes chat-dot { 0%, 80%, 100% { opacity: 0.3; transform: translateY(0); } 40% { opacity: 1; transform: translateY(-3px); } }
+@media (prefers-reduced-motion: reduce) { .chat-typing span { animation: none; } }
+/* Suggested questions: small outlined gold pills under the last bubble */
+[class*="chatchips_"] { gap: 8px !important; flex-wrap: wrap !important; padding-top: 2px; }
+[class*="chatchip_"] button { min-height: 32px; border-radius: var(--pill); border: 1px solid var(--gold); background: #ffffff;
+  padding: 0 14px; box-shadow: none; }
+[class*="chatchip_"] button p { font-size: 0.85rem; color: #6b5414; font-weight: 600; }
+[class*="chatchip_"] button:hover { background: var(--gold-tint); border-color: var(--gold); }
+/* The input bar: a white rounded field with a gold round send button; voice and the web switch under it */
+[class*="chatbar_"] { border-top: 1px solid var(--line); padding: 12px 16px 8px !important; gap: 6px !important; background: #ffffff; }
+[class*="chatbar_"] [data-testid="stChatInput"] > div { border-radius: var(--pill); border: 1px solid var(--line); background: #ffffff;
+  box-shadow: none; }
+[class*="chatbar_"] [data-testid="stChatInputSubmitButton"] { background: var(--gold); border-radius: 50%; color: var(--green-dark);
+  min-width: 36px; min-height: 36px; }
+[class*="chatbar_"] [data-testid="stChatInputSubmitButton"]:disabled { background: #eadfba; }
+[class*="chatbar_"] [data-testid="stChatInputSubmitButton"] svg { fill: var(--green-dark); color: var(--green-dark); }
+[class*="chattools_"] { gap: var(--s2) !important; flex-wrap: wrap !important; }
+[class*="chattools_"] [data-testid="stExpander"] details { border-radius: var(--pill); }
+/* In the floating dialog the dialog itself is the card: forest title bar with a gold dot and a white close button */
+section[role="dialog"]:has([class*="assistant_chatcard_"]) { border-radius: 20px !important; overflow: hidden; padding: 0 !important;
+  background: #ffffff !important; }
+section[role="dialog"]:has([class*="assistant_chatcard_"]) [class*="assistant_chatcard_"] { border: none; border-radius: 0; box-shadow: none; }
+section[role="dialog"]:has([class*="assistant_chatcard_"]) > h2 { background: var(--green); margin: 0; padding: 16px 64px 16px 44px;
+  position: relative; border-radius: 20px 20px 0 0; }
+section[role="dialog"]:has([class*="assistant_chatcard_"]) > h2 p { color: #ffffff; font-family: 'Public Sans', sans-serif;
+  font-weight: 700; font-size: 1.1rem; line-height: 1.4; }
+section[role="dialog"]:has([class*="assistant_chatcard_"]) > h2::before { content: ""; position: absolute; left: 22px; top: 50%;
+  width: 10px; height: 10px; margin-top: -5px; border-radius: 50%; background: var(--gold); }
+section[role="dialog"]:has([class*="assistant_chatcard_"]) > button { color: #ffffff; z-index: 3; top: 22px; right: 20px;
+  width: 32px; height: 32px; border-radius: 50%; }
+section[role="dialog"]:has([class*="assistant_chatcard_"]) > button:hover { background: rgba(255, 255, 255, 0.15); }
+section[role="dialog"]:has([class*="assistant_chatcard_"]) > button svg { fill: #ffffff; color: #ffffff; }
+section[role="dialog"]:has([class*="assistant_chatcard_"]) > div { padding: 16px 20px 18px; }
+
 /* ---- Phone-only and desktop-only pieces ---- */
 .st-key-nav_menu, .st-key-bottom_nav { display: none !important; }
 .menu-who { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-bottom: 4px; }
@@ -993,6 +1048,22 @@ table.preview tr.derived td { background: var(--gold-tint); }
   body:has(section[role="dialog"]) .st-key-fab { display: none !important; }
   section[role="dialog"] button[aria-label="Close"] { width: 44px; height: 44px; }
   section[role="dialog"] button[aria-label="Close"] svg { width: 22px; height: 22px; }
+  section[role="dialog"]:has([class*="assistant_chatcard_"]) { border-radius: 0 !important; }
+  section[role="dialog"]:has([class*="assistant_chatcard_"]) > h2 { border-radius: 0; padding: 14px 64px 14px 40px; }
+  section[role="dialog"]:has([class*="assistant_chatcard_"]) > h2::before { left: 18px; }
+  section[role="dialog"]:has([class*="assistant_chatcard_"]) > button { top: 6px !important; right: 8px !important; width: 44px; height: 44px; }
+  [class*="chattools_"] { flex-direction: column !important; align-items: stretch !important; gap: 6px !important; }
+  section[role="dialog"]:has([class*="assistant_chatcard_"]) > div { padding: 10px 12px 12px; }
+  section[role="dialog"] [class*="chatbody_"] { height: calc(100dvh - 400px) !important; min-height: 260px; }
+  [class*="chatbody_"] { padding: 14px 12px 6px !important; }
+  [class*="chatmsg_"] p, [class*="chatmsg_"] li { font-size: 16px; }
+  [class*="chatmsg_"][class*="_ai"], [class*="chatmsg_"][class*="_notice"] { max-width: 88%; }
+  [class*="chatmsg_"][class*="_user"] { max-width: 82%; }
+  [class*="chatchip_"], [class*="chatchip_"] .stButton, [class*="chatchip_"] button { width: auto !important; flex: none !important; }
+  .block-container [data-testid="stElementContainer"][class*="chatchip_"], section[role="dialog"] [data-testid="stElementContainer"][class*="chatchip_"] {
+    width: auto !important; flex: none !important; }
+  [class*="chatchip_"] button { min-height: 44px; }
+  [class*="chatbar_"] [data-testid="stChatInputSubmitButton"] { min-width: 44px; min-height: 44px; }
   section[role="dialog"] [data-testid="stChatInput"] { position: sticky; bottom: 0; z-index: 2; background: var(--surface);
     padding: 8px 0 calc(8px + env(safe-area-inset-bottom)); }
   /* Tables scroll inside their card, never the page. */

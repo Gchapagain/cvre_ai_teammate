@@ -48,9 +48,28 @@ def get_answer(deal_id, question, messages):
             "sources": answer.sources, "note": answer.note, "deals": answer.deals}
 
 
-def _show(message):
-    with st.chat_message(message["role"]):
-        if message["role"] == "assistant":
+# ---------- the chat card (one component, used by the Ask AI tab and the floating AI Teammate dialog) ----------
+
+SUGGESTIONS = {"deal": ["What is the total annual rent?", "Which units are flagged and why?", "When do the leases end?"],
+               "all": ["Which deals have anomalies?", "Which deal is closest to done?", "Compare the total SF of each deal"]}
+WELCOME = {"deal": "Hi, I'm your AI Teammate. I answer only from this deal's saved data and label every answer. "
+                   "I never send anything to anyone.",
+           "all": "Hi, I'm your AI Teammate. I answer only from the deals saved here, name the deals I used and label "
+                  "every answer. I never send anything to anyone."}
+TYPING = '<div class="chat-typing" aria-label="The AI Teammate is answering"><span></span><span></span><span></span></div>'
+
+
+def bubble_kind(message):
+    """'user' (right, gold), 'ai' (left, sage) or 'notice' (left, soft amber: limits, quota and errors)."""
+    if message["role"] == "user":
+        return "user"
+    return "notice" if message.get("label") == LABEL_NO_ANSWER else "ai"
+
+
+def _show(message, key):
+    """One message as a bubble. AI answers keep their label and their sources inside the bubble."""
+    with st.container(key=f"{key}_{bubble_kind(message)}"):
+        if message["role"] == "assistant" and message.get("label"):  # every answer is labelled; the greeting is not an answer
             style.html(style.pill(message["label"], PILL_KINDS[message["label"]]))
         st.markdown(message["text"].replace("$", "\\$"))  # a bare $ would start maths formatting
         if message.get("deals"):
@@ -66,34 +85,68 @@ def chat_key(deal_id):
     return "chat_all" if deal_id is None else f"chat_{deal_id}"
 
 
-def render_chat(deal_id, prefix=""):
-    """The chat for one deal, or for all deals when deal_id is None."""
+def _ask_suggestion(pending_key, question):
+    st.session_state[pending_key] = question
+
+
+def _scroll_to_newest(body_key):
+    """Keep the message area at the newest message after each answer."""
+    st.html(f"""<script>
+    setTimeout(function () {{
+      const doc = window.parent.document || document;
+      doc.querySelectorAll('.st-key-{body_key}').forEach(function (box) {{ box.scrollTop = box.scrollHeight; }});
+    }}, 150);
+    </script>""", unsafe_allow_javascript=True)
+
+
+def render_chat(deal_id, prefix="", header=True):
+    """The chat card for one deal, or all deals when deal_id is None.
+
+    header: draw the forest title bar (the tab). The dialog has its own title bar, styled the same.
+    Gemini is called only when a message is sent or a suggestion is clicked (1 request each).
+    """
     messages = st.session_state.setdefault(chat_key(deal_id), [])
     scope = "all" if deal_id is None else deal_id
-    st.toggle("Web search", value=False, disabled=True, key=f"{prefix}web_search_{scope}")
-    st.caption("Web search: coming in a later step.")
-    limits_note = st.empty()  # filled in last, so it counts a message sent on this run
-
-    history = st.container()
-    question = st.chat_input("Ask about all deals" if deal_id is None else "Ask about this deal",
-                             key=f"{prefix}chat_input_{scope}")
-    # A checked transcript is sent exactly like a typed message.
-    question = question or voice.render(f"{prefix}chat_{scope}", deal_id=deal_id)
-    if question:
-        with st.spinner("Reading the deal data..."):
-            reply = get_answer(deal_id, question, messages)
-        messages.append({"role": "user", "text": question})
-        messages.append(reply)
-    with history:
-        if not messages:
-            st.info("No messages yet. Try: What is the total annual rent?" if deal_id is not None
-                    else "No messages yet. Try: Which deals have anomalies?")
-        for message in messages:
-            _show(message)
-    limits_note.caption(ai_limits.summary())
+    kind = "all" if deal_id is None else "deal"
+    pending_key = f"{prefix}chat_pending_{scope}"
+    with st.container(key=f"{prefix}chatcard_{scope}"):
+        if header:
+            style.html('<div class="chat-head"><span class="chat-dot"></span>AI Teammate</div>')
+        body = st.container(key=f"{prefix}chatbody_{scope}", height=460, border=False)
+        with st.container(key=f"{prefix}chatbar_{scope}"):
+            question = st.chat_input("Ask about all deals" if deal_id is None else "Ask about this deal",
+                                     key=f"{prefix}chat_input_{scope}")
+            with st.container(key=f"{prefix}chattools_{scope}", horizontal=True, vertical_alignment="center"):
+                spoken = voice.render(f"{prefix}chat_{scope}", deal_id=deal_id)
+                st.toggle("Web search", value=False, disabled=True, key=f"{prefix}web_search_{scope}")
+            st.caption("Web search: coming in a later step.")
+            limits_note = st.empty()  # filled in last, so it counts a message sent on this run
+        # A checked transcript or a clicked suggestion is sent exactly like a typed message.
+        question = question or spoken or st.session_state.pop(pending_key, None)
+        with body:
+            if not messages and not question:
+                _show({"role": "assistant", "text": WELCOME[kind], "label": None,
+                       "sources": [], "note": "", "deals": []}, f"{prefix}chatmsg_{scope}_welcome")
+            for i, message in enumerate(messages):
+                _show(message, f"{prefix}chatmsg_{scope}_{i}")
+            if question:
+                messages.append({"role": "user", "text": question})
+                _show(messages[-1], f"{prefix}chatmsg_{scope}_{len(messages) - 1}")
+                typing = st.empty()
+                typing.html(TYPING)
+                reply = get_answer(deal_id, question, messages[:-1])
+                typing.empty()
+                messages.append(reply)
+                _show(reply, f"{prefix}chatmsg_{scope}_{len(messages) - 1}")
+            with st.container(key=f"{prefix}chatchips_{scope}", horizontal=True):
+                for n, suggestion in enumerate(SUGGESTIONS[kind]):
+                    st.button(suggestion, key=f"{prefix}chatchip_{scope}_{n}", on_click=_ask_suggestion,
+                              args=(pending_key, suggestion), help="Sends this question (1 AI request).")
+        _scroll_to_newest(f"{prefix}chatbody_{scope}")
+        limits_note.caption(ai_limits.summary())
 
 
 def render(deal):
     st.caption("Answers come only from this deal's saved data: rent roll, T-12, flags and documents. "
                "Every answer is labelled. The AI is only contacted when you send a message.")
-    render_chat(deal["id"])
+    render_chat(deal["id"], header=True)

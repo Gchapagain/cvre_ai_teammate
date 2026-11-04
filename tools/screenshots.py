@@ -67,6 +67,11 @@ def start_app(log_path):
             {"slot_id": "property.land_size", "value": "3.4 acres", "quote": "3.4 acres", "email_id": 4},
             {"slot_id": "property.year_built", "value": "2001 / 2018",
              "quote": "built in 2001 and the roofs were replaced in 2018", "email_id": 4}]}},
+        # Deal chat questions (the all-deals chat has no canned reply on purpose: it shows the friendly notice).
+        {"when": "You answer questions about one commercial real estate deal", "reply": {
+            "answer": "Unit 110 is the flagged unit: its rent per SF is more than twice the average of the other units, "
+                      "so it needs a person to confirm it. (SIMULATED answer for the screenshots.)",
+            "found_in_deal": True, "sources": ["rent_roll.xlsx"]}},
         {"when": "CASH FLOW ASSUMPTIONS", "reply": {"assumptions": [
             {"key": "market_rent_psf", "value": 9.25, "why": "Simulated: near the in-place average."},
             {"key": "escalation_pct", "value": 3, "why": "Simulated."}]}}]))
@@ -709,7 +714,7 @@ def run(page, suffix):
     options = page.get_by_role("option").all_inner_texts()
     check("picker lists All deals plus each deal", len(options) == 5 and options[0] == "All deals", options)
     page.get_by_role("option", name="Fallowmere", exact=False).click()
-    dialog.get_by_text("this deal's saved data", exact=False).wait_for()
+    dialog.get_by_text("this deal's saved data", exact=False).first.wait_for()
     page.wait_for_timeout(800)
     no_error_box(page, "with the AI dialog on a single deal")
     shot("3b_ai_dialog_one_deal")
@@ -1138,6 +1143,7 @@ def run(page, suffix):
     check("the breadcrumb link goes to the dashboard", page.get_by_role("heading", name="All deals").count() == 1)
     check_documents(page, "", "desktop")
     check_new_property_and_slides(page, "", "desktop")
+    check_chat(page, "", "desktop")
     check_home_scrolling(page, suffix)
     check_empty_feed(page, suffix)
 
@@ -1469,11 +1475,79 @@ def check_new_property_and_slides(page, prefix, size="desktop"):
     shot("n7_renamed_undo")
     page.locator(".st-key-rename_undo button:visible").first.click()
     page.get_by_text("Undone").wait_for(timeout=15000)
-    for _ in range(20):  # the page arrives in pieces: the message at the top comes before the header
-        if "renamed" not in page.locator(".deal-title").inner_text():
+    for _ in range(20):  # the page arrives in pieces, and the old page's elements linger for a moment
+        titles = page.locator(".deal-title")
+        if titles.count() == 1 and "renamed" not in titles.inner_text():
             break
         page.wait_for_timeout(500)
-    check("Undo puts the old name back", "renamed" not in page.locator(".deal-title").inner_text())
+    check("one deal header after Undo", page.locator(".deal-title").count() == 1, page.locator(".deal-title").count())
+    check("Undo puts the old name back", "renamed" not in page.locator(".deal-title").first.inner_text())
+
+
+def check_chat(page, prefix, size):
+    """The AI Teammate chat card on the Ask AI tab and in the floating dialog: bubbles on the right sides, the
+    suggestion chips, the rounded input bar, readable text, nothing wider than the screen. Simulated AI only."""
+    print(f"AI chat ({size})")
+    phone = size == "phone"
+    deals_button = ".st-key-bnav_deals button" if phone else ".st-key-nav_all_deals button"
+    page.locator(deals_button).first.click()
+    page.get_by_text("Needs your attention").wait_for()
+    page.locator('[class*="st-key-deal_card_"]', has_text="Fallowmere").locator("button").first.click()
+    page.locator(".deal-title").first.wait_for()
+    page.wait_for_timeout(1500)  # let the previous page's elements go
+    tab = page.get_by_role("tab", name="Ask AI").last
+    tab.scroll_into_view_if_needed()
+    tab.click()
+    card = page.locator('[class*="st-key-chatcard_"]').first
+    card.wait_for()
+    page.wait_for_timeout(800)
+    check("the Ask AI tab shows the chat card with the forest header", page.locator(".chat-head").first.is_visible())
+    page.locator('[class*="st-key-chatchip_"] button:visible', has_text="Which units are flagged").first.click()
+    page.locator('[class*="st-key-chatmsg_"][class*="_user"]').first.wait_for(timeout=30000)
+    page.locator('[class*="st-key-chatmsg_"][class*="_ai"]', has_text="Unit 110").first.wait_for(timeout=30000)
+    page.wait_for_timeout(1200)
+    user = box(page, '[class*="st-key-chatmsg_"][class*="_user"]')
+    ai = box(page, '[class*="st-key-chatmsg_"][class*="_ai"] >> nth=-1')
+    body = box(page, '[class*="st-key-chatbody_"]')
+    check("broker bubble on the right, AI bubble on the left", user["x"] + user["width"] > ai["x"] + ai["width"]
+          and ai["x"] < user["x"], (user, ai))
+    check("bubbles keep inside the card", ai["x"] >= body["x"] - 1 and user["x"] + user["width"] <= body["x"] + body["width"] + 1)
+    sizes = page.evaluate("""() => [...document.querySelectorAll('[class*="st-key-chatmsg_"] p')].filter(p => !p.closest('[data-testid="stCaptionContainer"]'))
+        .map(p => parseFloat(getComputedStyle(p).fontSize))""")
+    check("bubble text is at least 16 px", sizes and min(sizes) >= 16, sizes[:4])
+    check("no default chat avatars", page.locator('[data-testid="stChatMessage"]').count() == 0)
+    check(f"no sideways scrolling on the Ask AI page ({size})", overflow(page) <= 1, f"{overflow(page)}px")
+    no_error_box(page, "on the Ask AI chat")
+    card.scroll_into_view_if_needed()
+    page.wait_for_timeout(500)
+    shot = lambda name: page.screenshot(path=str(OUT / f"{prefix}{name}.png"))
+    if not phone:
+        shot("c1_ask_ai_page")
+    page.locator(".st-key-fab button").click()
+    page.get_by_role("dialog").wait_for()
+    page.wait_for_timeout(1200)
+    dialog = page.get_by_role("dialog")
+    check("the dialog has the forest title bar with the gold dot", css(page, 'section[role="dialog"] > h2', "backgroundColor") == "rgb(29, 60, 47)")
+    if phone:
+        d = box(page, 'section[role="dialog"]')
+        check("the chat dialog is full screen on a phone", d["width"] >= page.viewport_size["width"] - 2)
+        shot("c3_phone_chat")
+        inbar = box(page, 'section[role="dialog"] [class*="st-key-assistant_chatbar_"]')
+        check("the input bar is on the screen", inbar["y"] < page.viewport_size["height"], inbar)
+    page.locator('section[role="dialog"] [data-testid="stSelectbox"]').first.click()
+    page.get_by_role("option", name="All deals").click()
+    page.wait_for_timeout(1200)
+    field = dialog.locator("textarea").first
+    field.fill("Which deals have anomalies?")
+    field.press("Enter")
+    page.locator('section[role="dialog"] [class*="st-key-assistant_chatmsg_"][class*="_notice"]').first.wait_for(timeout=30000)
+    page.wait_for_timeout(1200)
+    check("a problem shows as a soft amber bubble", css(page, 'section[role="dialog"] [class*="_notice"]', "backgroundColor") == "rgb(251, 240, 212)")
+    check(f"no sideways scrolling with the chat open ({size})", overflow(page) <= 1, f"{overflow(page)}px")
+    no_error_box(page, "in the chat dialog")
+    shot("c2_floating_dialog" if not phone else "c4_phone_chat_notice")
+    page.keyboard.press("Escape")
+    page.wait_for_timeout(800)
 
 
 def run_small(page, size):
@@ -1636,6 +1710,7 @@ def run_small(page, size):
     page.wait_for_timeout(800)
     check_documents(page, f"{prefix}_", size)
     check_new_property_and_slides(page, f"{prefix}_", size)
+    check_chat(page, f"{prefix}_", size)
 
 
 def main():
